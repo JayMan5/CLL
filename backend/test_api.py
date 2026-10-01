@@ -215,6 +215,73 @@ def test_existing_qr_label_does_not_bypass_sheriff_handover():
     assert accepted.json()["scan_events"][-1]["staff_id"] == next_id
 
 
+def test_missing_file_state_is_separate_durable_and_resolved_with_reasoned_history():
+    recent_scan = main.format_date(datetime.now(timezone.utc))
+    case = add_case(
+        "MISSING-WORKFLOW",
+        filing_date=recent_scan,
+        scan_events=[{"location": "Fictional Registry Desk", "timestamp": recent_scan, "staff_id": "smoke_sheriff"}],
+        custody_alert=False,
+        risk_flag=False,
+    )
+    report_url = f"/api/cases/{case['case_id']}/report-missing"
+    report = client.post(report_url, headers=auth_headers("smoke_sheriff"), json={
+        "last_known_location": "Fictional Registry Rack", "notes": "Fictional test record",
+    })
+    assert report.status_code == 200
+    reported = report.json()
+    assert reported["file_missing"] is True
+    assert reported["custody_alert"] is False, "missing-file state is not the idle-custody clock"
+    assert reported["risk_flag"] is False, "missing-file state is not an ML delay-risk override"
+    assert reported["file_missing_history"][-1]["action"] == "reported_missing"
+    assert reported["file_missing_history"][-1]["actor_user_id"] == "smoke_sheriff"
+    check_in = client.post("/api/scan", headers=auth_headers("smoke_sheriff"), json={
+        "case_id": case["case_id"], "location": "Fictional re-check-in after report",
+    })
+    assert check_in.status_code == 200
+    assert check_in.json()["file_missing"] is True, "custody check-ins do not resolve a missing-file report"
+    assert client.post(report_url, headers=auth_headers("smoke_sheriff"), json={
+        "last_known_location": "Another fictional rack", "notes": "Duplicate report",
+    }).status_code == 409
+
+    active_alerts = client.get(f"/api/cases/{case['case_id']}/alerts", headers=auth_headers("smoke_sheriff"))
+    assert any(item["type"] == "FILE_MISSING" for item in active_alerts.json()["alerts"])
+    main.run_compliance_checks_sync()
+    after_sweep = main.db.get_case(case["case_id"])
+    assert after_sweep["file_missing"] is True
+    assert after_sweep["custody_alert"] is False
+    assert any(item["type"] == "FILE_MISSING" for item in client.get(
+        f"/api/cases/{case['case_id']}/alerts", headers=auth_headers("smoke_sheriff")
+    ).json()["alerts"])
+
+    found_url = f"/api/cases/{case['case_id']}/found"
+    found_body = {"found_location": "Fictional Registry Desk A", "reason": "Verified physical file recovery"}
+    assert client.post(found_url, headers=auth_headers("smoke_clerk"), json=found_body).status_code == 403
+    found = client.post(found_url, headers=auth_headers("smoke_sheriff"), json=found_body)
+    assert found.status_code == 200
+    resolved = found.json()
+    assert resolved["file_missing"] is False
+    assert resolved["file_missing_report"]["resolved"] is True
+    assert resolved["file_missing_report"]["resolved_by"] == "smoke_sheriff"
+    assert resolved["file_missing_report"]["found_location"] == found_body["found_location"]
+    assert resolved["file_missing_report"]["resolution_reason"] == found_body["reason"]
+    history = resolved["file_missing_history"]
+    assert [event["action"] for event in history] == ["reported_missing", "found"]
+    assert history[-1]["actor_user_id"] == "smoke_sheriff"
+    assert history[-1]["reason"] == found_body["reason"]
+    assert client.post(found_url, headers=auth_headers("smoke_sheriff"), json=found_body).status_code == 409
+
+    audit = [event for event in main.db.list_audit_events(100) if event["entity_id"] == case["case_id"]]
+    found_event = next(event for event in audit if event["action"] == "case.file_missing.found")
+    assert found_event["actor_user_id"] == "smoke_sheriff"
+    assert found_event["reason"] == found_body["reason"]
+    assert not any(item["type"] == "FILE_MISSING" for item in client.get(
+        f"/api/cases/{case['case_id']}/alerts", headers=auth_headers("smoke_sheriff")
+    ).json()["alerts"])
+    main.run_compliance_checks_sync()
+    assert main.db.get_case(case["case_id"])["file_missing"] is False
+
+
 def test_hearing_route_records_workflow_and_live_mode_sends_no_simulated_webhook():
     case = add_case("HEARING")
     response = client.post(f"/api/cases/{case['case_id']}/hearings", headers=auth_headers("smoke_clerk"), json={

@@ -849,3 +849,30 @@ body::before {
         height: 58mm !important;
     }
 }
+
+.file-missing-history-item {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 0.2rem 0.75rem;
+    padding: 0.75rem;
+    border: 1px solid var(--border-color);
+    border-radius: 0.7rem;
+    background: var(--bg-body);
+    color: var(--text-secondary);
+}
+
+.file-missing-history-item strong {
+    color: var(--text-heading);
+}
+
+.file-missing-history-item span {
+    color: var(--text-muted);
+    font-size: 0.65rem;
+    text-align: right;
+}
+
+.file-missing-history-item p {
+    grid-column: 1 / -1;
+    margin: 0;
+    overflow-wrap: anywhere;
+}

@@ -420,7 +420,7 @@ class SQLiteDatabase(BaseDatabase):
                 return None
 
             case_data = json.loads(row[0])
-            list_fields = {"scan_events", "hearing_log", "execution_log", "documents", "custody_history"}
+            list_fields = {"scan_events", "hearing_log", "execution_log", "documents", "custody_history", "file_missing_history"}
 
             for key, value in updates.items():
                 if key in list_fields and isinstance(value, list):

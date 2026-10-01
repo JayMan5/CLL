@@ -12,6 +12,11 @@ function safeRecord(value) {
     }
     return value;
 }
+function isFileMissingRecord(caseRecord) {
+    const report = caseRecord?.file_missing_report;
+    if (report && typeof report === "object") return report.resolved !== true;
+    return caseRecord?.file_missing === true;
+}
 // Never put user-controlled identifiers inside executable JavaScript attributes.
 document.addEventListener('click', event => {
     const button = event.target.closest('[data-case-action]');
@@ -110,13 +115,13 @@ function clearClientSession() {
     activeSheriffCustodyCaseId = null;
     activeSheriffCustodyMode = null;
     ["cases-table-body", "dcr-approval-table-body", "judge-docket-table-body", "judgments-table-body",
-        "ai-risk-table-body", "users-admin-table-body", "whatsapp-logs-container", "case-scan-history"]
+        "ai-risk-table-body", "users-admin-table-body", "whatsapp-logs-container", "case-scan-history", "missing-file-history"]
         .forEach(id => document.getElementById(id)?.replaceChildren());
-    ["stat-total-cases", "stat-high-risk", "stat-custody-alerts", "stat-enforcement-alerts",
-        "alert-count-custody", "alert-count-enforcement", "judge-alert-count", "ai-total-cases"]
+    ["stat-total-cases", "stat-high-risk", "stat-custody-alerts", "stat-missing-files", "stat-enforcement-alerts",
+        "alert-count-custody", "alert-count-missing", "alert-count-enforcement", "judge-alert-count", "ai-total-cases"]
         .forEach(id => { const el = document.getElementById(id); if (el) el.textContent = "0"; });
     document.getElementById("quick-alert-bar")?.classList.add("hidden");
-    ["scan-case-id", "missing-case-id", "hearing-case-id"].forEach(id => {
+    ["scan-case-id", "missing-case-id", "found-case-id", "missing-history-case-id", "hearing-case-id"].forEach(id => {
         const select = document.getElementById(id);
         if (select) select.replaceChildren(new Option("Select a case", ""));
     });
@@ -464,8 +469,13 @@ function updateRoleUI() {
 
     const sheriffQrTools = document.getElementById("sheriff-qr-tools");
     const qrLabelTools = document.getElementById("qr-label-tools");
+    const reportMissingTools = document.getElementById("report-missing-tools");
+    const resolveMissingTools = document.getElementById("resolve-missing-tools");
+    const canManageMissingFiles = ["Sheriff", "Chief Registrar"].includes(role);
     if (sheriffQrTools) sheriffQrTools.classList.toggle("hidden", role !== "Sheriff");
     if (qrLabelTools) qrLabelTools.classList.toggle("hidden", !["Clerk", "Chief Registrar"].includes(role));
+    if (reportMissingTools) reportMissingTools.classList.toggle("hidden", !canManageMissingFiles);
+    if (resolveMissingTools) resolveMissingTools.classList.toggle("hidden", !canManageMissingFiles);
     window.CourtLogPwa?.setRole(role);
 }
 
@@ -579,20 +589,23 @@ function renderOverviewMetrics() {
     const total = casesData.length;
     const highRisk = casesData.filter(c => c.risk_flag).length;
     const custodyAlerts = casesData.filter(c => c.custody_alert).length;
+    const missingFiles = casesData.filter(isFileMissingRecord).length;
     const enforcementAlerts = casesData.filter(c => c.enforcement_non_compliant).length;
 
     // 2. DOM updates
     document.getElementById("stat-total-cases").textContent = total;
     document.getElementById("stat-high-risk").textContent = highRisk;
     document.getElementById("stat-custody-alerts").textContent = custodyAlerts;
+    document.getElementById("stat-missing-files").textContent = missingFiles;
     document.getElementById("stat-enforcement-alerts").textContent = enforcementAlerts;
 
     document.getElementById("alert-count-custody").textContent = custodyAlerts;
+    document.getElementById("alert-count-missing").textContent = missingFiles;
     document.getElementById("alert-count-enforcement").textContent = enforcementAlerts;
 
     // Toggle overall warning hub visibility
     const alertHub = document.getElementById("quick-alert-bar");
-    if (custodyAlerts > 0 || enforcementAlerts > 0) {
+    if (custodyAlerts > 0 || missingFiles > 0 || enforcementAlerts > 0) {
         alertHub.classList.remove("hidden");
     } else {
         alertHub.classList.add("hidden");
@@ -619,8 +632,9 @@ function renderHeatmapTable(cases) {
         }
 
         // LED dot color
+        const missingFile = isFileMissingRecord(c);
         let ledClass = "led-green";
-        if (c.risk_flag) {
+        if (c.risk_flag || missingFile) {
             ledClass = "led-red";
         } else if (c.custody_alert || c.enforcement_non_compliant) {
             ledClass = "led-amber";
@@ -640,15 +654,23 @@ function renderHeatmapTable(cases) {
             riskLabel = "Mod";
         }
 
-        // Registry Alert Badge
-        let alertBadge = `<span style="color:var(--text-muted); font-weight:600">-</span>`;
-        if (c.custody_alert) {
-            alertBadge = `<span class="badge badge-high"><i class="fa-solid fa-triangle-exclamation mr-1"></i> Registry Idle</span>`;
-        } else if (c.enforcement_non_compliant) {
-            alertBadge = `<span class="badge badge-mod"><i class="fa-solid fa-scale-unbalanced mr-1"></i> Sheriff Overdue</span>`;
-        } else if (c.judgment_status === "Executed") {
-            alertBadge = `<span class="badge badge-low">Enforced</span>`;
+        // Keep distinct alerts visible even when one case has several at once.
+        const alertBadges = [];
+        if (missingFile) {
+            alertBadges.push(`<span class="badge badge-high"><i class="fa-solid fa-folder-minus mr-1"></i> File Missing</span>`);
         }
+        if (c.custody_alert) {
+            alertBadges.push(`<span class="badge badge-high"><i class="fa-solid fa-triangle-exclamation mr-1"></i> Registry Idle</span>`);
+        }
+        if (c.enforcement_non_compliant) {
+            alertBadges.push(`<span class="badge badge-mod"><i class="fa-solid fa-scale-unbalanced mr-1"></i> Sheriff Overdue</span>`);
+        }
+        if (alertBadges.length === 0 && c.judgment_status === "Executed") {
+            alertBadges.push(`<span class="badge badge-low">Enforced</span>`);
+        }
+        const alertBadge = alertBadges.length
+            ? `<div class="flex flex-wrap items-center justify-center gap-1">${alertBadges.join("")}</div>`
+            : `<span style="color:var(--text-muted); font-weight:600">-</span>`;
 
         const activeUser = getActiveUser();
         const canRecordCustody = ["Sheriff", "Clerk", "Chief Registrar"].includes(activeUser.role);
@@ -785,21 +807,28 @@ function populateDropdowns() {
     const scanSelect = document.getElementById("scan-case-id");
     const hearingSelect = document.getElementById("hearing-case-id");
     const missingSelect = document.getElementById("missing-case-id");
+    const foundSelect = document.getElementById("found-case-id");
+    const missingHistorySelect = document.getElementById("missing-history-case-id");
 
     if (!scanSelect || !hearingSelect) return;
 
-    // Save current values to restore them after re-populating
     const prevScanVal = scanSelect.value;
     const prevHearingVal = hearingSelect.value;
     const prevMissingVal = missingSelect ? missingSelect.value : "";
+    const prevFoundVal = foundSelect ? foundSelect.value : "";
+    const prevHistoryVal = missingHistorySelect ? missingHistorySelect.value : "";
 
     scanSelect.innerHTML = "";
     hearingSelect.innerHTML = "";
     if (missingSelect) missingSelect.innerHTML = "";
+    if (foundSelect) {
+        foundSelect.replaceChildren(new Option("Select an open missing report", ""));
+    }
+    if (missingHistorySelect) {
+        missingHistorySelect.replaceChildren(new Option("Choose case", ""));
+    }
 
-    // Sort cases by case_id for readability
     const sortedCases = [...casesData].sort((a, b) => a.case_id.localeCompare(b.case_id));
-
     sortedCases.forEach(c => {
         const opt = document.createElement("option");
         opt.value = c.case_id;
@@ -807,26 +836,96 @@ function populateDropdowns() {
 
         scanSelect.appendChild(opt.cloneNode(true));
         if (missingSelect) missingSelect.appendChild(opt.cloneNode(true));
-        // Clerks can only log hearings for Pending cases or Delivered (to enforce)
-        if (c.judgment_status !== "Executed") {
-            hearingSelect.appendChild(opt.cloneNode(true));
-        }
+        if (missingHistorySelect) missingHistorySelect.appendChild(opt.cloneNode(true));
+        if (foundSelect && isFileMissingRecord(c)) foundSelect.appendChild(opt.cloneNode(true));
+        if (c.judgment_status !== "Executed") hearingSelect.appendChild(opt.cloneNode(true));
     });
 
-    // Restore selection if valid, else pick first
-    if (prevScanVal && sortedCases.some(c => c.case_id === prevScanVal)) {
-        scanSelect.value = prevScanVal;
-    }
+    if (prevScanVal && sortedCases.some(c => c.case_id === prevScanVal)) scanSelect.value = prevScanVal;
     if (prevHearingVal && sortedCases.some(c => c.case_id === prevHearingVal && c.judgment_status !== "Executed")) {
         hearingSelect.value = prevHearingVal;
     }
-    if (missingSelect && prevMissingVal && sortedCases.some(c => c.case_id === prevMissingVal)) {
-        missingSelect.value = prevMissingVal;
+    if (missingSelect && prevMissingVal && sortedCases.some(c => c.case_id === prevMissingVal)) missingSelect.value = prevMissingVal;
+    if (foundSelect && prevFoundVal && sortedCases.some(c => c.case_id === prevFoundVal && isFileMissingRecord(c))) {
+        foundSelect.value = prevFoundVal;
+    }
+    if (missingHistorySelect && prevHistoryVal && sortedCases.some(c => c.case_id === prevHistoryVal)) {
+        missingHistorySelect.value = prevHistoryVal;
     }
 
-    // Update scanner / logger previews
     updateQRDisplay();
     updateHearingLogDetails();
+    renderFileMissingHistory();
+}
+
+function renderFileMissingHistory() {
+    const selector = document.getElementById("missing-history-case-id");
+    const container = document.getElementById("missing-file-history");
+    if (!container) return;
+    container.replaceChildren();
+
+    const caseId = selector?.value || "";
+    const record = casesData.find(item => item.case_id === caseId);
+    if (!record) {
+        const empty = document.createElement("p");
+        empty.className = "text-body";
+        empty.textContent = "Select a case to view its missing/found history.";
+        container.appendChild(empty);
+        return;
+    }
+
+    const history = Array.isArray(record.file_missing_history) ? [...record.file_missing_history] : [];
+    const report = record.file_missing_report || {};
+    if (report.reported_at && !history.some(event => event.action === "reported_missing")) {
+        history.push({
+            action: "reported_missing",
+            actor_user_id: report.reported_by,
+            timestamp: report.reported_at,
+            last_known_location: report.last_known_location,
+            notes: report.notes,
+        });
+    }
+    if (report.resolved && report.resolved_at && !history.some(event => event.action === "found")) {
+        history.push({
+            action: "found",
+            actor_user_id: report.resolved_by,
+            timestamp: report.resolved_at,
+            found_location: report.found_location,
+            reason: report.resolution_reason,
+        });
+    }
+    history.reverse();
+    if (!history.length) {
+        const empty = document.createElement("p");
+        empty.className = "text-body";
+        empty.textContent = "No missing/found events recorded for this case.";
+        container.appendChild(empty);
+        return;
+    }
+
+    history.forEach(event => {
+        const item = document.createElement("div");
+        item.className = "file-missing-history-item";
+        const title = document.createElement("strong");
+        title.textContent = event.action === "found" ? "File found / recovery recorded" : "File reported missing";
+        const timestamp = new Date(event.timestamp || "");
+        const time = document.createElement("span");
+        time.textContent = Number.isNaN(timestamp.getTime()) ? "Time unavailable" : timestamp.toLocaleString();
+        const actor = document.createElement("p");
+        actor.textContent = `Recorded actor: ${event.actor_user_id || "Unknown"}`;
+        const location = document.createElement("p");
+        location.textContent = event.action === "found"
+            ? `Found location: ${event.found_location || "Not recorded"}`
+            : `Last known location: ${event.last_known_location || "Not recorded"}`;
+        item.append(title, time, actor, location);
+        const reasonText = event.action === "found" ? event.reason : event.notes;
+        if (reasonText) {
+            const reason = document.createElement("p");
+            reason.textContent = event.action === "found" ? `Resolution reason: ${reasonText}` : `Notes: ${reasonText}`;
+            item.appendChild(reason);
+        }
+        container.appendChild(item);
+    });
 }
 
 // ----------------- CHARTS & ANALYTICS -----------------
@@ -1784,7 +1883,7 @@ function filterCases() {
         // Status Match
         let matchStatus = true;
         if (status === "ALERTS") {
-            matchStatus = c.custody_alert || c.enforcement_non_compliant;
+            matchStatus = c.custody_alert || isFileMissingRecord(c) || c.enforcement_non_compliant;
         } else if (status !== "ALL") {
             matchStatus = c.judgment_status === status;
         }
@@ -1823,8 +1922,10 @@ function filterByAlert(type) {
         filtered = casesData.filter(c => c.custody_alert === true);
     } else if (type === 'enforcement') {
         filtered = casesData.filter(c => c.enforcement_non_compliant === true);
+    } else if (type === 'missing') {
+        filtered = casesData.filter(isFileMissingRecord);
     } else {
-        filtered = casesData.filter(c => c.custody_alert || c.enforcement_non_compliant);
+        filtered = casesData.filter(c => c.custody_alert || isFileMissingRecord(c) || c.enforcement_non_compliant);
     }
 
     renderHeatmapTable(filtered);
@@ -1852,12 +1953,12 @@ async function triggerCronCompliance() {
         if (!response.ok) throw new Error("Cron sweep endpoint failed");
 
         const result = await response.json();
-        logger(`Compliance sweep complete. Total Alerts: ${result.stats.custody_alerts + result.stats.non_compliant_enforcements}`);
+        logger(`Compliance sweep complete. Idle custody: ${result.stats.custody_alerts}; missing files: ${result.stats.missing_file_alerts}; enforcement: ${result.stats.non_compliant_enforcements}`);
 
         await loadDashboardData();
 
         // Display summary dialog
-        alert(`Compliance Sweep Complete!\n---------------------------------\nRegistry Custody Alerts: ${result.stats.custody_alerts}\nEnforcement Non-Compliances: ${result.stats.non_compliant_enforcements}\nHigh Risk Delay Files: ${result.stats.high_risk_delay_cases}`);
+        alert(`Compliance Sweep Complete!\n---------------------------------\nIdle Custody Alerts: ${result.stats.custody_alerts}\nOpen Missing-File Reports: ${result.stats.missing_file_alerts}\nEnforcement Non-Compliances: ${result.stats.non_compliant_enforcements}\nHigh Risk Delay Files: ${result.stats.high_risk_delay_cases}`);
 
     } catch (error) {
         logger(`Error running cron sweep: ${error}`);
@@ -1880,23 +1981,77 @@ async function handleReportMissing(e) {
         return;
     }
 
+    const casePath = caseId.split("/").map(encodeURIComponent).join("/");
+    let response;
     try {
-        const response = await apiFetch(`${API_BASE}/cases/${caseId}/report-missing`, {
+        response = await apiFetch(`${API_BASE}/cases/${casePath}/report-missing`, {
             method: "POST",
             headers: getAuthHeaders(),
             body: JSON.stringify({ last_known_location: location, notes: notes })
         });
-
-        if (response.ok) {
-            showToast(`Case ${caseId} reported missing.`, "success");
-            document.getElementById("form-report-missing").reset();
-            await loadDashboardData();
-        } else {
-            const err = await response.json();
-            showToast(err.detail || "Failed to report missing file.", "error");
-        }
-    } catch (error) {
+    } catch (_) {
         showToast("Network error reporting missing file.", "error");
+        return;
+    }
+    if (!response.ok) {
+        const errorBody = await response.json().catch(() => ({}));
+        showToast(errorBody.detail || "Failed to report missing file.", "error");
+        return;
+    }
+
+    showToast(`Case ${caseId} marked missing. The alert remains open until recovery is recorded.`, "success");
+    document.getElementById("form-report-missing").reset();
+    try {
+        await loadDashboardData();
+        const historySelect = document.getElementById("missing-history-case-id");
+        if (historySelect && Array.from(historySelect.options).some(option => option.value === caseId)) {
+            historySelect.value = caseId;
+        }
+        renderFileMissingHistory();
+    } catch (_) {
+        showToast("Missing-file report was recorded, but the dashboard refresh failed. Reload to verify.", "warning");
+    }
+}
+
+async function handleFileFoundSubmit(e) {
+    e.preventDefault();
+    const caseId = document.getElementById("found-case-id").value;
+    const foundLocation = document.getElementById("found-location").value.trim();
+    const reason = document.getElementById("found-reason").value.trim();
+    if (!caseId) {
+        showToast("Select an open missing-file report first.", "error");
+        return;
+    }
+
+    const casePath = caseId.split("/").map(encodeURIComponent).join("/");
+    let response;
+    try {
+        response = await apiFetch(`${API_BASE}/cases/${casePath}/found`, {
+            method: "POST",
+            headers: getAuthHeaders(),
+            body: JSON.stringify({ found_location: foundLocation, reason })
+        });
+    } catch (_) {
+        showToast("No server confirmation received. Verify the missing-file history before retrying.", "error");
+        return;
+    }
+    if (!response.ok) {
+        const errorBody = await response.json().catch(() => ({}));
+        showToast(errorBody.detail || "File recovery was not recorded.", "error");
+        return;
+    }
+
+    showToast(`Case ${caseId} file found; missing alert resolved by CourtLOG.`, "success");
+    document.getElementById("form-file-found").reset();
+    try {
+        await loadDashboardData();
+        const historySelect = document.getElementById("missing-history-case-id");
+        if (historySelect && Array.from(historySelect.options).some(option => option.value === caseId)) {
+            historySelect.value = caseId;
+        }
+        renderFileMissingHistory();
+    } catch (_) {
+        showToast("Recovery was recorded, but the dashboard refresh failed. Reload to verify current status.", "warning");
     }
 }
 

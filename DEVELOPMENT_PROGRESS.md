@@ -154,3 +154,19 @@ Verification:
 - API tests verify that tokens are not persisted raw, unauthorized/unassigned users cannot scan, server attribution is used, a pre-handover label cannot authorize the former Sheriff, and manifest/service-worker assets are served.
 
 Still open: no printer output or actual pilot phone/browser camera test has been performed. Camera permission, focus, QR print size/readability, iOS/Android install prompts, and real network-loss recovery therefore remain unverified; C2 stays unchecked and is not reported complete. Runtime Tailwind/Chart/font CDNs remain open under D6. No real court data was used, no legal rule was changed, and this implementation does not establish staging or pilot readiness.
+
+## 1 October 2026 — C3 missing/found workflow
+
+Implemented:
+- Split the physical-file-missing state from the idle-custody clock and ML delay-risk flag. Reporting a missing file no longer mutates either indicator; ordinary QR/manual check-ins and compliance sweeps cannot clear an open missing-file report.
+- Added an authenticated, case-scoped `found` action for Sheriffs/Chief Registrar, with required found location and reason. An open report is resolved only by that explicit action; duplicate reports/resolutions return 409.
+- Kept a per-case missing/found history with authenticated actor, UTC timestamp, location and notes/reason, plus append-only audit events for report and recovery. Resolving a legacy unassigned report also removes the old reporter-only Sheriff access fallback.
+- Added separate dashboard counts, alert/filter state, report/recovery forms, and safe-text history rendering. Only roles permitted by the API see the report/recovery controls. Cron summaries now count open missing reports separately.
+
+Verification:
+- `.venv/bin/python -m pytest -q`: 46 passed, two existing FastAPI `on_event` deprecation warnings.
+- `npm run test:frontend`: passed, including the malicious-value history-rendering regression; `npm audit --audit-level=high`: 0 vulnerabilities.
+- `python -m compileall -q backend tests`, `node --check frontend/app.js`, `git diff --check`, and `.venv/bin/python -m pip check`: passed.
+- API coverage verifies separation from idle/ML flags, persistence through check-ins and sweeps, explicit resolution, actor/reason history, authorization, and alert removal only after found action. Frontend coverage confirms Clerk controls stay hidden, Sheriff/Chief Registrar controls are available, and simultaneous idle/missing badges remain distinct.
+
+C3 is checked in the completion plan. Current checklist counts: 7 of 55 named A–H tasks (12.7%) and 13 of 78 total plan checkboxes (16.7%). C2 remains unchecked pending printed-label and camera testing on the actual pilot phone. C4 is the next scheduled module task but requires Law Lead sign-off before any hearing-policy change; no legal rule was changed here.

@@ -131,6 +131,14 @@ db = get_db_client()
 # Keep unknown-user login checks close to the cost of a real bcrypt verification.
 DUMMY_PASSWORD_HASH = get_password_hash(secrets.token_urlsafe(32))
 
+def case_file_is_missing(case: Dict[str, Any]) -> bool:
+    """Use the open report as the source of truth, with a flag-only fallback for legacy data."""
+    report = case.get("file_missing_report")
+    if isinstance(report, dict) and report:
+        return not bool(report.get("resolved"))
+    return case.get("file_missing") is True
+
+
 def can_access_case(case: Dict[str, Any], auth: Dict[str, str]) -> bool:
     """Fail closed; use the current stored profile, never client-supplied scope."""
     user = db.get_user(auth["user_id"])
@@ -160,7 +168,7 @@ def can_access_case(case: Dict[str, Any], auth: Dict[str, str]) -> bool:
         scans = case.get("scan_events", [])
         missing = case.get("file_missing_report") or {}
         return (bool(scans and scans[-1].get("staff_id") == user["user_id"])
-                or missing.get("reported_by") == user["user_id"])
+                or (not missing.get("resolved") and missing.get("reported_by") == user["user_id"]))
     return False
 
 
@@ -428,6 +436,16 @@ class FileMissingRequest(BaseModel):
         return value.strip() if value is not None else None
 
 
+class FileFoundRequest(BaseModel):
+    found_location: str = Field(min_length=1, max_length=160, pattern=r"\S")
+    reason: str = Field(min_length=1, max_length=500, pattern=r"\S")
+
+    @field_validator("found_location", "reason")
+    @classmethod
+    def trim_found_file_fields(cls, value):
+        return value.strip()
+
+
 class DocumentUploadRequest(BaseModel):
     document_type: str = Field(min_length=1, max_length=40, pattern=r"\S")
     title: str = Field(min_length=1, max_length=200, pattern=r"\S")
@@ -645,9 +663,10 @@ def logout(
 def run_compliance_checks_sync():
     """
     Synchronously updates all dynamic metrics for cases:
-    1. Days since filing based on get_current_time() (July 18, 2026).
-    2. Custody alert flag (True if no scan events in the last 7 consecutive days).
-    3. Enforcement non-compliant flag (True if judgment_status == 'Delivered' and 
+    1. Days since filing based on the current UTC clock.
+    2. Idle custody alert flag (True if no scan events in the last 7 consecutive days).
+    3. Preserve the separate missing-file flag until an authorised found action.
+    4. Enforcement non-compliant flag (True if judgment_status == 'Delivered' and
        no subsequent enforcement entry in execution_log within 90 days of judgment delivery).
     """
     cases = db.list_cases()
@@ -662,7 +681,7 @@ def run_compliance_checks_sync():
         days_elapsed = (get_current_time() - filing_dt).days
         updates["days_since_filing"] = max(0, days_elapsed)
         
-        # 2. Custody Alert Flag (Module 1)
+        # 2. Idle Custody Alert Flag (Module 1); this never clears file_missing.
         # If pending case file has not had a new scan event in the last 7 consecutive days, set custody_alert = True
         if case.get("judgment_status") == "Pending":
             scans = case.get("scan_events", [])
@@ -996,6 +1015,9 @@ def create_case(req: CaseCreateRequest, auth: Dict[str, str] = Depends(get_curre
                 "staff_id": auth["user_id"]
             }
         ],
+        "file_missing": False,
+        "file_missing_report": None,
+        "file_missing_history": [],
         "hearing_log": [],
         "execution_log": [],
         "custody_alert": False,
@@ -1252,30 +1274,39 @@ def override_dcr_adjournment(case_id: CaseIdentifier, req: DCROverrideRequest, a
 
 @app.post("/api/cases/{case_id:path}/report-missing", response_model=Dict[str, Any])
 def report_file_missing(case_id: CaseIdentifier, req: FileMissingRequest, auth: Dict[str, str] = Depends(get_current_user)):
-    """
-    Sheriff-only: Report a case file as physically missing.
-    Records who reported it, when, and last known location.
-    """
+    """Report a physical file as missing without changing idle or ML-risk flags."""
     if auth["role"] not in ["Sheriff", "Chief Registrar"]:
-        raise HTTPException(status_code=403, detail="Permission Denied: Only Sheriffs (Physical File Custodians) can report missing files.")
+        raise HTTPException(status_code=403, detail="Permission Denied: Only Sheriffs and the Chief Registrar can report missing files.")
 
     case = db.get_case(case_id)
     if not case:
         raise HTTPException(status_code=404, detail="Case file not found")
     authorize_case(case, auth)
+    if case_file_is_missing(case):
+        raise HTTPException(status_code=409, detail="This case already has an open missing-file report")
 
+    now = format_date(get_current_time())
     missing_report = {
         "reported_by": auth["user_id"],
-        "reported_at": format_date(get_current_time()),
+        "reported_at": now,
         "last_known_location": req.last_known_location,
         "notes": req.notes,
-        "resolved": False
+        "resolved": False,
+        "resolved_by": None,
+        "resolved_at": None,
+    }
+    history_event = {
+        "action": "reported_missing",
+        "actor_user_id": auth["user_id"],
+        "timestamp": now,
+        "last_known_location": req.last_known_location,
+        "notes": req.notes,
     }
 
     db.update_case(case_id, {
+        "file_missing": True,
         "file_missing_report": missing_report,
-        "custody_alert": True,
-        "risk_flag": True
+        "file_missing_history": [history_event],
     })
     _record_audit_event(
         auth["user_id"], "case.file_missing.report", "case", case_id,
@@ -1283,6 +1314,48 @@ def report_file_missing(case_id: CaseIdentifier, req: FileMissingRequest, auth: 
     )
 
     logger.warning(f"FILE MISSING REPORT: Case {case_id} reported missing by {auth['user_id']} — last seen at {req.last_known_location}")
+    return db.get_case(case_id)
+
+
+@app.post("/api/cases/{case_id:path}/found", response_model=Dict[str, Any])
+def record_file_found(case_id: CaseIdentifier, req: FileFoundRequest, auth: Dict[str, str] = Depends(get_current_user)):
+    """Record an authorised recovery and resolve the open missing-file alert."""
+    if auth.get("role") not in ["Sheriff", "Chief Registrar"]:
+        raise HTTPException(status_code=403, detail="Permission Denied: File recovery must be recorded by a Sheriff or Chief Registrar.")
+
+    case = db.get_case(case_id)
+    if not case:
+        raise HTTPException(status_code=404, detail="Case file not found")
+    authorize_case(case, auth)
+    if not case_file_is_missing(case):
+        raise HTTPException(status_code=409, detail="There is no open missing-file report to resolve")
+
+    report = dict(case.get("file_missing_report") or {})
+    now = format_date(get_current_time())
+    report.update({
+        "resolved": True,
+        "resolved_by": auth["user_id"],
+        "resolved_at": now,
+        "found_location": req.found_location,
+        "resolution_reason": req.reason,
+    })
+    history_event = {
+        "action": "found",
+        "actor_user_id": auth["user_id"],
+        "timestamp": now,
+        "found_location": req.found_location,
+        "reason": req.reason,
+    }
+    db.update_case(case_id, {
+        "file_missing": False,
+        "file_missing_report": report,
+        "file_missing_history": [history_event],
+    })
+    _record_audit_event(
+        auth["user_id"], "case.file_missing.found", "case", case_id,
+        reason=req.reason,
+        metadata={"found_location": req.found_location},
+    )
     return db.get_case(case_id)
 
 
@@ -1505,7 +1578,7 @@ def export_dcr_weekly_report(auth: Dict[str, str] = Depends(get_current_user)):
     stalled = [c for c in division_cases if c.get("risk_flag")]
     pending_overrides = [c for c in division_cases if c.get("dcr_approval_required")]
     blocked = [c for c in division_cases if c.get("adjournment_blocked")]
-    missing_files = [c for c in division_cases if c.get("file_missing_report") and not c["file_missing_report"].get("resolved")]
+    missing_files = [c for c in division_cases if case_file_is_missing(c)]
     compliance_score = round(max(0, (1 - (len(stalled) / max(1, total))) * 100), 1)
     _record_audit_event(
         auth["user_id"], "report.export.dcr_weekly", "report", division,
@@ -1612,11 +1685,12 @@ def get_case_alerts(case_id: CaseIdentifier, auth: Dict[str, str] = Depends(get_
             "severity": "critical"
         })
 
-    # Missing file
-    if case.get("file_missing_report") and not case["file_missing_report"].get("resolved"):
+    # Missing file is an independent operational alert; an idle sweep/check-in cannot clear it.
+    if case_file_is_missing(case):
+        missing_report = case.get("file_missing_report") or {}
         alerts.append({
             "type": "FILE_MISSING",
-            "message": f"Case {case_id} file reported missing — last seen: {case['file_missing_report'].get('last_known_location', 'Unknown')}",
+            "message": f"Case {case_id} file reported missing — last seen: {missing_report.get('last_known_location', 'Unknown')}",
             "severity": "critical"
         })
 
@@ -1853,6 +1927,7 @@ def run_cron_compliance_sweep(auth: Dict[str, str] = Depends(get_current_user)):
     stats = {
         "total_cases": len(cases),
         "custody_alerts": sum(1 for c in cases if c.get("custody_alert")),
+        "missing_file_alerts": sum(1 for c in cases if case_file_is_missing(c)),
         "non_compliant_enforcements": sum(1 for c in cases if c.get("enforcement_non_compliant")),
         "high_risk_delay_cases": sum(1 for c in cases if c.get("risk_flag"))
     }

@@ -63,7 +63,7 @@ Checkboxes are updated only after code-level verification; open items remain unc
 - [ ] **C2 — Implement genuine QR capture.** Local QR generation; camera and keyboard/USB-scanner input with manual fallback; verify payload and case access; print labels. Test on the pilot device. *(F-03, S-13)*
   - Code implementation is present on the session branch: opaque random tokens, server-side current-assignment checks, local QR generation/print view, camera and keyboard/manual fallback, and an installable PWA shell; API/frontend regression tests pass. The checkbox stays open until the label is printed and camera/permission/focus/network behaviour is verified on the actual pilot phone.
   - No offline scan is queued, no case details are encoded in the QR, and no third-party QR image service is used. Runtime Tailwind/Chart/font CDNs remain a separate D6 item.
-- [ ] **C3 — Complete missing/found workflow.** Separate idle and missing flags; resolve/recover action, reason and audit history; alerts survive sweeps until properly resolved. *(L-07)*
+- [x] **C3 — Complete missing/found workflow.** Added separate idle-custody and missing-file state, an authorised found/recovery action with required reason, retained actor/time/location history and audit events, and missing alerts that remain active across scans/sweeps until explicitly resolved. API/UI and isolated regression tests verified 1 Oct 2026. *(L-07; no legal rules changed)*
 
 #### Module 2 — hearings and compliance
 - [ ] **C4 — Implement the approved hearing policy.** Structured outcomes/reasons, per-party information where required, date limits, criminal/civil distinctions and scoped exception records. Enforce changes atomically. *(L-01)*
