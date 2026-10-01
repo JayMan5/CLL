@@ -10,41 +10,14 @@
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <link rel="manifest" href="/static/manifest.webmanifest">
     <link rel="apple-touch-icon" href="/static/icons/courtlog-192.png">
-    <title>COURTLOG 2.0 - Court File Tracking & Adjournment Compliance</title>
+    <title>COURTLOG 2.0 - Court File Tracking Prototype</title>
     <meta name="description"
-        content="A lightweight, low-overhead GovTech file tracking and predictive delay-risk compliance registry dashboard for Nigerian courts.">
-    <!-- Google Fonts -->
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link
-        href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&family=Plus+Jakarta+Sans:wght@300;400;500;600;700&display=swap"
-        rel="stylesheet">
-    <!-- Tailwind CSS CDN -->
-    <script src="https://cdn.tailwindcss.com"></script>
-    <!-- Chart.js for beautiful visuals -->
-    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-    <!-- FontAwesome for professional iconography -->
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
-
-    <script>
-        tailwind.config = {
-            theme: {
-                extend: {
-                    fontFamily: {
-                        sans: ['Outfit', 'sans-serif'],
-                        heading: ['Plus Jakarta Sans', 'sans-serif'],
-                    },
-                    transitionTimingFunction: {
-                        'spring': 'cubic-bezier(0.175, 0.885, 0.32, 1.275)',
-                        'smooth': 'cubic-bezier(0.25, 1, 0.5, 1)'
-                    },
-                    scale: {
-                        '98': '0.98'
-                    }
-                }
-            }
-        }
-    </script>
+        content="A prototype for court-file custody workflows and experimental delay-risk decision support. Not certified for production use.">
+    <!-- Frontend dependencies are pinned and self-hosted; the page makes no CDN requests. -->
+    <link rel="stylesheet" href="/static/vendor/fonts/outfit/wght.css">
+    <link rel="stylesheet" href="/static/vendor/fonts/plus-jakarta-sans/wght.css">
+    <link rel="stylesheet" href="/static/tailwind.css">
+    <link rel="stylesheet" href="/static/vendor/fontawesome/css/all.min.css">
     <link rel="stylesheet" href="/static/index.css">
 </head>
 
@@ -67,8 +40,7 @@
                                 class="font-heading font-bold text-lg text-heading tracking-tight flex items-center gap-1.5">
                                 COURTLOG
                             </h1>
-                            <p class="text-[10px] text-heading opacity-60 font-medium uppercase tracking-wider">Delay
-                                Compliance</p>
+                            <p class="text-[10px] text-heading opacity-60 font-medium uppercase tracking-wider">Registry Workflow Prototype</p>
                         </div>
                     </div>
                 </div>
@@ -103,7 +75,7 @@
                     <button id="nav-ai-risk" onclick="switchTab('tab-ai-risk')"
                         class="nav-item w-full flex items-center gap-3 px-4 py-3 rounded-xl text-left font-medium">
                         <i class="fa-solid fa-brain text-lg text-rose-400"></i>
-                        <span>AI Risk Intelligence</span>
+                        <span>Experimental Risk Prototype</span>
                     </button>
                     <button id="nav-execution" onclick="switchTab('tab-execution')"
                         class="nav-item w-full flex items-center gap-3 px-4 py-3 rounded-xl text-left font-medium">
@@ -173,10 +145,10 @@
                         </div>
                     </div>
 
-                    <!-- NJC 1-Click Export Button -->
-                    <button id="btn-njc-export" onclick="exportNJCReport()"
+                    <!-- Scoped prototype summary export -->
+                    <button id="btn-prototype-summary" onclick="exportPrototypeSummary()"
                         class="btn-primary flex items-center gap-1.5 py-1.5 text-xs shadow-lg">
-                        <i class="fa-solid fa-file-export text-sm"></i> NJC Export
+                        <i class="fa-solid fa-file-export text-sm"></i> Prototype Summary
                     </button>
                     <button id="btn-install-pwa" type="button"
                         class="btn-secondary hidden items-center gap-1.5 py-1.5 text-xs">
@@ -229,11 +201,11 @@
 
                     <!-- Sync/Cron Button -->
                     <button onclick="triggerCronCompliance()" class="theme-toggle relative group"
-                        title="Run Background Compliance Job">
+                        title="Run Prototype Workflow Sweep">
                         <i class="fa-solid fa-arrows-spin text-sm" id="cron-icon"></i>
                         <span
                             class="absolute right-0 top-12 hidden group-hover:block text-xs py-1 px-2 rounded whitespace-nowrap z-30 glass-panel"
-                            style="color:var(--text-secondary)">Run Compliance Sweep</span>
+                            style="color:var(--text-secondary)">Run Workflow Sweep</span>
                     </button>
                 </div>
             </header>
@@ -270,10 +242,10 @@
                                 <i class="fa-solid fa-scale-unbalanced text-lg text-amber-th"></i>
                             </div>
                             <div>
-                                <h4 class="font-semibold text-heading text-sm">Enforcement Non-Compliances</h4>
+                                <h4 class="font-semibold text-heading text-sm">90-Day Execution Review Prompts</h4>
                                 <p class="text-xs text-body"><span id="alert-count-enforcement"
-                                        class="font-bold text-amber-th">0</span> delivered judgments show zero execution
-                                    logs for 90+ days.</p>
+                                        class="font-bold text-amber-th">0</span> delivered judgments have no execution
+                                    log under the current prototype clock; verify the approved policy.</p>
                             </div>
                             <button onclick="filterByAlert('enforcement')"
                                 class="ml-auto text-xs font-semibold text-amber-th hover:underline whitespace-nowrap">Investigate</button>
@@ -310,10 +282,9 @@
                         <!-- Stat Card 2 -->
                         <div class="stat-card stat-card-rose flex items-center justify-between">
                             <div>
-                                <p class="stat-label">High Risk Delay</p>
+                                <p class="stat-label">Experimental Delay-Risk Flags</p>
                                 <h3 id="stat-high-risk" class="stat-number text-rose mt-2">0</h3>
-                                <p class="text-xs mt-1.5 text-body">Model score <span class="font-bold text-rose">&gt;
-                                        0.70</span></p>
+                                <p class="text-xs mt-1.5 text-body">Prototype trigger &gt;0.70; not a legal finding</p>
                             </div>
                             <div class="w-12 h-12 rounded-xl flex items-center justify-center"
                                 style="background:var(--rose-soft); color:var(--rose)">
@@ -350,10 +321,9 @@
                         <!-- Stat Card 5 -->
                         <div class="stat-card stat-card-amber flex items-center justify-between">
                             <div>
-                                <p class="stat-label">Enforcement Overdue</p>
+                                <p class="stat-label">90-Day Execution Review</p>
                                 <h3 id="stat-enforcement-alerts" class="stat-number text-amber-th mt-2">0</h3>
-                                <p class="text-xs mt-1.5 text-body">No sheriff activity <span
-                                        class="font-bold text-amber-th">&gt; 90 days</span></p>
+                                <p class="text-xs mt-1.5 text-body">Prototype prompt; verify policy before treating as overdue</p>
                             </div>
                             <div class="w-12 h-12 rounded-xl flex items-center justify-center"
                                 style="background:var(--amber-soft); color:var(--amber)">
@@ -441,8 +411,7 @@
                             <div>
                                 <h3 class="font-heading font-bold text-base text-heading">Delay-Risk Analytics Heatmap &
                                     File Directory</h3>
-                                <p class="text-xs text-body">Real-time status updates and ML predictive risk profiling
-                                    of active court files.</p>
+                                <p class="text-xs text-body">Current file status and an experimental delay-risk score for active records; the score is decision support only.</p>
                             </div>
 
                             <!-- Table Filter Controls -->
@@ -724,9 +693,7 @@
                             </div>
                             <h3 class="font-heading font-bold text-lg text-heading">Court Clerk Call-Over Adjournment
                                 Engine</h3>
-                            <p class="text-xs text-body">Log daily trial and hearing outcomes. Logging an adjournment
-                                auto-increments the case's counter, updates the calendar, and triggers a real-time
-                                WhatsApp Business template notification.</p>
+                            <p class="text-xs text-body">Record hearing outcomes and a next date. A saved adjournment updates the case-level count; any WhatsApp payload is a demo simulation only and no real notice is sent.</p>
                         </div>
 
                         <!-- Core Hearing Logging Form -->
@@ -787,8 +754,7 @@
                                         <option value="Trial Continued">Trial Continued</option>
                                         <option value="Plea Taken">Plea Taken</option>
                                         <option value="Argument on Motions Heard">Argument on Motions Heard</option>
-                                        <option value="Judgment Delivered">Judgment Delivered (Triggers Enforcement
-                                            Clock)</option>
+                                        <option value="Judgment Delivered">Judgment Delivered (Starts prototype execution tracking)</option>
                                     </select>
                                 </div>
                                 <div>
@@ -799,19 +765,18 @@
 
                             <div class="wa-preview space-y-2">
                                 <p class="text-xs font-semibold text-heading flex items-center gap-2"><i
-                                        class="fa-brands fa-whatsapp text-emerald-th text-sm"></i> Real-time Registry
-                                    Group Broadcast Preview</p>
+                                        class="fa-brands fa-whatsapp text-emerald-th text-sm"></i> Demo-only Payload Preview</p>
                                 <div class="wa-payload">
                                     <span style="color:var(--text-muted)">[WhatsApp Payload] &quot;</span>SUIT NO: <span
-                                        id="preview-suit-id">CR/104/2025</span> adjourned to <span
-                                        id="preview-next-date">2026-07-28</span>. Reason: <span
+                                        id="preview-suit-id">DEMO/CR/104/2025</span> adjourned to <span
+                                        id="preview-next-date">2026-10-22</span>. Reason: <span
                                         id="preview-reason">Counsel Absent</span>. File routing back to Registry.<span
                                         style="color:var(--text-muted)">&quot;</span>
                                 </div>
                             </div>
 
                             <button type="submit" class="btn-primary w-full">
-                                <i class="fa-solid fa-floppy-disk"></i> Log Hearing Outcome & Send Notification
+                                <i class="fa-solid fa-floppy-disk"></i> Log Hearing Outcome
                             </button>
                         </form>
                     </div>
@@ -824,9 +789,7 @@
                         <div>
                             <h3 class="font-heading font-bold text-base text-heading">Post-Judgment Enforcement &
                                 Sheriff Dispatch</h3>
-                            <p class="text-xs text-body">Monitor cases where judgment has been
-                                <strong>Delivered</strong>. Registries must initiate enforcement writs within 90 days.
-                                Delayed actions automatically trigger the "Enforcement Non-Compliant" warning flag.</p>
+                            <p class="text-xs text-body">Track judgments marked <strong>Delivered</strong> and recorded execution actions. The current 90-day prompt is an application-level review signal, not a legal non-compliance finding; its policy basis remains under review.</p>
                         </div>
                     </div>
 
@@ -912,16 +875,14 @@
                                     <i class="fa-solid fa-user-shield text-amber-400"></i> Deputy Chief Registrar (DCR)
                                     Division Hub
                                 </h3>
-                                <p class="text-xs text-body">First escalation supervisor control room. Reviews 5th
-                                    adjournment exceptions, sanctions delayed data entry, and resolves yellow compliance
-                                    alerts.</p>
+                                <p class="text-xs text-body">Division-scoped administrative view for pending workflow reviews, assignment activity, and operational summaries. Review actions are not legal determinations; policy approval remains open.</p>
                             </div>
                             <span class="badge badge-mod font-mono text-xs px-3 py-1 rounded-full">
                                 Division: Criminal & Civil
                             </span>
                         </div>
 
-                        <!-- 5th Adjournment Block & Approval Queue -->
+                        <!-- Configured adjournment-review workflow queue -->
                         <div class="space-y-4">
 
                             <div class="flex items-center gap-3">
@@ -932,11 +893,9 @@
                             </div>
 
                             <h4 class="font-heading font-bold text-sm text-heading flex items-center gap-2">
-                                <i class="fa-solid fa-triangle-exclamation text-rose"></i> 5th Adjournment DCR Approval
-                                Queue (ACJA Sec 396)
+                                <i class="fa-solid fa-triangle-exclamation text-rose"></i> Adjournment Review Queue
                             </h4>
-                            <p class="text-xs text-body">The system hard-blocks any 5th adjournment logged by clerks.
-                                The DCR must review and upload an exceptional reason to unblock the case.</p>
+                            <p class="text-xs text-body">This prototype displays its configured case-level review trigger; it is not a statutory finding or a per-party count. Acknowledgement does not approve or unblock a case. Decisions are audited; escalation is recorded in-app only, with no external notification.</p>
 
                             <div class="overflow-x-auto rounded-xl border border-color">
                                 <table class="w-full text-left table-premium">
@@ -945,13 +904,13 @@
                                             <th class="py-3 px-4">Case ID</th>
                                             <th class="py-3 px-4">Division / Type</th>
                                             <th class="py-3 px-4">Court</th>
-                                            <th class="py-3 px-4 text-center">Adj. Count</th>
-                                            <th class="py-3 px-4 text-center">Status</th>
-                                            <th class="py-3 px-4 text-right">DCR Action</th>
+                                            <th class="py-3 px-4 text-center">Recorded Count</th>
+                                            <th class="py-3 px-4 text-center">Review Status</th>
+                                            <th class="py-3 px-4 text-right">DCR / CR Action</th>
                                         </tr>
                                     </thead>
                                     <tbody id="dcr-approval-table-body" class="text-xs">
-                                        <!-- Dynamic DCR Queue -->
+                                        <!-- Dynamic review queue -->
                                     </tbody>
                                 </table>
                             </div>
@@ -969,26 +928,23 @@
                                     <i class="fa-solid fa-balance-scale text-purple-400"></i> My Assigned Docket &
                                     Decision Console
                                 </h3>
-                                <p class="text-xs text-body">Judicial view showing active cases assigned to presiding
-                                    Judge, 24-hour compliance alerts, and 1-click judgment delivery.</p>
+                                <p class="text-xs text-body">Judicial view of the assigned docket, upcoming-hearing prompts, workflow alerts, and ruling entry.</p>
                             </div>
                             <span class="badge badge-low font-mono text-xs px-3 py-1 rounded-full">
                                 Presiding: FHC Abuja Court 4
                             </span>
                         </div>
 
-                        <!-- 24-Hour ACJA Alert Banner -->
-                        <div class="alert-box alert-amber flex items-center justify-between">
+                        <!-- Operational alerts are rendered from the scoped alerts API. -->
+                        <div id="judge-alert-banner" class="alert-box alert-amber hidden">
                             <div class="flex items-center gap-3">
-                                <i class="fa-solid fa-bell text-xl text-amber-th animate-bounce"></i>
+                                <i class="fa-solid fa-bell text-xl text-amber-th"></i>
                                 <div>
-                                    <h4 class="font-bold text-sm text-heading">ACJA Sec 396 Compliance Alert (24-Hour
-                                        Warning)</h4>
-                                    <p class="text-xs text-body">You have <span id="judge-alert-count"
-                                            class="font-bold text-rose">1</span> active case nearing maximum statutory
-                                        adjournment limits. Delivering ruling clears the timer.</p>
+                                    <h4 class="font-bold text-sm text-heading">Assigned Docket Alerts</h4>
+                                    <p class="text-xs text-body"><span id="judge-alert-count" class="font-bold text-rose">0</span> active operational prompt(s). These are not legal findings; verify applicable policy against approved guidance.</p>
                                 </div>
                             </div>
+                            <div id="judge-alert-list" class="mt-3 space-y-2" aria-live="polite"></div>
                         </div>
 
                         <!-- Judge's Assigned Cases Table -->
@@ -1014,6 +970,9 @@
 
                 <!-- ================== TAB: AI RISK INTELLIGENCE ================== -->
                 <section id="tab-ai-risk" class="hidden space-y-8">
+                    <div class="alert-box alert-amber text-xs text-body">
+                        Experimental decision-support scores use generated synthetic training scenarios and have no independent real-world validation. They are not legal findings and do not determine custody, hearing, enforcement, or judicial outcomes.
+                    </div>
                     <!-- Summary Cards -->
                     <div class="grid grid-cols-1 md:grid-cols-4 gap-4">
                         <div class="glass-panel rounded-2xl p-5 text-center">
@@ -1053,17 +1012,17 @@
                     <div class="glass-panel rounded-2xl p-6">
                         <div class="flex items-center justify-between pb-4" style="border-bottom:1px solid var(--border-color)">
                             <h3 class="font-heading font-bold text-lg text-heading flex items-center gap-2">
-                                <i class="fa-solid fa-brain text-rose-400"></i> Delay-Risk Prediction Model
+                                <i class="fa-solid fa-brain text-rose-400"></i> Experimental Delay-Risk Prototype
                             </h3>
                             <button onclick="loadAIRiskData()" class="action-btn flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold"
                                 style="background:linear-gradient(135deg,#ec4899,#f43f5e);color:white;">
-                                <i class="fa-solid fa-rotate"></i> Re-Run All Predictions
+                                <i class="fa-solid fa-rotate"></i> Recalculate Prototype Scores
                             </button>
                         </div>
                         <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mt-4 text-sm">
                             <div>
                                 <div class="text-xs text-body uppercase tracking-wide">Algorithm</div>
-                                <div class="text-heading font-semibold mt-1">Logistic Regression</div>
+                                <div class="text-heading font-semibold mt-1">Logistic Regression or heuristic fallback</div>
                             </div>
                             <div>
                                 <div class="text-xs text-body uppercase tracking-wide">Features</div>
@@ -1071,11 +1030,11 @@
                             </div>
                             <div>
                                 <div class="text-xs text-body uppercase tracking-wide">Training Data</div>
-                                <div class="text-heading font-semibold mt-1">3,000+ Nigerian Court Records</div>
+                                <div class="text-heading font-semibold mt-1">3,000 generated synthetic rows; no real case files</div>
                             </div>
                             <div>
                                 <div class="text-xs text-body uppercase tracking-wide">Threshold</div>
-                                <div class="text-heading font-semibold mt-1">70% → High Risk Flag</div>
+                                <div class="text-heading font-semibold mt-1">70% prototype trigger only</div>
                             </div>
                         </div>
                     </div>
@@ -1083,7 +1042,7 @@
                     <!-- Case Risk Table -->
                     <div class="glass-panel rounded-2xl p-6">
                         <h3 class="font-heading font-bold text-heading flex items-center gap-2 mb-4">
-                            <i class="fa-solid fa-ranking-star text-amber-400"></i> All Cases — Ranked by Delay Risk
+                            <i class="fa-solid fa-ranking-star text-amber-400"></i> Scoped Cases — Ranked by Experimental Score
                         </h3>
                         <div class="table-wrapper overflow-x-auto">
                             <table class="data-table">
@@ -1212,62 +1171,61 @@
         </main>
     </div>
 
-    <!-- ================== MODAL: DCR 5TH ADJOURNMENT OVERRIDE ================== -->
+    <!-- ================== MODAL: DCR REVIEW DECISION ================== -->
     <div id="dcr-override-modal" class="hidden fixed inset-0 z-50 flex items-center justify-center p-4"
         style="background:rgba(0,0,0,0.6); backdrop-filter:blur(4px)">
         <div class="glass-panel w-full max-w-lg rounded-2xl shadow-2xl p-6 relative border-amber-500/50">
             <div class="flex items-center justify-between pb-4 mb-4 border-b border-color">
                 <h3 class="font-heading font-bold text-lg text-heading flex items-center gap-2">
-                    <i class="fa-solid fa-shield-halved text-amber-400"></i> DCR 5th Adjournment Approval Console
+                    <i class="fa-solid fa-shield-halved text-amber-400"></i> DCR Review Decision Console
                 </h3>
                 <button onclick="closeDCROverrideModal()" class="text-body hover:text-heading"><i
                         class="fa-solid fa-xmark text-lg"></i></button>
             </div>
 
             <div class="space-y-4 text-xs">
-                <p class="text-body">The system has hard-blocked the 5th adjournment for case <span
-                        id="override-modal-case-id" class="font-bold text-emerald-400">CR-104-2025</span> under
-                    ACJA/ACJL Section 396.</p>
+                <p class="text-body">Record a reasoned decision for the pending application review on case <span
+                        id="override-modal-case-id" class="font-bold text-emerald-400">CR-104-2025</span>. Confirm any legal requirement against approved guidance before deciding.</p>
 
                 <div>
-                    <label class="stat-label block mb-1 font-semibold">Deputy Chief Registrar Exceptional Reason</label>
+                    <label class="stat-label block mb-1 font-semibold">Decision reason</label>
                     <textarea id="dcr-override-reason-input" rows="4" class="th-input w-full p-2.5 rounded-lg text-xs"
-                        placeholder="e.g. Lead prosecutor engaged in emergency Supreme Court appeal. Approved for final 14-day extension."></textarea>
+                        placeholder="Enter the basis for this review decision."></textarea>
                 </div>
             </div>
 
             <div class="flex items-center justify-end gap-3 pt-4 mt-4 border-t border-color">
                 <button onclick="closeDCROverrideModal()" class="btn-secondary">Cancel</button>
                 <button onclick="submitDCROverride()" class="btn-primary bg-amber-600 hover:bg-amber-700">
-                    <i class="fa-solid fa-check-double"></i> Upload & Approve Exception
+                    <i class="fa-solid fa-check-double"></i> Record Decision & Unblock
                 </button>
             </div>
         </div>
     </div>
 
-    <!-- ================== MODAL: NJC COMPLIANCE EXPORT ================== -->
-    <div id="njc-modal" class="hidden fixed inset-0 z-50 flex items-center justify-center p-4"
+    <!-- ================== MODAL: PROTOTYPE WORKFLOW SUMMARY ================== -->
+    <div id="prototype-summary-modal" class="hidden fixed inset-0 z-50 flex items-center justify-center p-4"
         style="background:rgba(0,0,0,0.6); backdrop-filter:blur(4px)">
         <div class="glass-panel w-full max-w-2xl rounded-2xl shadow-2xl p-6 relative border-emerald-500/50">
             <div class="flex items-center justify-between pb-4 mb-4 border-b border-color">
                 <h3 class="font-heading font-bold text-lg text-heading flex items-center gap-2">
-                    <i class="fa-solid fa-file-export text-emerald-400"></i> NJC Delay Compliance Monthly Export
+                    <i class="fa-solid fa-file-export text-emerald-400"></i> Prototype Workflow Summary
                 </h3>
-                <button onclick="closeNJCModal()" class="text-body hover:text-heading"><i
+                <button onclick="closePrototypeReportModal()" class="text-body hover:text-heading"><i
                         class="fa-solid fa-xmark text-lg"></i></button>
             </div>
 
             <div class="space-y-4 text-xs">
                 <div class="p-4 rounded-xl bg-input border border-color font-mono text-[11px] max-h-80 overflow-y-auto custom-scrollbar whitespace-pre-wrap text-emerald-300"
-                    id="njc-report-json-view">
+                    id="prototype-report-json-view">
                     <!-- Report payload rendered here -->
                 </div>
             </div>
 
             <div class="flex items-center justify-end gap-3 pt-4 mt-4 border-t border-color">
-                <button onclick="closeNJCModal()" class="btn-secondary">Close</button>
-                <button onclick="downloadNJCFile()" class="btn-primary">
-                    <i class="fa-solid fa-download"></i> Download Official NJC Report (.JSON)
+                <button onclick="closePrototypeReportModal()" class="btn-secondary">Close</button>
+                <button onclick="downloadPrototypeSummary()" class="btn-primary">
+                    <i class="fa-solid fa-download"></i> Download Prototype Summary (.JSON)
                 </button>
             </div>
         </div>
@@ -1284,8 +1242,7 @@
                     <div>
                         <h2 class="font-heading font-extrabold text-2xl tracking-widest text-black m-0 leading-none">
                             COURTLOG</h2>
-                        <p class="text-[10px] font-bold uppercase tracking-widest text-black mt-1">Official Registry
-                            Document</p>
+                        <p class="text-[10px] font-bold uppercase tracking-widest text-black mt-1">Prototype Draft — Not Issued</p>
                     </div>
                     <div class="text-right">
                         <p class="text-xs font-mono font-bold text-black" id="print-date-time"></p>
@@ -1298,7 +1255,7 @@
                     <div>
                         <h3 class="font-heading font-bold text-lg text-heading" id="modal-writ-title">Writ of Fieri
                             Facias (Fi Fa)</h3>
-                        <p class="text-xs text-body">Compiled Form - Nigerian Judiciary High Court Registry Office</p>
+                        <p class="text-xs text-body">Prototype draft preview — not a court-issued process; legal review required.</p>
                     </div>
                     <button onclick="closeWritModal()" class="text-body hover:text-heading"><i
                             class="fa-solid fa-xmark text-lg"></i></button>
@@ -1493,7 +1450,7 @@
                     class="font-heading font-extrabold text-2xl text-heading tracking-tight flex items-center justify-center gap-2">
                     COURTLOG
                 </h1>
-                <p class="text-xs text-emerald-400/80 font-medium">Judiciary Delay Compliance & Case Management System
+                <p class="text-xs text-emerald-400/80 font-medium">Court File Tracking & Registry Workflow Prototype
                 </p>
             </div>
 
@@ -1561,6 +1518,8 @@
     <!-- Toast Notifications -->
     <div id="toast-container"></div>
 
+    <!-- Local Chart.js bundle (no runtime CDN request). -->
+    <script src="/static/chart.bundle.js"></script>
     <!-- Locally bundled QR generation and browser camera scanner -->
     <script src="/static/c2-pwa.bundle.js"></script>
     <!-- Client app code file integration -->

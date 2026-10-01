@@ -100,7 +100,14 @@ def test_installable_pwa_shell_manifest_and_root_scoped_service_worker_are_serve
     assert worker.headers["Service-Worker-Allowed"] == "/"
     assert worker.headers["Cache-Control"] == "no-cache"
     assert "does not queue custody scans" in worker.text
-    assert client.get("/static/c2-pwa.bundle.js").status_code == 200
+    for asset in [
+        "/static/c2-pwa.bundle.js",
+        "/static/tailwind.css",
+        "/static/chart.bundle.js",
+        "/static/vendor/fontawesome/css/all.min.css",
+        "/static/vendor/fonts/outfit/files/outfit-latin-wght-normal.woff2",
+    ]:
+        assert client.get(asset).status_code == 200, f"static asset must be served locally: {asset}"
 
 
 def test_case_directory_requires_authentication_and_respects_court_scope():
@@ -297,6 +304,142 @@ def test_hearing_route_records_workflow_and_live_mode_sends_no_simulated_webhook
     assert any(event["action"] == "case.hearing.record" and event["actor_user_id"] == "smoke_clerk" for event in events)
 
 
+def test_dcr_review_acknowledgement_and_escalation_are_durable_and_separate_from_ml_risk(monkeypatch):
+    now = datetime(2026, 10, 1, 12, 0, tzinfo=timezone.utc)
+    monkeypatch.setattr(main, "get_current_time", lambda: now)
+    case = add_case(
+        "DCR-LIFECYCLE",
+        filing_date=main.format_date(now),
+        scan_events=[{"location": "Fictional Desk", "timestamp": main.format_date(now), "staff_id": "smoke_sheriff"}],
+        adjournment_count=4,
+        risk_flag=False,
+        delay_risk_score=0.3,
+        custody_alert=False,
+        red_flag_notified_at="2026-09-01T00:00:00Z",
+        auto_escalated=True,
+    )
+    blocked = client.post(f"/api/cases/{case['case_id']}/hearings", headers=auth_headers("smoke_clerk"), json={
+        "outcome": "Adjourned", "reason_code": "Fictional review reason", "next_date": "2026-10-22",
+    })
+    assert blocked.status_code == 400
+    pending = main.db.get_case(case["case_id"])
+    assert pending["dcr_approval_required"] is True
+    assert pending["adjournment_blocked"] is True
+    assert pending["risk_flag"] is False, "an application review block must not force the experimental ML flag"
+    assert pending["dcr_approval_requested_at"] == main.format_date(now)
+    assert [event["action"] for event in pending["dcr_approval_history"]] == ["requested"]
+
+    ack_url = f"/api/cases/{case['case_id']}/dcr-acknowledge"
+    assert client.post(ack_url, headers=auth_headers("smoke_clerk"), json={"note": "Not authorized"}).status_code == 403
+    acknowledged = client.post(ack_url, headers=auth_headers("smoke_dcr"), json={"note": "Fictional queue review started"})
+    assert acknowledged.status_code == 200
+    ack_case = acknowledged.json()
+    assert ack_case["dcr_approval_required"] is True
+    assert ack_case["adjournment_blocked"] is True, "acknowledgement is not an approval or unblock"
+    assert ack_case["risk_flag"] is False
+    assert ack_case["dcr_acknowledged_by"] == "smoke_dcr"
+    assert [event["action"] for event in ack_case["dcr_approval_history"]] == ["requested", "acknowledged"]
+
+    # A sweep at exactly 24 hours does not cross the existing >24-hour threshold.
+    monkeypatch.setattr(main, "get_current_time", lambda: now + timedelta(hours=24))
+    main.run_compliance_checks_sync()
+    at_threshold = main.db.get_case(case["case_id"])
+    assert at_threshold["dcr_auto_escalated"] is False
+    assert at_threshold["auto_escalated"] is True, "legacy state is not rewritten by the independent ML-risk sweep"
+    assert at_threshold["risk_flag"] is False
+    assert at_threshold["custody_alert"] is False
+
+    # The in-app escalation is based on the DCR request clock and persists across ML changes.
+    escalated_at = now + timedelta(hours=24, seconds=1)
+    monkeypatch.setattr(main, "get_current_time", lambda: escalated_at)
+    main.run_compliance_checks_sync()
+    escalated = main.db.get_case(case["case_id"])
+    assert escalated["dcr_auto_escalated"] is True
+    assert escalated["dcr_escalated_at"] == main.format_date(escalated_at)
+    assert escalated["risk_flag"] is False
+    assert [event["action"] for event in escalated["dcr_approval_history"]] == [
+        "requested", "acknowledged", "escalated",
+    ]
+
+    main.db.update_case(case["case_id"], {"risk_flag": True, "delay_risk_score": 0.95})
+    monkeypatch.setattr(main, "get_current_time", lambda: escalated_at + timedelta(minutes=1))
+    main.run_compliance_checks_sync()
+    assert main.db.get_case(case["case_id"])["dcr_auto_escalated"] is True
+    main.db.update_case(case["case_id"], {"risk_flag": False})
+    monkeypatch.setattr(main, "get_current_time", lambda: escalated_at + timedelta(minutes=2))
+    main.run_compliance_checks_sync()
+    risk_cleared = main.db.get_case(case["case_id"])
+    assert risk_cleared["dcr_auto_escalated"] is True
+    assert risk_cleared["dcr_escalated_at"] == main.format_date(escalated_at)
+    assert risk_cleared["risk_flag"] is False
+
+    approved = client.post(
+        f"/api/cases/{case['case_id']}/dcr-override",
+        headers=auth_headers("smoke_dcr"),
+        json={"exceptional_reason": "Fictional test decision reason"},
+    )
+    assert approved.status_code == 200
+    resolved = approved.json()
+    assert resolved["dcr_approval_required"] is False
+    assert resolved["adjournment_blocked"] is False
+    assert resolved["dcr_auto_escalated"] is False
+    assert resolved["dcr_escalated_at"] == main.format_date(escalated_at), "resolution preserves escalation history"
+    assert resolved["risk_flag"] is False
+    assert resolved["dcr_approval_history"][-1]["action"] == "approved"
+    assert resolved["dcr_approval_history"][-1]["actor_user_id"] == "smoke_dcr"
+    audit = [event for event in main.db.list_audit_events(100) if event["entity_id"] == case["case_id"]]
+    assert {event["action"] for event in audit} >= {"case.dcr_review.acknowledge", "case.dcr_override"}
+
+
+def test_legacy_dcr_escalation_clock_is_initialized_without_using_ml_timestamp(monkeypatch):
+    now = datetime(2026, 10, 1, 12, 0, tzinfo=timezone.utc)
+    monkeypatch.setattr(main, "get_current_time", lambda: now)
+    case = add_case(
+        "LEGACY-DCR-CLOCK",
+        dcr_approval_required=True,
+        adjournment_blocked=True,
+        dcr_auto_escalated=False,
+        red_flag_notified_at="2026-09-01T00:00:00Z",
+        risk_flag=False,
+    )
+    main.run_compliance_checks_sync()
+    migrated = main.db.get_case(case["case_id"])
+    assert migrated["dcr_approval_requested_at"] == main.format_date(now)
+    assert migrated["dcr_auto_escalated"] is False, "legacy ML timestamps do not count as DCR request time"
+    assert migrated["dcr_approval_history"][-1]["action"] == "request_timestamp_initialized"
+
+
+def test_judge_alerts_are_scoped_and_labeled_as_operational_prompts(monkeypatch):
+    now = datetime(2026, 10, 1, 12, 0, tzinfo=timezone.utc)
+    monkeypatch.setattr(main, "get_current_time", lambda: now)
+    assigned = add_case(
+        "JUDGE-ALERTS",
+        hearing_log=[{"date": main.format_date(now), "outcome": "Adjourned", "next_date": main.format_date(now + timedelta(hours=12))}],
+        adjournment_count=4,
+        risk_flag=True,
+        delay_risk_score=0.91,
+    )
+    outside = add_case(
+        "JUDGE-ALERTS-OUTSIDE",
+        assigned_judge_id="another_judge",
+        hearing_log=[{"date": main.format_date(now), "outcome": "Adjourned", "next_date": main.format_date(now + timedelta(hours=4))}],
+        adjournment_count=4,
+        risk_flag=True,
+    )
+    assert client.get("/api/judge/alerts", headers=auth_headers("smoke_clerk")).status_code == 403
+    response = client.get("/api/judge/alerts", headers=auth_headers("smoke_judge"))
+    assert response.status_code == 200
+    data = response.json()
+    this_case_alerts = [item for item in data["alerts"] if item["case_id"] == assigned["case_id"]]
+    assert {item["type"] for item in this_case_alerts} == {
+        "HEARING_24HR", "ADJOURNMENT_REVIEW", "EXPERIMENTAL_DELAY_RISK",
+    }
+    assert not any(item["case_id"] == outside["case_id"] for item in data["alerts"])
+    assert all("ACJA Sec 396" not in item["message"] for item in this_case_alerts)
+    assert all("violates" not in item["message"].lower() for item in this_case_alerts)
+    assert data["total_alerts"] == len(data["alerts"])
+
+
 def test_prediction_is_authenticated_scoped_and_persisted():
     case = add_case("PREDICT")
     response = client.post(f"/api/cases/{case['case_id']}/predict", headers=auth_headers("smoke_clerk"))
@@ -352,13 +495,25 @@ def test_case_creation_and_user_management_enforce_roles():
 
 
 def test_cron_and_exports_require_authorized_roles_and_scope():
-    case = add_case("REPORT")
+    case = add_case("REPORT", party_contact={"counsel_phone": "+2348012345678", "litigant_phone": "+2348098765432"})
     assert client.post("/api/cron").status_code == 401
     assert client.post("/api/cron", headers=auth_headers("smoke_clerk")).status_code == 403
-    assert client.post("/api/cron", headers=auth_headers("smoke_cr")).status_code == 200
+    sweep = client.post("/api/cron", headers=auth_headers("smoke_cr"))
+    assert sweep.status_code == 200
+    assert "execution_review_prompts" in sweep.json()["stats"]
+    assert "non_compliant_enforcements" not in sweep.json()["stats"]
 
-    report = client.get("/api/export/njc", headers=auth_headers("smoke_dcr"))
+    report = client.get("/api/export/prototype-summary", headers=auth_headers("smoke_dcr"))
     assert report.status_code == 200
-    report_ids = {item["case_id"] for item in report.json()["audited_cases"]}
+    payload = report.json()
+    report_ids = {item["case_id"] for item in payload["case_summaries"]}
     assert case["case_id"] in report_ids
-    assert client.get("/api/export/njc").status_code == 401
+    assert "not an official NJC/NCMS submission" in payload["intended_use"]
+    assert "speedy_trial_compliance_score" not in payload["summary"]
+    assert "audited_cases" not in payload, "reports omit full case documents and party contact details"
+    assert "+2348012345678" not in str(payload) and "+2348098765432" not in str(payload)
+    weekly = client.get("/api/export/dcr-weekly", headers=auth_headers("smoke_dcr"))
+    assert weekly.status_code == 200
+    assert "division_compliance_score" not in weekly.json()["summary"]
+    assert "experimental_delay_risk_flags" in weekly.json()["summary"]
+    assert client.get("/api/export/prototype-summary").status_code == 401

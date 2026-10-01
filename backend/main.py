@@ -32,7 +32,7 @@ DEMO_MODE_ENABLED = os.getenv("DEMO_MODE", "false").strip().lower() == "true"
 # Initialize FastAPI
 app = FastAPI(
     title="COURTLOG 2.0 API",
-    description="Court File Tracking & Delay Compliance System API",
+    description="Court File Tracking & Registry Workflow Prototype API",
     docs_url="/docs" if DEMO_MODE_ENABLED else None,
     redoc_url="/redoc" if DEMO_MODE_ENABLED else None,
     openapi_url="/openapi.json" if DEMO_MODE_ENABLED else None,
@@ -369,6 +369,15 @@ class DCROverrideRequest(BaseModel):
         return value.strip()
 
 
+class DCRReviewAcknowledgementRequest(BaseModel):
+    note: str = Field(min_length=1, max_length=1000, pattern=r"\S")
+
+    @field_validator("note")
+    @classmethod
+    def trim_acknowledgement_note(cls, value):
+        return value.strip()
+
+
 class LoginRequest(BaseModel):
     username: str = Field(min_length=1, max_length=32)
     password: str = Field(min_length=1, max_length=72)
@@ -666,11 +675,11 @@ def run_compliance_checks_sync():
     1. Days since filing based on the current UTC clock.
     2. Idle custody alert flag (True if no scan events in the last 7 consecutive days).
     3. Preserve the separate missing-file flag until an authorised found action.
-    4. Enforcement non-compliant flag (True if judgment_status == 'Delivered' and
-       no subsequent enforcement entry in execution_log within 90 days of judgment delivery).
+    4. Configured 90-day execution-review prompt stored in a legacy case field.
+       It is not a legal compliance determination; the policy basis remains under review.
     """
     cases = db.list_cases()
-    logger.info(f"Running compliance sweep on {len(cases)} cases...")
+    logger.info(f"Running prototype workflow checks on {len(cases)} cases...")
     
     for case in cases:
         case_id = case["case_id"]
@@ -699,9 +708,9 @@ def run_compliance_checks_sync():
             # Not pending, no custody tracking needed
             updates["custody_alert"] = False
             
-        # 3. Enforcement Tracker & 90-day Compliance (Module 4)
-        # If judgment_status == "Delivered" and no entry added to execution_log within 90 days,
-        # flag as "Enforcement Non-Compliant".
+        # 3. Configured 90-day execution-review prompt (Module 4).
+        # The legacy case field below is retained for data compatibility; it is
+        # not a legal finding, and its policy basis remains under review.
         if case.get("judgment_status") == "Delivered":
             exec_logs = case.get("execution_log", [])
             
@@ -740,37 +749,61 @@ def run_compliance_checks_sync():
                 enforce_dt = parse_date(earliest_enforcement["date"])
                 days_to_enforce = (enforce_dt - judgment_delivery_dt).days
                 
-                # Non-compliant if enforcement occurred AFTER 90 days
+                # Record a prototype review prompt if execution occurred after 90 days.
                 updates["enforcement_non_compliant"] = days_to_enforce > 90
             else:
-                # No enforcement action has been taken yet.
-                # Check if 90 days have already elapsed since the judgment was delivered.
+                # No execution action has been recorded; check the configured
+                # application clock without treating it as a statutory finding.
                 days_since_delivery = (get_current_time() - judgment_delivery_dt).days
                 updates["enforcement_non_compliant"] = days_since_delivery > 90
         else:
-            # If status is not "Delivered", it is compliant or pending
+            # No 90-day execution-review prompt applies before judgment delivery.
             updates["enforcement_non_compliant"] = False
             
-        # 4. RED Flag Tracking & Auto-Escalation
+        # 4. ML delay-risk notification metadata is independent of custody,
+        # adjournment-review, missing-file, and enforcement state.
+        now = get_current_time()
         if case.get("risk_flag"):
-            # Set notification timestamp if not already set
             if not case.get("red_flag_notified_at"):
-                updates["red_flag_notified_at"] = format_date(get_current_time())
+                updates["red_flag_notified_at"] = format_date(now)
         else:
             updates["red_flag_notified_at"] = None
-            updates["auto_escalated"] = False
-            
-        # 5. DCR 5th Adjournment Auto-Escalation (24h SLA)
-        # If DCR approval is required, track time since red flag (which is set when blocked)
+            # Keep the ambiguous legacy auto_escalated value untouched. DCR
+            # escalation now uses its own durable fields and clock.
+
+        # 5. DCR review escalation is timed only from the DCR request timestamp,
+        # never from the independent ML-risk notification clock. A pending legacy
+        # record without a request time starts its new clock when first observed.
         if case.get("dcr_approval_required"):
-            notified_time = case.get("red_flag_notified_at") or updates.get("red_flag_notified_at")
-            if notified_time:
-                notified_dt = parse_date(notified_time)
-                hours_blocked = (get_current_time() - notified_dt).total_seconds() / 3600
-                if hours_blocked > 24 and not case.get("auto_escalated"):
-                    updates["auto_escalated"] = True
-                    logger.warning(f"AUTO-ESCALATION: Case {case_id} blocked for >24h without DCR approval. Escalating to Chief Registrar.")
-            
+            requested_at = case.get("dcr_approval_requested_at")
+            if not requested_at:
+                requested_at = format_date(now)
+                updates["dcr_approval_requested_at"] = requested_at
+                updates["dcr_approval_history"] = [{
+                    "action": "request_timestamp_initialized",
+                    "occurred_at": requested_at,
+                    "actor_user_id": None,
+                    "note": "Legacy pending review had no request timestamp; clock initialized on first sweep.",
+                }]
+
+            requested_dt = parse_date(requested_at)
+            hours_pending = (now - requested_dt).total_seconds() / 3600
+            if hours_pending > 24 and not case.get("dcr_auto_escalated"):
+                escalated_at = format_date(now)
+                updates["dcr_auto_escalated"] = True
+                updates["dcr_escalated_at"] = escalated_at
+                updates["dcr_approval_history"] = updates.get("dcr_approval_history", []) + [{
+                    "action": "escalated",
+                    "occurred_at": escalated_at,
+                    "actor_user_id": None,
+                    "note": "In-app escalation recorded after more than 24 hours; no external notification was sent.",
+                }]
+                logger.warning(
+                    "DCR review escalation recorded for case %s after >24h; "
+                    "this records in-app state only and sends no external notification.",
+                    case_id,
+                )
+
         # Write updates back to database
         db.update_case(case_id, updates)
 
@@ -1002,6 +1035,14 @@ def create_case(req: CaseCreateRequest, auth: Dict[str, str] = Depends(get_curre
         "delay_risk_score": 0.1,
         "risk_flag": False,
         "dcr_approval_required": False,
+        "dcr_approval_requested_at": None,
+        "dcr_approval_history": [],
+        "dcr_acknowledged_at": None,
+        "dcr_acknowledged_by": None,
+        "dcr_acknowledgement_note": None,
+        "dcr_auto_escalated": False,
+        "dcr_escalated_at": None,
+        "dcr_approval_resolved_at": None,
         "dcr_override_reason": None,
         "adjournment_blocked": False,
         "party_contact": {
@@ -1146,9 +1187,10 @@ def issue_case_qr_label(
 
 @app.post("/api/cases/{case_id:path}/hearings", response_model=Dict[str, Any])
 def log_hearing_outcome(case_id: CaseIdentifier, req: HearingRequest, background_tasks: BackgroundTasks, auth: Dict[str, str] = Depends(get_current_user)):
-    """
-    Module 2: Hearing Compliance Engine.
-    Enforces 5th Adjournment DCR Hard Block rule under ACJA/ACJL compliance.
+    """Record hearing outcomes and apply the unchanged prototype review trigger.
+
+    The configured case-level threshold is not a statutory determination or a
+    per-party count; confirm any policy change with the Law Lead before rollout.
     """
     if auth["role"] not in ["Clerk", "Judge", "Chief Registrar"]:
         raise HTTPException(status_code=403, detail="Permission Denied: Hearing log entry is restricted to Clerks and Judges.")
@@ -1166,15 +1208,44 @@ def log_hearing_outcome(case_id: CaseIdentifier, req: HearingRequest, background
         
     current_adj_count = case.get("adjournment_count", 0)
     
-    # ----------------- 5TH ADJOURNMENT HARD BLOCK ENFORCEMENT -----------------
+    # ----------------- CONFIGURED ADJOURNMENT REVIEW GATE -----------------
+    # Keep this existing application threshold unchanged pending Law Lead review.
+    # It is not a determination of statutory compliance or a per-party count.
     if req.outcome == "Adjourned":
         if current_adj_count >= 4 and not case.get("dcr_override_reason"):
-            # Mark case as requiring DCR approval and blocked
-            db.update_case(case_id, {
+            now_value = format_date(get_current_time())
+            dcr_updates = {
                 "dcr_approval_required": True,
                 "adjournment_blocked": True,
-                "risk_flag": True
-            })
+            }
+            if not case.get("dcr_approval_required"):
+                dcr_updates.update({
+                    "dcr_approval_requested_at": now_value,
+                    "dcr_acknowledged_at": None,
+                    "dcr_acknowledged_by": None,
+                    "dcr_acknowledgement_note": None,
+                    "dcr_auto_escalated": False,
+                    "dcr_escalated_at": None,
+                    "dcr_approval_resolved_at": None,
+                })
+                dcr_updates["dcr_approval_history"] = [{
+                    "action": "requested",
+                    "occurred_at": now_value,
+                    "actor_user_id": auth["user_id"],
+                    "reason_code": req.reason_code,
+                    "existing_adjournment_count": current_adj_count,
+                }]
+            elif not case.get("dcr_approval_requested_at"):
+                dcr_updates["dcr_approval_requested_at"] = now_value
+                dcr_updates["dcr_approval_history"] = [{
+                    "action": "request_timestamp_initialized",
+                    "occurred_at": now_value,
+                    "actor_user_id": auth["user_id"],
+                    "reason_code": req.reason_code,
+                    "note": "Pending review did not have a request timestamp; initialized on a blocked attempt.",
+                }]
+
+            db.update_case(case_id, dcr_updates)
             _record_audit_event(
                 auth["user_id"], "case.hearing.blocked", "case", case_id,
                 reason=req.reason_code,
@@ -1182,7 +1253,7 @@ def log_hearing_outcome(case_id: CaseIdentifier, req: HearingRequest, background
             )
             raise HTTPException(
                 status_code=400,
-                detail="5th Adjournment BLOCKED by System under ACJA/ACJL Section 396 compliance rules. Requires Deputy Chief Registrar (DCR) approval with exceptional reason."
+                detail="Adjournment not recorded: the current application review threshold is reached and DCR/Chief Registrar review is pending.",
             )
             
     if req.next_date is None:
@@ -1245,28 +1316,70 @@ def log_hearing_outcome(case_id: CaseIdentifier, req: HearingRequest, background
 
 @app.post("/api/cases/{case_id:path}/dcr-override", response_model=Dict[str, Any])
 def override_dcr_adjournment(case_id: CaseIdentifier, req: DCROverrideRequest, auth: Dict[str, str] = Depends(get_current_user)):
-    """
-    Module 3: DCR 5th Adjournment Approval & Override.
-    Allows DCR to upload exceptional reasons to unblock cases.
-    """
+    """Record a reasoned DCR/Chief Registrar decision on a pending review."""
     if auth["role"] not in ["DCR", "Chief Registrar"]:
-        raise HTTPException(status_code=403, detail="Permission Denied: 5th Adjournment override requires Deputy Chief Registrar (DCR) or Chief Registrar role.")
-        
+        raise HTTPException(status_code=403, detail="Permission Denied: DCR or Chief Registrar role required.")
+
     case = db.get_case(case_id)
     if not case:
         raise HTTPException(status_code=404, detail="Case file not found")
     authorize_case(case, auth)
-        
-    updates = {
+    if not case.get("dcr_approval_required"):
+        raise HTTPException(status_code=409, detail="No pending DCR review exists for this case")
+
+    now_value = format_date(get_current_time())
+    db.update_case(case_id, {
         "dcr_approval_required": False,
         "dcr_override_reason": req.exceptional_reason,
-        "adjournment_blocked": False
-    }
-    
-    db.update_case(case_id, updates)
+        "adjournment_blocked": False,
+        "dcr_auto_escalated": False,
+        "dcr_approval_resolved_at": now_value,
+        "dcr_approval_history": [{
+            "action": "approved",
+            "occurred_at": now_value,
+            "actor_user_id": auth["user_id"],
+            "reason": req.exceptional_reason,
+        }],
+    })
     _record_audit_event(
         auth["user_id"], "case.dcr_override", "case", case_id,
         reason=req.exceptional_reason,
+    )
+    return db.get_case(case_id)
+
+
+@app.post("/api/cases/{case_id:path}/dcr-acknowledge", response_model=Dict[str, Any])
+def acknowledge_dcr_review(
+    case_id: CaseIdentifier,
+    req: DCRReviewAcknowledgementRequest,
+    auth: Dict[str, str] = Depends(get_current_user),
+):
+    """Acknowledge a pending review without approving it or unblocking the case."""
+    if auth["role"] not in ["DCR", "Chief Registrar"]:
+        raise HTTPException(status_code=403, detail="Permission Denied: DCR or Chief Registrar role required.")
+
+    case = db.get_case(case_id)
+    if not case:
+        raise HTTPException(status_code=404, detail="Case file not found")
+    authorize_case(case, auth)
+    if not case.get("dcr_approval_required"):
+        raise HTTPException(status_code=409, detail="No pending DCR review exists for this case")
+
+    now_value = format_date(get_current_time())
+    db.update_case(case_id, {
+        "dcr_acknowledged_at": now_value,
+        "dcr_acknowledged_by": auth["user_id"],
+        "dcr_acknowledgement_note": req.note,
+        "dcr_approval_history": [{
+            "action": "acknowledged",
+            "occurred_at": now_value,
+            "actor_user_id": auth["user_id"],
+            "note": req.note,
+        }],
+    })
+    _record_audit_event(
+        auth["user_id"], "case.dcr_review.acknowledge", "case", case_id,
+        reason=req.note,
     )
     return db.get_case(case_id)
 
@@ -1557,10 +1670,7 @@ def reassign_case(case_id: CaseIdentifier, req: ReassignRequest, auth: Dict[str,
 
 @app.get("/api/export/dcr-weekly")
 def export_dcr_weekly_report(auth: Dict[str, str] = Depends(get_current_user)):
-    """
-    DCR/CR: Generate weekly division performance report.
-    Shows delay cases, pending overrides, and compliance score for the DCR's division.
-    """
+    """DCR/CR: Generate a division-scoped prototype workflow summary."""
     if auth["role"] not in ["DCR", "Chief Registrar"]:
         raise HTTPException(status_code=403, detail="Permission Denied: Weekly report requires DCR or Chief Registrar authority.")
 
@@ -1575,32 +1685,31 @@ def export_dcr_weekly_report(auth: Dict[str, str] = Depends(get_current_user)):
         division_cases = db.list_cases()
 
     total = len(division_cases)
-    stalled = [c for c in division_cases if c.get("risk_flag")]
-    pending_overrides = [c for c in division_cases if c.get("dcr_approval_required")]
+    risk_flagged = [c for c in division_cases if c.get("risk_flag")]
+    pending_reviews = [c for c in division_cases if c.get("dcr_approval_required")]
     blocked = [c for c in division_cases if c.get("adjournment_blocked")]
     missing_files = [c for c in division_cases if case_file_is_missing(c)]
-    compliance_score = round(max(0, (1 - (len(stalled) / max(1, total))) * 100), 1)
     _record_audit_event(
         auth["user_id"], "report.export.dcr_weekly", "report", division,
         metadata={"case_count": total},
     )
 
     return {
-        "report_title": f"DCR Weekly Division Report — {division}",
+        "report_title": f"DCR Weekly Workflow Summary (Prototype) — {division}",
+        "intended_use": "Internal workflow review only; not a legal compliance certificate.",
         "division": division,
         "generated_by": auth["user_id"],
         "export_date": format_date(get_current_time()),
         "summary": {
             "total_cases_in_division": total,
-            "stalled_delay_cases": len(stalled),
-            "pending_5th_adj_overrides": len(pending_overrides),
-            "blocked_cases": len(blocked),
-            "missing_file_reports": len(missing_files),
-            "division_compliance_score": f"{compliance_score}%"
+            "experimental_delay_risk_flags": len(risk_flagged),
+            "pending_dcr_reviews": len(pending_reviews),
+            "application_blocked_cases": len(blocked),
+            "open_missing_file_reports": len(missing_files),
         },
-        "stalled_case_ids": [c["case_id"] for c in stalled],
-        "pending_override_ids": [c["case_id"] for c in pending_overrides],
-        "missing_file_ids": [c["case_id"] for c in missing_files],
+        "experimental_delay_risk_case_ids": [c["case_id"] for c in risk_flagged],
+        "pending_review_case_ids": [c["case_id"] for c in pending_reviews],
+        "open_missing_file_case_ids": [c["case_id"] for c in missing_files],
     }
 
 
@@ -1638,62 +1747,73 @@ def upload_document(case_id: CaseIdentifier, req: DocumentUploadRequest, auth: D
     return db.get_case(case_id)
 
 
-@app.get("/api/cases/{case_id:path}/alerts", response_model=Dict[str, Any])
-def get_case_alerts(case_id: CaseIdentifier, auth: Dict[str, str] = Depends(get_current_user)):
-    """
-    Returns active alerts for a specific case (24hr hearing alerts, RED flags, etc.).
-    Used by Judge docket to show upcoming hearing warnings.
-    """
-    case = db.get_case(case_id)
-    if not case:
-        raise HTTPException(status_code=404, detail="Case file not found")
-    authorize_case(case, auth)
-
+def _build_case_alerts(case: Dict[str, Any]) -> List[Dict[str, Any]]:
+    """Build operational prompts without presenting them as legal conclusions."""
+    case_id = case["case_id"]
     alerts = []
 
-    # Check for upcoming hearings within 24 hours
     hearing_log = case.get("hearing_log", [])
     if hearing_log:
         latest = hearing_log[-1]
         next_date_str = latest.get("next_date", "")
         if next_date_str:
             try:
-                next_dt = parse_date(next_date_str)
-                hours_until = (next_dt - get_current_time()).total_seconds() / 3600
+                hours_until = (parse_date(next_date_str) - get_current_time()).total_seconds() / 3600
                 if 0 < hours_until <= 24:
                     alerts.append({
                         "type": "HEARING_24HR",
-                        "message": f"Hearing in {int(hours_until)} hours — Case {case_id}",
-                        "severity": "warning"
+                        "message": f"Hearing scheduled in {max(1, int(hours_until))} hours.",
+                        "severity": "warning",
                     })
             except (ValueError, TypeError):
                 pass
 
-    # ACJA violation alert
     if case.get("adjournment_count", 0) >= 4:
         alerts.append({
-            "type": "ACJA_VIOLATION",
-            "message": f"Case {case_id} at {case.get('adjournment_count', 0)} adjournments — violates ACJA Sec 396",
-            "severity": "critical"
+            "type": "ADJOURNMENT_REVIEW",
+            "message": (
+                f"The configured application review threshold is reached at "
+                f"{case.get('adjournment_count', 0)} recorded case-level adjournments. "
+                "Verify the approved per-party policy; this prompt is not a legal finding."
+            ),
+            "severity": "warning",
         })
 
-    # RED flag
     if case.get("risk_flag"):
         alerts.append({
-            "type": "RED_FLAG",
-            "message": f"Case {case_id} flagged HIGH delay risk ({(case.get('delay_risk_score', 0) * 100):.0f}%)",
-            "severity": "critical"
+            "type": "EXPERIMENTAL_DELAY_RISK",
+            "message": (
+                f"Experimental delay-risk score: "
+                f"{(case.get('delay_risk_score', 0) * 100):.0f}%. "
+                "Decision support only; not a legal finding."
+            ),
+            "severity": "info",
         })
 
-    # Missing file is an independent operational alert; an idle sweep/check-in cannot clear it.
+    # Missing-file status is independent of idle custody and delay-risk status.
     if case_file_is_missing(case):
         missing_report = case.get("file_missing_report") or {}
         alerts.append({
             "type": "FILE_MISSING",
-            "message": f"Case {case_id} file reported missing — last seen: {missing_report.get('last_known_location', 'Unknown')}",
-            "severity": "critical"
+            "message": f"Physical file reported missing; last known location: {missing_report.get('last_known_location', 'Unknown')}.",
+            "severity": "critical",
         })
 
+    return [
+        {"case_id": case_id, **alert}
+        for alert in alerts
+    ]
+
+
+@app.get("/api/cases/{case_id:path}/alerts", response_model=Dict[str, Any])
+def get_case_alerts(case_id: CaseIdentifier, auth: Dict[str, str] = Depends(get_current_user)):
+    """Return current operational prompts for a case within the caller's scope."""
+    case = db.get_case(case_id)
+    if not case:
+        raise HTTPException(status_code=404, detail="Case file not found")
+    authorize_case(case, auth)
+
+    alerts = _build_case_alerts(case)
     return {"case_id": case_id, "alerts": alerts, "alert_count": len(alerts)}
 
 
@@ -1709,95 +1829,70 @@ def get_case(case_id: CaseIdentifier, auth: Dict[str, str] = Depends(get_current
 
 @app.get("/api/judge/alerts", response_model=Dict[str, Any])
 def get_judge_alerts(auth: Dict[str, str] = Depends(get_current_user)):
-    """
-    Judge/CR: Get all alerts across the judge's assigned docket.
-    Returns 24hr hearing warnings and ACJA violation alerts.
-    """
+    """Return operational prompts across the Judge's or Chief Registrar's scoped docket."""
     if auth["role"] not in ["Judge", "Chief Registrar"]:
         raise HTTPException(status_code=403, detail="Permission Denied: Judge alerts are restricted to Judges and Chief Registrar.")
 
-    docket = scoped_cases(auth)
-
-    alerts = []
-    for case in docket:
-        case_id = case["case_id"]
-
-        # 24hr hearing check
-        hearing_log = case.get("hearing_log", [])
-        if hearing_log:
-            latest = hearing_log[-1]
-            next_date_str = latest.get("next_date", "")
-            if next_date_str:
-                try:
-                    next_dt = parse_date(next_date_str)
-                    hours_until = (next_dt - get_current_time()).total_seconds() / 3600
-                    if 0 < hours_until <= 24:
-                        alerts.append({
-                            "case_id": case_id,
-                            "type": "HEARING_24HR",
-                            "message": f"Hearing in {int(hours_until)}hrs",
-                            "severity": "warning"
-                        })
-                except (ValueError, TypeError):
-                    pass
-
-        # ACJA violation
-        if case.get("adjournment_count", 0) >= 4:
-            alerts.append({
-                "case_id": case_id,
-                "type": "ACJA_VIOLATION",
-                "message": f"{case.get('adjournment_count')} adjournments — ACJA Sec 396",
-                "severity": "critical"
-            })
-
-        # RED flag
-        if case.get("risk_flag"):
-            alerts.append({
-                "case_id": case_id,
-                "type": "RED_FLAG",
-                "message": f"High delay risk ({(case.get('delay_risk_score', 0) * 100):.0f}%)",
-                "severity": "critical"
-            })
-
+    alerts = [
+        alert
+        for case in scoped_cases(auth)
+        for alert in _build_case_alerts(case)
+    ]
     return {
         "judge_id": auth["user_id"],
         "total_alerts": len(alerts),
-        "alerts": alerts
+        "alerts": alerts,
     }
 
-@app.get("/api/export/njc")
-def export_njc_report(auth: Dict[str, str] = Depends(get_current_user)):
-    """
-    Module 4: 1-Click NJC Monthly Delay Compliance Exporter.
-    Generates structured JSON report for the National Judicial Council (NJC) / NCMS.
-    """
+@app.get("/api/export/prototype-summary")
+def export_prototype_summary(auth: Dict[str, str] = Depends(get_current_user)):
+    """Export a scoped, PII-minimized prototype workflow summary (not an official report)."""
     if auth["role"] not in ["Chief Registrar", "DCR"]:
-        raise HTTPException(status_code=403, detail="Permission Denied: NJC Export requires Chief Registrar or DCR authority.")
-        
+        raise HTTPException(status_code=403, detail="Permission Denied: prototype summary export requires DCR or Chief Registrar authority.")
+
+    user = db.get_user(auth["user_id"]) or {}
+    if auth["role"] == "DCR" and (not user.get("division") or user.get("division") == "All Divisions"):
+        raise HTTPException(status_code=403, detail="DCR account has no valid assigned division")
+
     cases = scoped_cases(auth)
-    total_cases = len(cases)
-    stalled_cases = [c for c in cases if c.get("risk_flag")]
-    delays_count = len(stalled_cases)
-    compliance_score = round(max(0, (1 - (delays_count / max(1, total_cases))) * 100), 1)
+    case_summaries = [{
+        "case_id": case["case_id"],
+        "judgment_status": case.get("judgment_status"),
+        "experimental_delay_risk_score": case.get("delay_risk_score"),
+        "experimental_delay_risk_flag": bool(case.get("risk_flag")),
+        "idle_custody_prompt": bool(case.get("custody_alert")),
+        "open_missing_file_report": case_file_is_missing(case),
+        "pending_dcr_review": bool(case.get("dcr_approval_required")),
+        "prototype_execution_review_flag": bool(case.get("enforcement_non_compliant")),
+    } for case in cases]
+    summary = {
+        "total_scoped_cases": len(cases),
+        "experimental_delay_risk_flags": sum(item["experimental_delay_risk_flag"] for item in case_summaries),
+        "idle_custody_prompts": sum(item["idle_custody_prompt"] for item in case_summaries),
+        "open_missing_file_reports": sum(item["open_missing_file_report"] for item in case_summaries),
+        "pending_dcr_reviews": sum(item["pending_dcr_review"] for item in case_summaries),
+        "prototype_execution_review_flags": sum(item["prototype_execution_review_flag"] for item in case_summaries),
+    }
     _record_audit_event(
-        auth["user_id"], "report.export.njc", "report", auth["role"],
-        metadata={"case_count": total_cases},
+        auth["user_id"], "report.export.prototype_summary", "report", auth["role"],
+        metadata={"case_count": len(cases)},
     )
-    
+
+    scope = user.get("division") if auth["role"] == "DCR" else "all cases in Chief Registrar scope"
     return {
-        "report_title": "National Judicial Council (NJC) Monthly Delay Compliance Report",
-        "jurisdiction": "Federal High Court / High Court Division",
+        "report_title": "COURTLOG Prototype Workflow Summary",
+        "intended_use": "Internal prototype review only; not an official NJC/NCMS submission or legal compliance certificate.",
+        "scope": scope,
         "export_date": format_date(get_current_time()),
         "generated_by": auth["user_id"],
         "user_role": auth["role"],
-        "summary": {
-            "total_active_dockets": total_cases,
-            "stalled_cases_flagged": delays_count,
-            "speedy_trial_compliance_score": f"{compliance_score}%",
-            "pending_dcr_overrides": sum(1 for c in cases if c.get("dcr_approval_required")),
-            "enforcement_breaches": sum(1 for c in cases if c.get("enforcement_non_compliant"))
-        },
-        "audited_cases": cases
+        "summary": summary,
+        "case_summaries": case_summaries,
+        "limitations": [
+            "Experimental delay-risk flags are not proven delay or non-compliance.",
+            "Custody, adjournment, missing-file, and execution prompts require human review.",
+            "This export omits party contact details and event histories.",
+        ],
     }
 
 
@@ -1916,11 +2011,11 @@ def add_execution_action(case_id: CaseIdentifier, req: ExecutionRequest, auth: D
 @app.post("/api/cron", response_model=Dict[str, Any])
 def run_cron_compliance_sweep(auth: Dict[str, str] = Depends(get_current_user)):
     """
-    Simulated daily background sweep endpoint.
-    Recalculates custody flags, days_since_filing, and enforcement alerts.
+    Simulated daily workflow sweep endpoint.
+    Recalculates custody flags, days_since_filing, and execution-review prompts.
     """
     if auth["role"] != "Chief Registrar":
-        raise HTTPException(status_code=403, detail="Compliance sweep requires Chief Registrar authority")
+        raise HTTPException(status_code=403, detail="Workflow sweep requires Chief Registrar authority")
     run_compliance_checks_sync()
     cases = db.list_cases()
     
@@ -1928,7 +2023,7 @@ def run_cron_compliance_sweep(auth: Dict[str, str] = Depends(get_current_user)):
         "total_cases": len(cases),
         "custody_alerts": sum(1 for c in cases if c.get("custody_alert")),
         "missing_file_alerts": sum(1 for c in cases if case_file_is_missing(c)),
-        "non_compliant_enforcements": sum(1 for c in cases if c.get("enforcement_non_compliant")),
+        "execution_review_prompts": sum(1 for c in cases if c.get("enforcement_non_compliant")),
         "high_risk_delay_cases": sum(1 for c in cases if c.get("risk_flag"))
     }
     _record_audit_event(

@@ -1,4 +1,4 @@
-/* Print is handled via window.open() in app.js — no @media print rules needed here */
+/* QR label printing uses the scoped @media print rules below. */
 
 
 

@@ -9,6 +9,8 @@
 | **Evidence tags** | **[R]** reproduced by running code · **[S]** static code reading · **[D]** from a document or web source |
 | **Effort sizes** | S ≈ under ½ day · M ≈ 1–3 days · L ≈ a week or more (rough, one developer) |
 
+> **Snapshot warning (1 October 2026):** This is a read-only audit of commit `723a583`, not the current working tree. Its `DONE`/`YET TO BE DONE` findings and the statement that the repository was not modified describe that audit snapshot only. Use the completion plan and latest development-progress entry for changes and verification after that commit; in particular, local frontend assets/CDN removal and the C5 alert/clock workflow are subsequent changes. Historical references to seeded data must not be treated as authorization to use real records.
+
 **Contents:** 1 Executive summary · 2 What is DONE · 3 What is YET TO BE DONE · 4 Detailed findings · 5 Claims vs reality · 6 Legal and platform premises · 7 State of the repo's own self-assessment docs · 8 What checked out fine / what I could not verify · Appendices A–C
 
 ---

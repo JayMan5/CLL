@@ -1,5 +1,7 @@
 *COURTLOG — Project Update & Current Scope*
 
+> **Status update — 1 October 2026:** This brief contains historical proposal assumptions, not current implementation or approval evidence. Use [`COURTLOG_COMPLETION_PLAN.md`](COURTLOG_COMPLETION_PLAN.md), [`DEVELOPMENT_PROGRESS.md`](DEVELOPMENT_PROGRESS.md), and [`README.md`](README.md) for current status. Demo messaging is simulated, the delay-risk data is synthetic and unvalidated, legal thresholds/forms are pending Law Lead approval, C2 phone/printer acceptance is pending, and any institutional-review/proposal assertions below must be reconfirmed from current written evidence before external use. Do not use real court data without documented permission.
+
 # COURTLOG
 
 ## Project Update & Current Scope — Team Brief
@@ -8,13 +10,13 @@
 
 ## 1. What Changed, and Why It Matters
 
-The Deputy Chief Registrar of the Federal High Court, Barrister Antonia Oyibo, reviewed the COURTLOG concept and gave us three pieces of feedback that change how the project is framed and how part of it should be built. This document exists so every team member is working from the same current picture — nobody should be drafting abstract, deck, BMC, or video content from the older framing after reading this.
+Earlier project notes state that the Deputy Chief Registrar of the Federal High Court, Barrister Antonia Oyibo, reviewed the COURTLOG concept and gave feedback on framing and notices. This development pass did not verify that account or any current approval. Confirm documentary evidence before using the person's name or describing institutional endorsement in submission material; this brief is not a current approval record.
 
 | Feedback Received | What It Means For Us |
 | --- | --- |
-| The Court is already deploying an E-filing system and virtual court administration alongside the analog process | COURTLOG must be positioned as a complement to E-filing, not a competing or duplicate system. E-filing handles document submission; COURTLOG handles physical file custody, adjournment compliance, and delay prediction — the parts E-filing does not cover. |
-| Hearing notices are already sent via registrar-managed WhatsApp groups, not SMS | Every reference to SMS/Termii in our materials and build plan is replaced with WhatsApp integration. This is a real build decision, not just messaging — see Section 4. |
-| Implementation requires a formal proposal to the Chief Registrar's office, subject to the Chief Judge's approval | This gives us a genuine, named institutional pathway to cite in our feasibility case — far stronger than 'we spoke to a registrar.' A formal proposal letter has been drafted and is going to the Chief Registrar's office. |
+| Earlier project notes describe ongoing e-filing and virtual-court work | Verify the current deployment scope with the institution. COURTLOG is intended to complement existing workflows, but no integration or coverage gap is established by this code review. |
+| Earlier project notes say hearing notices use registrar-managed WhatsApp groups | This practice was not independently verified in this code review. The current demo path is a simulator and sends no real recipient notice. The documented WhatsApp Groups API does not join existing consumer groups; it is limited to API-created groups (max eight participants) for eligible Official Business Accounts. Do not claim integration or design around an unapproved existing group. |
+| Earlier notes describe a formal proposal path to the Chief Registrar's office, subject to further approvals | The existence, submission status, and current approval path were not verified in this development pass. Confirm documentary evidence before citing the pathway; a proposal or review is not deployment approval or permission to use live data. |
 
 ## 2. Full Project Scope — Everything We're Building
 
@@ -22,37 +24,37 @@ This is the complete, current feature list. Every module below is in scope. This
 
 | Feature | What It Does | Current Adaptation / Status |
 | --- | --- | --- |
-| **1. Physical File Tracking (QR Chain of Custody)** | Every case file carries a QR code, scanned at filing, registry, and courtroom checkpoints. Dashboard shows current location in real time and flags files unscanned for 7+ days. | Positioned as a complement to the ongoing E-filing rollout, not a competing system — it covers physical custody, which E-filing does not. |
-| **2. Hearing Compliance Engine** | Clerk logs the outcome of each call-over in one tap (heard, adjourned, reason). Next hearing date is communicated to parties/counsel. | Notice delivery updated from SMS/Termii to WhatsApp, to integrate with the registry-managed WhatsApp groups already in use for hearing notices. |
-| **3. Delay-Risk Model (Predictive Layer)** | A model trained on case type, court, number of prior adjournments, and time elapsed flags which pending matters are statistically likely to stall, before they do. | This is the core AI/data component that fits the COUCH 2026 theme and the Best AI Innovation Award. Still to be built — see Section 4 for the technical spec status. |
-| **4. Execution Tracker (Post-Judgment Non-Compliance Tracking)** | Dashboard lists judgments awaiting execution, generates enforcement forms (Writ of Fi Fa, Garnishee) from the Judgment Enforcement Rules, and logs sheriff action with timestamps. Flags matters with no action after 90 days as non-compliant. | Back in full scope. This is the module that closes the loop from filing through to actual enforcement — without it, COURTLOG only addresses delay up to judgment, not compliance after it. |
+| **1. Physical File Tracking (QR Chain of Custody)** | The prototype issues an opaque local QR label and records authenticated check-ins; its seven-day clock is an idle-custody prompt, not proof that a file is missing. | Code is present, but real phone/camera/printer acceptance is pending. No offline scan is queued; staging must use fictional records. |
+| **2. Hearing Workflow** | Clerks can record hearing outcomes and a next date. The prototype currently has a configured case-level adjournment review trigger; it is not a statutory finding or per-party count. | Real notices are not delivered. WhatsApp remains an explicitly labelled demo simulation; any production integration requires approved recipient/channel design and onboarding. Hearing policy requires Law Lead sign-off. |
+| **3. Experimental Delay-Risk Score** | A prototype score uses case type, court, recorded case-level adjournments, and elapsed days. | The 3,000-row training CSV is generated synthetic data with rule-generated labels; there is no independent real-outcome validation. Treat the score as decision support only, not a legal finding. |
+| **4. Post-Judgment Workflow Prototype** | The UI tracks execution events and can produce draft document output; the 90-day prompt is an operational prototype threshold. | Applicable rules, forms, stays/appeals, and threshold require legal review. Generated output is not an issued court process. |
 
-Together, these four features cover the full life of a case file: filing and physical custody, hearing and adjournment compliance, predictive early-warning of delay, and post-judgment enforcement compliance. That end-to-end coverage — not any single module — is the actual pitch: COURTLOG follows a case from the moment it is filed to the moment a judgment is actually enforced, and flags non-compliance and delay risk at every stage along the way.
+Together, these four workflow areas describe the intended scope, not a validated end-to-end service. Current code is a prototype: policy approval, legal forms, live messaging, actual-device acceptance, authorized data, independent model validation, and controlled deployment remain separate gates. Do not describe an operational or legally compliant end-to-end service until those gates are documented.
 
 Honest flag for the team: building and convincingly demoing all four modules by the November finale is ambitious. This section states the full intended scope so nothing is forgotten or built inconsistently — it is not a claim that all four will necessarily be equally built out for the live demo. That build-priority decision should be made deliberately by the team once the CS side has scoped what is realistically achievable, not by quietly dropping a module.
 
-Sector fit for COUCH 2026: Public Sector / e-governance, with the predictive layer also making the project eligible for the Best AI Innovation Award. The institutional relationship — Deputy Chief Registrar review, formal proposal now with the Chief Registrar's office, pending Chief Judge approval — is now a core part of the feasibility case, not a background detail.
+The team is targeting COUCH 2026's Public Sector / e-Governance track. Any Best AI Innovation claim must describe the model as synthetic-data prototyping without independent validation. Institutional review/proposal/approval assertions remain unverified in this code review and require current written evidence before inclusion in a feasibility case.
 
 ## 3. Status of Submission Deliverables
 
 | Deliverable | Status | What Still Needs to Happen |
 | --- | --- | --- |
-| **Abstract** | Draft exists, needs revision | Rewrite feasibility paragraph to cite registrar review + Chief Registrar proposal; swap SMS for WhatsApp throughout. |
+| **Abstract** | Draft exists; status language revised | Verify any institutional assertions from current written evidence; clearly label the prototype, synthetic-risk score, pending legal/device gates, and simulator-only messaging. |
 | **Pitch deck** | Not started | Add/reframe a slide showing COURTLOG alongside E-filing, not competing with it. Feasibility slide should name the Chief Registrar/Chief Judge pathway. |
-| **Business Model Canvas** | Not started | Key Partners: add Federal High Court registry/NJC explicitly. Channels: WhatsApp, not SMS gateway. |
+| **Business Model Canvas** | Not started | Validate partners/approvals before naming them. Select a permitted messaging channel only after recipient, provider, legal, privacy, and delivery requirements are approved. |
 | **Pitch video** | Not started | Script should land the 'complement, not competitor' framing early, and mention the registrar review. |
 | **Proposal to Chief Registrar** | Drafted, sending now | Not a COUCH requirement, but strengthens every other document once a response (or even proof of submission) is in hand. |
 
-Days remaining to submit: 13 as of the last confirmed count — reconfirm the exact number and the team dashboard's file requirements before finalising anything, since a few days have passed since that count was taken.
+Do not use the historical day-count or submission status above. The current project plan targets the pilot for 21 October 2026 and the full competition showcase for 5 November 2026; reconfirm official submission deadlines and requirements with the competition dashboard.
 
 ## 4. Build Impact for the Tech/CS Team
 
-One concrete change to the technical spec already shared: replace all SMS/Termii references with WhatsApp Business API integration for the Hearing Compliance Engine's notice function. This is a build simplification, not just a wording change — it removes the per-message SMS cost, and integrates with a channel registry staff are already trained on rather than asking them to adopt a new one. All other elements of the technical specification (data schema, delay-risk model design, tech stack, architecture, privacy notes) are unchanged.
+Messaging is not an approved or implemented production integration. The current `whatsapp.py` flow is an explicitly labelled simulator for a disposable demo and does not deliver real notices. Before any build decision, the institution must approve the channel, recipient consent/opt-in, templates, provider, data-processing terms, delivery/failure handling, and operational support. The Meta Groups API must not be assumed to join an existing registry-managed group; current published constraints require an eligible Official Business Account and API-created groups with a maximum of eight participants. Keep the simulator clearly labelled until those dependencies are resolved.
 
 ## 5. Immediate Action Items
 
 - Everyone: read this document before drafting or editing any submission material.
 - Team lead: confirm exact submission deadline and file requirements on the team dashboard.
-- Law lead: revise the abstract with the E-filing/WhatsApp/Chief Registrar framing.
-- CS team: update build plan to replace SMS/Termii with WhatsApp Business API; continue on the delay-risk model per the existing technical spec.
+- Law lead: review the configured adjournment trigger, applicable execution policy/forms, and any intended messaging notices; provide written sign-off before policy changes.
+- CS team: keep the simulator clearly labelled; do not implement live messaging or use real case data until channel/onboarding and data permissions are documented. Continue only with synthetic-data risk prototyping and report its limitations.
 - Team lead: track any response from the Chief Registrar's office and circulate it immediately — it directly strengthens the feasibility section of every remaining deliverable.

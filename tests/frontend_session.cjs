@@ -36,6 +36,9 @@ dom.window.fetch = async (url, options = {}) => {
     }
     if (url === '/api/login') return response(200, {access_token: 'login-access', token_type: 'bearer', user: profile});
     if (url === '/api/cases') return response(200, []);
+    if (url === '/api/judge/alerts') return response(200, {alerts: [
+        {case_id: '<img src=x onerror=window.stolen=true>', type: 'ADJOURNMENT_REVIEW', message: '<svg onload=window.stolen=true>'}
+    ]});
     if (String(url).endsWith('/sheriffs')) return response(200, [
         {user_id:'usr_sheriff_02', name:'Assigned Test Sheriff', badge:'Fictional'},
     ]);
@@ -85,6 +88,16 @@ dom.window.fetch = async (url, options = {}) => {
 
     await vm.runInContext('apiFetch("/api/password-required")', context);
     assert.equal(dom.window.document.getElementById('password-change-overlay').classList.contains('hidden'), false);
+
+    vm.runInContext('authenticatedUser.role = "Judge"', context);
+    await vm.runInContext('fetchJudgeAlerts()', context);
+    const alertList = dom.window.document.getElementById('judge-alert-list');
+    assert.equal(alertList.querySelector('img, svg'), null, 'API alert content is inserted as text, not markup');
+    assert.match(alertList.textContent, /<img src=x/);
+    assert.match(alertList.textContent, /<svg onload=/);
+    assert.equal(dom.window.document.getElementById('judge-alert-count').textContent, '1');
+    assert.equal(dom.window.document.getElementById('judge-alert-banner').classList.contains('hidden'), false);
+    vm.runInContext('authenticatedUser.role = "Clerk"', context);
 
     vm.runInContext('loadDashboardData = async () => {}', context);
     await vm.runInContext('openAssignSheriffModal("SAFE/ASSIGN")', context);

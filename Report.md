@@ -1,5 +1,7 @@
 # COURTLOG — Codebase Analysis & Status Report
 
+> **Historical report — superseded as of 1 October 2026.** Its status tagline and statements about live databases, seeded records, complete legal enforcement, WhatsApp delivery, CDN assets, and model performance are not current acceptance evidence. Refer to [`COURTLOG_FULL_AUDIT.md`](COURTLOG_FULL_AUDIT.md), [`COURTLOG_COMPLETION_PLAN.md`](COURTLOG_COMPLETION_PLAN.md), [`DEVELOPMENT_PROGRESS.md`](DEVELOPMENT_PROGRESS.md), and [`README.md`](README.md). The 3,000-row delay dataset is generated synthetic prototype data, not a set of 3,000 court records; the model is not independently validated on real outcomes. Do not use legacy court DB/seed files without written permission.
+
 **Project:** COURTLOG — Intelligent Court Case Tracking & Compliance Platform
 **Target:** COUCH 2026 Competition
 **Report basis:** Full read-only codebase audit (entire project excluding `venv/`)

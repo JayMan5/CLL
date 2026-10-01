@@ -1,7 +1,20 @@
 /* COURTLOG PWA shell only. Authenticated API data and all POSTs are never cached. */
-const CACHE_NAME = "courtlog-shell-v1";
+const CACHE_NAME = "courtlog-shell-v3";
 const SHELL_ASSETS = [
+  "/static/tailwind.css",
   "/static/index.css",
+  "/static/vendor/fonts/outfit/wght.css",
+  "/static/vendor/fonts/outfit/files/outfit-latin-wght-normal.woff2",
+  "/static/vendor/fonts/outfit/files/outfit-latin-ext-wght-normal.woff2",
+  "/static/vendor/fonts/plus-jakarta-sans/wght.css",
+  "/static/vendor/fonts/plus-jakarta-sans/files/plus-jakarta-sans-latin-wght-normal.woff2",
+  "/static/vendor/fonts/plus-jakarta-sans/files/plus-jakarta-sans-latin-ext-wght-normal.woff2",
+  "/static/vendor/fontawesome/css/all.min.css",
+  "/static/vendor/fontawesome/webfonts/fa-brands-400.woff2",
+  "/static/vendor/fontawesome/webfonts/fa-regular-400.woff2",
+  "/static/vendor/fontawesome/webfonts/fa-solid-900.woff2",
+  "/static/vendor/fontawesome/webfonts/fa-v4compatibility.woff2",
+  "/static/chart.bundle.js",
   "/static/app.js",
   "/static/c2-pwa.bundle.js",
   "/static/manifest.webmanifest",

@@ -256,9 +256,12 @@ def test_dcr_export_is_scoped():
     fixture_case('SEC/CIVIL')['assigned_division'] = 'Civil'
     case = main.db.get_case('SEC/CIVIL'); case['assigned_division'] = 'Civil'
     main.db.save_case('SEC/CIVIL', case)
-    response = client.get('/api/export/njc', headers=headers('usr_dcr_01'))
+    response = client.get('/api/export/prototype-summary', headers=headers('usr_dcr_01'))
     assert response.status_code == 200
-    assert all(c['assigned_division'] == 'Criminal' for c in response.json()['audited_cases'])
+    payload = response.json()
+    assert payload['scope'] == 'Criminal'
+    assert 'SEC/CIVIL' not in {item['case_id'] for item in payload['case_summaries']}
+    assert 'audited_cases' not in payload
 
     dcr = main.db.get_user('usr_dcr_01')
     original_division = dcr['division']
@@ -266,6 +269,7 @@ def test_dcr_export_is_scoped():
         dcr['division'] = 'All Divisions'
         main.db.save_user('usr_dcr_01', dcr)
         assert client.get('/api/export/dcr-weekly', headers=headers('usr_dcr_01')).status_code == 403
+        assert client.get('/api/export/prototype-summary', headers=headers('usr_dcr_01')).status_code == 403
     finally:
         dcr['division'] = original_division
         main.db.save_user('usr_dcr_01', dcr)
@@ -716,6 +720,9 @@ def test_audit_records_hearing_and_override_actor_time_and_reason():
     assert hearing.status_code == 200
 
     fixture_case('SEC/AUDIT-OVERRIDE')
+    main.db.update_case('SEC/AUDIT-OVERRIDE', {
+        'dcr_approval_required': True, 'adjournment_blocked': True,
+    })
     override_reason = 'Urgent exceptional registry reason 482'
     override = client.post(
         '/api/cases/SEC/AUDIT-OVERRIDE/dcr-override', headers=headers('usr_dcr_01'),

@@ -1,6 +1,8 @@
 # COURTLOG — Project Audit & Next Steps
 
-*What's built, what's working, what's missing, and what to develop next.*
+> **Historical snapshot — superseded as of 1 October 2026.** Do not rely on the ✅ statuses or implementation claims below as current acceptance evidence. Several statements predate the security/full audit and later code changes (including the CDN removal, local QR generation, current API permissions, DCR review workflow, legal-policy caveats, and truthful ML labels). For current status, use [`COURTLOG_FULL_AUDIT.md`](COURTLOG_FULL_AUDIT.md), [`COURTLOG_COMPLETION_PLAN.md`](COURTLOG_COMPLETION_PLAN.md), [`DEVELOPMENT_PROGRESS.md`](DEVELOPMENT_PROGRESS.md), and [`README.md`](README.md). The training CSV is generated synthetic prototype data, not 3,000 real case records; no model has independent real-outcome validation. Treat legacy court databases/seed CSVs as read-only and do not use real records without written permission.
+
+*Historical description retained for traceability; not a current readiness statement.*
 
 ---
 

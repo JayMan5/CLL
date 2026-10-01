@@ -7,6 +7,20 @@ const { JSDOM } = require('jsdom');
 const QRCode = require('qrcode');
 
 const manifest = JSON.parse(fs.readFileSync('frontend/manifest.webmanifest', 'utf8'));
+const indexHtml = fs.readFileSync('frontend/index.html', 'utf8');
+assert.doesNotMatch(indexHtml, /https:\/\/(?:cdn\.|fonts\.)/i, 'runtime frontend dependencies do not use external CDNs');
+for (const localAsset of [
+  '/static/tailwind.css',
+  '/static/chart.bundle.js',
+  '/static/vendor/fontawesome/css/all.min.css',
+  '/static/vendor/fonts/outfit/wght.css',
+  '/static/vendor/fonts/plus-jakarta-sans/wght.css',
+]) {
+  assert.ok(indexHtml.includes(localAsset), `page references local asset ${localAsset}`);
+}
+assert.ok(fs.statSync('frontend/tailwind.css').size > 0, 'Tailwind output was built locally');
+assert.ok(fs.statSync('frontend/chart.bundle.js').size > 100_000, 'Chart.js is bundled locally');
+assert.ok(indexHtml.indexOf('/static/chart.bundle.js') < indexHtml.indexOf('/static/app.js'), 'Chart.js loads before the application that uses it');
 assert.equal(manifest.start_url, '/');
 assert.equal(manifest.scope, '/');
 assert.ok(manifest.icons.some(icon => icon.sizes === '192x192'));
@@ -14,6 +28,19 @@ assert.ok(manifest.icons.some(icon => icon.sizes === '512x512'));
 for (const icon of manifest.icons) assert.ok(fs.existsSync(`frontend${icon.src.replace('/static', '')}`));
 
 const serviceWorker = fs.readFileSync('frontend/service-worker.js', 'utf8');
+for (const localAsset of [
+  '/static/tailwind.css',
+  '/static/chart.bundle.js',
+  '/static/vendor/fontawesome/css/all.min.css',
+  '/static/vendor/fonts/outfit/files/outfit-latin-wght-normal.woff2',
+  '/static/vendor/fonts/plus-jakarta-sans/files/plus-jakarta-sans-latin-wght-normal.woff2',
+]) {
+  assert.ok(serviceWorker.includes(localAsset), `PWA shell cache includes ${localAsset}`);
+}
+for (const [, path] of serviceWorker.matchAll(/"(\/static\/[^\"]+)"/g)) {
+  assert.ok(fs.existsSync(`frontend${path.replace('/static', '')}`), `cached asset exists: ${path}`);
+}
+assert.match(serviceWorker, /courtlog-shell-v3/, 'asset changes invalidate the earlier static cache');
 assert.match(serviceWorker, /request\.method !== "GET"/);
 assert.match(serviceWorker, /url\.pathname\.startsWith\("\/api\/"\)/, 'API responses are bypassed by the shell cache');
 assert.match(serviceWorker, /does not queue custody scans/i);

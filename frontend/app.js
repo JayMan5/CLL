@@ -24,8 +24,9 @@ document.addEventListener('click', event => {
     const actions = {
         scan: shortcutQRScan, hearing: shortcutHearingLog, assign: openAssignJudgeModal,
         assignSheriff: openAssignSheriffModal, handover: openSheriffHandoverModal,
-        writ: selectCaseForWrit, override: openDCROverrideModal, ruling: logJudicialRuling,
-        deleteUser: deleteUserAccount, resetPassword: resetUserPassword, explain: showExplainability
+        writ: selectCaseForWrit, override: openDCROverrideModal, acknowledgeDCR: acknowledgeDCRReview,
+        ruling: logJudicialRuling, deleteUser: deleteUserAccount, resetPassword: resetUserPassword,
+        explain: showExplainability
     };
     const action = actions[button.dataset.caseAction];
     if (action) action(button.dataset.recordId);
@@ -458,14 +459,14 @@ function updateRoleUI() {
     const navJudge = document.getElementById("nav-judge-docket");
     const navUserAdmin = document.getElementById("nav-user-admin");
     const navWhatsApp = document.getElementById("nav-whatsapp");
-    const btnNJC = document.getElementById("btn-njc-export");
+    const btnReportExport = document.getElementById("btn-prototype-summary");
 
     if (navCustody) navCustody.style.display = ["Sheriff", "Clerk", "Chief Registrar"].includes(role) ? "flex" : "none";
     if (navDCR) navDCR.style.display = (role === "DCR" || role === "Chief Registrar") ? "flex" : "none";
     if (navJudge) navJudge.style.display = (role === "Judge" || role === "Chief Registrar") ? "flex" : "none";
     if (navUserAdmin) navUserAdmin.style.display = (role === "Chief Registrar") ? "flex" : "none";
     if (navWhatsApp) navWhatsApp.style.display = (demoMode && role === "Chief Registrar") ? "flex" : "none";
-    if (btnNJC) btnNJC.style.display = (role === "Chief Registrar" || role === "DCR") ? "inline-flex" : "none";
+    if (btnReportExport) btnReportExport.style.display = (role === "Chief Registrar" || role === "DCR") ? "inline-flex" : "none";
 
     const sheriffQrTools = document.getElementById("sheriff-qr-tools");
     const qrLabelTools = document.getElementById("qr-label-tools");
@@ -515,6 +516,9 @@ function switchTab(tabId) {
     if (tabId === 'tab-ai-risk' && typeof aiRiskData !== 'undefined' && aiRiskData.length === 0) {
         loadAIRiskData();
     }
+    if (tabId === "tab-judge-docket" && ["Judge", "Chief Registrar"].includes(authenticatedUser?.role)) {
+        fetchJudgeAlerts();
+    }
 
     const viewTitles = {
         "tab-overview": "Registry Performance Hub",
@@ -522,8 +526,8 @@ function switchTab(tabId) {
         "tab-courtrooms": "Clerk Call-Over Logger",
         "tab-dcr-console": "DCR Division Supervisor Hub",
         "tab-judge-docket": "My Assigned Judicial Docket",
-        "tab-ai-risk": "AI Delay-Risk Intelligence",
-        "tab-execution": "Post-Judgment Execution & Compliance",
+        "tab-ai-risk": "Experimental Delay-Risk Prototype",
+        "tab-execution": "Post-Judgment Workflow Prototype",
         "tab-user-admin": "Judiciary User Administration",
         "tab-whatsapp": "WhatsApp Webhook Simulation Stream"
     };
@@ -549,6 +553,15 @@ async function loadDashboardData() {
         populateDropdowns();
         renderExecutionTable();
         renderChart();
+        if (["Judge", "Chief Registrar"].includes(getActiveUser().role)) {
+            await fetchJudgeAlerts();
+        } else {
+            const alertBanner = document.getElementById("judge-alert-banner");
+            alertBanner?.classList.add("hidden");
+            document.getElementById("judge-alert-list")?.replaceChildren();
+            const alertCount = document.getElementById("judge-alert-count");
+            if (alertCount) alertCount.textContent = "0";
+        }
         if (demoMode && authenticatedUser?.role === "Chief Registrar") loadWhatsAppLogs();
     } catch (error) {
         logger(`Error loading dashboard: ${error}`);
@@ -663,7 +676,7 @@ function renderHeatmapTable(cases) {
             alertBadges.push(`<span class="badge badge-high"><i class="fa-solid fa-triangle-exclamation mr-1"></i> Registry Idle</span>`);
         }
         if (c.enforcement_non_compliant) {
-            alertBadges.push(`<span class="badge badge-mod"><i class="fa-solid fa-scale-unbalanced mr-1"></i> Sheriff Overdue</span>`);
+            alertBadges.push(`<span class="badge badge-mod"><i class="fa-solid fa-scale-unbalanced mr-1"></i> Execution Review Prompt</span>`);
         }
         if (alertBadges.length === 0 && c.judgment_status === "Executed") {
             alertBadges.push(`<span class="badge badge-low">Enforced</span>`);
@@ -720,7 +733,7 @@ function renderExecutionTable() {
         const judgments = casesData.filter(c => c.judgment_status === "Delivered" || c.judgment_status === "Judgment Delivered");
 
         if (judgments.length === 0) {
-            tableBody.innerHTML = `<tr><td colspan="6" class="text-center py-8" style="color:var(--text-muted)">No judgments awaiting enforcement compliance.</td></tr>`;
+            tableBody.innerHTML = `<tr><td colspan="6" class="text-center py-8" style="color:var(--text-muted)">No delivered judgments currently meet the prototype execution review trigger.</td></tr>`;
             return;
         }
 
@@ -734,9 +747,9 @@ function renderExecutionTable() {
                 deliveryDate = new Date(c.filing_date).toLocaleDateString();
             }
 
-            let statusBadge = `<span class="badge badge-low font-semibold">Compliant</span>`;
+            let statusBadge = `<span class="badge badge-low font-semibold">No Review Prompt</span>`;
             if (c.enforcement_non_compliant) {
-                statusBadge = `<span class="badge badge-high badge-pulse font-bold"><i class="fa-solid fa-clock mr-1"></i> Overdue (90d+)</span>`;
+                statusBadge = `<span class="badge badge-high badge-pulse font-bold"><i class="fa-solid fa-clock mr-1"></i> Review Prompt (90d+)</span>`;
             }
 
             const enforceActions = (c.execution_log || []).filter(e => e.action && !e.action.includes("Delivered"));
@@ -1211,13 +1224,13 @@ async function handleHearingSubmit(e) {
 
         if (!response.ok) {
             const err = await response.json();
-            alert(`🚨 5TH ADJOURNMENT HARD BLOCKED BY SYSTEM:\n${err.detail || "Hearing logging failed."}\n\nCase has been auto-escalated to the DCR Approval Queue.`);
+            alert(`Hearing was not recorded. ${err.detail || "The request could not be completed."}`);
             await loadDashboardData();
             return;
         }
 
         await loadDashboardData();
-        alert(`Hearing outcome logged successfully! WhatsApp simulation payload sent for case ${case_id}.`);
+        showToast(`Hearing outcome recorded for case ${case_id}. Messaging, if configured, is handled separately.`, "success");
     } catch (error) {
         logger(`Hearing logging error: ${error}`);
     }
@@ -1231,30 +1244,42 @@ function renderDCRTable() {
     tableBody.innerHTML = "";
 
     const dcrCases = casesData.filter(c => c.dcr_approval_required || c.adjournment_count >= 4);
-
     if (dcrCases.length === 0) {
-        tableBody.innerHTML = `<tr><td colspan="6" class="text-center py-8" style="color:var(--text-muted)">No cases currently pending DCR 5th adjournment exception review.</td></tr>`;
+        tableBody.innerHTML = `<tr><td colspan="6" class="text-center py-8" style="color:var(--text-muted)">No cases currently meet the configured application review trigger.</td></tr>`;
         return;
     }
 
     dcrCases.map(safeRecord).forEach(c => {
-        const isBlocked = c.dcr_approval_required || (c.adjournment_count >= 4 && !c.dcr_override_reason);
-        let statusBadge = isBlocked
-            ? `<span class="badge badge-high badge-pulse font-bold"><i class="fa-solid fa-ban mr-1"></i> 5th Adj. Blocked</span>`
-            : `<span class="badge badge-low font-semibold"><i class="fa-solid fa-circle-check mr-1"></i> DCR Approved</span>`;
+        const reviewPending = c.dcr_approval_required === true;
+        let status = reviewPending
+            ? `<span class="badge ${c.dcr_auto_escalated ? 'badge-high' : 'badge-mod'} font-semibold">${c.dcr_auto_escalated ? 'In-app escalation recorded' : 'Review pending'}</span>`
+            : `<span class="badge badge-low font-semibold">Trigger reached; no request pending</span>`;
+        if (reviewPending && c.dcr_acknowledged_at) {
+            status += `<div class="mt-1 text-[10px] text-body">Acknowledged by ${c.dcr_acknowledged_by || 'reviewer'} at ${c.dcr_acknowledged_at}; approval remains pending.</div>`;
+        } else if (reviewPending) {
+            status += `<div class="mt-1 text-[10px] text-body">Awaiting acknowledgement. This case remains blocked.</div>`;
+        } else {
+            status += `<div class="mt-1 text-[10px] text-body">No DCR review request has been recorded.</div>`;
+        }
+        if (reviewPending && c.dcr_auto_escalated && c.dcr_escalated_at) {
+            status += `<div class="mt-1 text-[10px] text-body">Recorded ${c.dcr_escalated_at}; no external notice sent.</div>`;
+        }
 
-        let actionBtn = isBlocked
-            ? `<button data-case-action="override" data-record-id="${c.case_id}" class="btn-primary bg-amber-600 hover:bg-amber-700 text-xs py-1 px-3"><i class="fa-solid fa-shield-halved mr-1"></i> Review & Approve</button>`
-            : `<span class="text-xs text-emerald-400 font-mono"><i class="fa-solid fa-lock-open"></i> Unblocked</span>`;
+        const actionButtons = reviewPending
+            ? `<div class="flex flex-col items-end gap-1">
+                <button data-case-action="acknowledgeDCR" data-record-id="${c.case_id}" class="btn-secondary text-xs py-1 px-3">${c.dcr_acknowledged_at ? 'Update acknowledgement' : 'Acknowledge'}</button>
+                <button data-case-action="override" data-record-id="${c.case_id}" class="btn-primary bg-amber-600 hover:bg-amber-700 text-xs py-1 px-3"><i class="fa-solid fa-shield-halved mr-1"></i> Record decision</button>
+            </div>`
+            : `<span class="text-xs text-body">No action pending</span>`;
 
         const row = document.createElement("tr");
         row.innerHTML = `
             <td class="py-3 px-4 font-mono font-bold text-heading">${c.case_id}</td>
             <td class="py-3 px-4">${c.case_type} (${c.assigned_division || 'Criminal'})</td>
             <td class="py-3 px-4">${c.court}</td>
-            <td class="py-3 px-4 text-center font-bold text-rose">${c.adjournment_count} / 4</td>
-            <td class="py-3 px-4 text-center">${statusBadge}</td>
-            <td class="py-3 px-4 text-right">${actionBtn}</td>
+            <td class="py-3 px-4 text-center font-bold text-heading">${c.adjournment_count}</td>
+            <td class="py-3 px-4 text-center">${status}</td>
+            <td class="py-3 px-4 text-right">${actionButtons}</td>
         `;
         tableBody.appendChild(row);
     });
@@ -1273,14 +1298,15 @@ function closeDCROverrideModal() {
 
 async function submitDCROverride() {
     if (!activeOverrideCaseId) return;
+    const caseId = activeOverrideCaseId;
     const reason = document.getElementById("dcr-override-reason-input").value.trim();
     if (!reason) {
-        alert("Please enter the DCR exceptional approval reason.");
+        showToast("Please enter the decision reason.", "error");
         return;
     }
 
     try {
-        const response = await apiFetch(`${API_BASE}/cases/${activeOverrideCaseId}/dcr-override`, {
+        const response = await apiFetch(`${API_BASE}/cases/${caseId}/dcr-override`, {
             method: "POST",
             headers: getAuthHeaders(),
             body: JSON.stringify({ exceptional_reason: reason })
@@ -1288,15 +1314,39 @@ async function submitDCROverride() {
 
         if (!response.ok) {
             const err = await response.json();
-            alert(`Failed DCR override: ${err.detail || 'Permission denied'}`);
+            showToast(`Failed to record review decision: ${err.detail || 'Permission denied'}`, "error");
             return;
         }
 
         closeDCROverrideModal();
         await loadDashboardData();
-        alert(`Case ${activeOverrideCaseId} successfully approved and unblocked by Deputy Chief Registrar!`);
+        showToast(`Decision recorded for case ${caseId}; review request closed.`, "success");
     } catch (error) {
-        logger(`DCR Override error: ${error}`);
+        logger(`DCR review decision error: ${error}`);
+        showToast("Network error while recording the DCR review decision.", "error");
+    }
+}
+
+async function acknowledgeDCRReview(caseId) {
+    const note = prompt(`Add a short acknowledgement note for the pending review on ${caseId}:`);
+    if (!note || !note.trim()) return;
+
+    try {
+        const response = await apiFetch(`${API_BASE}/cases/${caseId}/dcr-acknowledge`, {
+            method: "POST",
+            headers: getAuthHeaders(),
+            body: JSON.stringify({ note: note.trim() })
+        });
+        if (!response.ok) {
+            const err = await response.json();
+            showToast(`Could not acknowledge review: ${err.detail || 'Permission denied'}`, "error");
+            return;
+        }
+        await loadDashboardData();
+        showToast(`Acknowledgement recorded for ${caseId}; approval is still pending.`, "success");
+    } catch (error) {
+        logger(`DCR acknowledgement error: ${error}`);
+        showToast("Network error while recording the acknowledgement.", "error");
     }
 }
 
@@ -1309,9 +1359,6 @@ function renderJudgeDocketTable() {
 
     const user = getActiveUser();
     const judgeCases = casesData.filter(c => user.role === "Chief Registrar" || c.assigned_judge_id === user.user_id);
-
-    const alertCountElem = document.getElementById("judge-alert-count");
-    if (alertCountElem) alertCountElem.textContent = judgeCases.filter(c => c.risk_flag || c.adjournment_count >= 4).length;
 
     if (judgeCases.length === 0) {
         tableBody.innerHTML = `<tr><td colspan="6" class="text-center py-8" style="color:var(--text-muted)">No active cases assigned to your judicial docket.</td></tr>`;
@@ -1482,39 +1529,40 @@ async function deleteUserAccount(userId) {
     }
 }
 
-// ----------------- 1-CLICK NJC COMPLIANCE EXPORT -----------------
+// ----------------- PROTOTYPE SUMMARY EXPORT -----------------
 
-async function exportNJCReport() {
+async function exportPrototypeSummary() {
     try {
-        const response = await apiFetch(`${API_BASE}/export/njc`, {
+        const response = await apiFetch(`${API_BASE}/export/prototype-summary`, {
             headers: getAuthHeaders()
         });
 
         if (!response.ok) {
             const err = await response.json();
-            alert(`NJC Export Failed: ${err.detail || 'Permission denied'}`);
+            showToast(`Prototype summary export failed: ${err.detail || 'Permission denied'}`, "error");
             return;
         }
 
         const report = await response.json();
-        document.getElementById("njc-report-json-view").textContent = JSON.stringify(report, null, 2);
-        animateOpenModal("njc-modal");
+        document.getElementById("prototype-report-json-view").textContent = JSON.stringify(report, null, 2);
+        animateOpenModal("prototype-summary-modal");
     } catch (error) {
-        logger(`NJC export error: ${error}`);
+        logger(`Prototype summary export error: ${error}`);
+        showToast("Network error generating the prototype summary.", "error");
     }
 }
 
-function closeNJCModal() {
-    animateCloseModal("njc-modal");
+function closePrototypeReportModal() {
+    animateCloseModal("prototype-summary-modal");
 }
 
-function downloadNJCFile() {
-    const text = document.getElementById("njc-report-json-view").textContent;
+function downloadPrototypeSummary() {
+    const text = document.getElementById("prototype-report-json-view").textContent;
     const blob = new Blob([text], { type: "application/json" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
-    a.download = `NJC_Monthly_Delay_Compliance_Report_${new Date().toISOString().split('T')[0]}.json`;
+    a.download = `COURTLOG_Prototype_Summary_${new Date().toISOString().split('T')[0]}.json`;
     a.click();
     URL.revokeObjectURL(url);
 }
@@ -1858,7 +1906,7 @@ function printWrit() {
         + 'h4{page-break-after:avoid;break-after:avoid}hr{page-break-after:avoid}p{margin-bottom:6px}strong{font-weight:bold}em{font-style:italic}';
 
     const html = '<!DOCTYPE html><html><head><meta charset="UTF-8"><title>COURTLOG</title><style>' + css + '</style></head><body>'
-        + '<div class="hdr"><div><h2>COURTLOG</h2><div class="sub">Official Registry Document</div></div><div class="dt">' + dateStr + '</div></div>'
+        + '<div class="hdr"><div><h2>COURTLOG</h2><div class="sub">Prototype Draft — Not Issued</div></div><div class="dt">' + dateStr + '</div></div>'
         + contentEl.innerHTML
         + '<script>window.onload=function(){setTimeout(function(){window.print()},300)}<\/script></body></html>';
 
@@ -1943,7 +1991,7 @@ function filterByAlert(type) {
 // ----------------- BACKGROUND SYNC DRIVER (CRON SIM) -----------------
 
 async function triggerCronCompliance() {
-    logger("Triggering manual cron compliance sweep...");
+    logger("Triggering manual prototype workflow sweep...");
     const cronIcon = document.getElementById("cron-icon");
 
     cronIcon.classList.add("animate-spin");
@@ -1953,12 +2001,12 @@ async function triggerCronCompliance() {
         if (!response.ok) throw new Error("Cron sweep endpoint failed");
 
         const result = await response.json();
-        logger(`Compliance sweep complete. Idle custody: ${result.stats.custody_alerts}; missing files: ${result.stats.missing_file_alerts}; enforcement: ${result.stats.non_compliant_enforcements}`);
+        logger(`Workflow sweep complete. Idle custody prompts: ${result.stats.custody_alerts}; missing files: ${result.stats.missing_file_alerts}; 90-day execution review prompts: ${result.stats.execution_review_prompts}`);
 
         await loadDashboardData();
 
         // Display summary dialog
-        alert(`Compliance Sweep Complete!\n---------------------------------\nIdle Custody Alerts: ${result.stats.custody_alerts}\nOpen Missing-File Reports: ${result.stats.missing_file_alerts}\nEnforcement Non-Compliances: ${result.stats.non_compliant_enforcements}\nHigh Risk Delay Files: ${result.stats.high_risk_delay_cases}`);
+        alert(`Prototype Workflow Sweep Complete\n---------------------------------\nIdle Custody Prompts: ${result.stats.custody_alerts}\nOpen Missing-File Reports: ${result.stats.missing_file_alerts}\n90-Day Execution Review Prompts: ${result.stats.execution_review_prompts}\nExperimental Delay-Risk Flags: ${result.stats.high_risk_delay_cases}`);
 
     } catch (error) {
         logger(`Error running cron sweep: ${error}`);
@@ -2281,9 +2329,9 @@ async function generateDCRWeeklyReport() {
 
         if (response.ok) {
             const data = await response.json();
-            document.getElementById("njc-report-json-view").textContent = JSON.stringify(data, null, 2);
-            animateOpenModal("njc-modal");
-            // Reuse the NJC modal view for displaying the JSON report for simplicity
+            document.getElementById("prototype-report-json-view").textContent = JSON.stringify(data, null, 2);
+            animateOpenModal("prototype-summary-modal");
+            // Reuse the prototype summary modal for the weekly workflow summary
         } else {
             const err = await response.json();
             showToast(err.detail || "Failed to generate report.", "error");
@@ -2294,22 +2342,47 @@ async function generateDCRWeeklyReport() {
 }
 
 async function fetchJudgeAlerts() {
+    const banner = document.getElementById("judge-alert-banner");
+    const list = document.getElementById("judge-alert-list");
+    const count = document.getElementById("judge-alert-count");
+    if (!banner || !list || !count) return;
+
     try {
         const response = await apiFetch(`${API_BASE}/judge/alerts`, { headers: getAuthHeaders() });
-        if (response.ok) {
-            const data = await response.json();
-            const alertCount = document.getElementById("judge-alert-count");
-            if (alertCount) {
-                alertCount.textContent = data.total_alerts;
-                if (data.total_alerts > 0) {
-                    alertCount.parentElement.parentElement.parentElement.classList.remove("hidden");
-                } else {
-                    alertCount.parentElement.parentElement.parentElement.classList.add("hidden");
-                }
-            }
-        }
-    } catch (e) {
-        console.error("Failed to fetch judge alerts");
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        const data = await response.json();
+        const alerts = Array.isArray(data.alerts) ? data.alerts : [];
+        const labels = {
+            HEARING_24HR: "Upcoming hearing",
+            ADJOURNMENT_REVIEW: "Adjournment review prompt",
+            EXPERIMENTAL_DELAY_RISK: "Experimental delay-risk indicator",
+            FILE_MISSING: "Physical file alert",
+        };
+        list.replaceChildren();
+        count.textContent = String(alerts.length);
+        banner.classList.toggle("hidden", alerts.length === 0);
+
+        alerts.forEach(alert => {
+            const item = document.createElement("div");
+            item.className = "rounded-lg border border-color bg-input p-3";
+            const title = document.createElement("p");
+            title.className = "font-semibold text-heading";
+            title.textContent = labels[alert.type] || "Docket prompt";
+            const detail = document.createElement("p");
+            detail.className = "mt-1 text-xs text-body";
+            detail.textContent = `${alert.case_id || "Case"}: ${alert.message || "Review current case information."}`;
+            item.append(title, detail);
+            list.appendChild(item);
+        });
+    } catch (error) {
+        list.replaceChildren();
+        const status = document.createElement("p");
+        status.className = "text-xs text-body";
+        status.textContent = "Operational alerts could not be loaded. Refresh the docket or contact the registry administrator.";
+        list.appendChild(status);
+        count.textContent = "—";
+        banner.classList.remove("hidden");
+        logger(`Failed to fetch judge alerts: ${error}`);
     }
 }
 
@@ -2325,10 +2398,10 @@ async function loadAIRiskData() {
         if (!response.ok) throw new Error('Batch predict failed');
         aiRiskData = await response.json();
         renderAIRiskDashboard();
-        showToast(`AI model re-scored ${aiRiskData.length} cases`, 'success');
+        showToast(`Experimental delay-risk scores recalculated for ${aiRiskData.length} scoped cases`, 'success');
     } catch (error) {
-        logger(`AI Risk load error: ${error}`);
-        showToast('Failed to load AI predictions', 'error');
+        logger(`Experimental delay-risk load error: ${error}`);
+        showToast('Failed to load experimental delay-risk scores', 'error');
     }
 }
 
@@ -2401,20 +2474,7 @@ function renderAIRiskDashboard() {
 function showExplainability(caseId) {
     const c = aiRiskData.find(x => x.case_id === caseId);
     if (!c) return;
-    const score = c.delay_risk_score;
-    const pct = (score * 100).toFixed(1);
-    const factors = [];
-    if (c.adjournment_count >= 4) factors.push(`🔴 ${c.adjournment_count} adjournments (high — approaching statutory limit)`);
-    else if (c.adjournment_count >= 2) factors.push(`🟡 ${c.adjournment_count} adjournments (moderate delay signal)`);
-    else factors.push(`🟢 ${c.adjournment_count} adjournment(s) (within normal range)`);
-    if (c.days_since_filing > 365) factors.push(`🔴 ${c.days_since_filing} days since filing (over 1 year — strong delay indicator)`);
-    else if (c.days_since_filing > 180) factors.push(`🟡 ${c.days_since_filing} days since filing (6+ months — moderate risk)`);
-    else factors.push(`🟢 ${c.days_since_filing} days since filing (recent — low delay signal)`);
-    if (['Land Dispute', 'Constitutional Rights', 'Admiralty'].includes(c.case_type)) {
-        factors.push(`🟡 Case type "${c.case_type}" historically has higher delay rates`);
-    } else {
-        factors.push(`🟢 Case type "${c.case_type}" has typical progression rates`);
-    }
-    const msg = `═══ AI DELAY-RISK EXPLAINABILITY ═══\n\nCase: ${c.case_id}\nRisk Score: ${pct}%\nStatus: ${c.judgment_status}\n\n── Contributing Factors ──\n${factors.join('\n')}\n\n── Model ──\nLogistic Regression trained on 3,000+ Nigerian court records.\nFeatures: case_type, court, adjournment_count, days_since_filing\nThreshold: >70% = High Risk flag`;
+    const pct = (Number(c.delay_risk_score || 0) * 100).toFixed(1);
+    const msg = `═══ EXPERIMENTAL DELAY-RISK SCORE ═══\n\nCase: ${c.case_id}\nPrototype score: ${pct}%\nStatus: ${c.judgment_status}\n\n── Inputs used ──\nCase type: ${c.case_type}\nCourt: ${c.court}\nRecorded case-level adjournments: ${c.adjournment_count}\nDays since filing: ${c.days_since_filing}\n\nThis is a feature summary, not a causal or model-attribution explanation. The prototype uses a Logistic Regression artifact when available and a deterministic heuristic fallback otherwise. Training rows and labels are synthetic and rule-generated; the score has not been independently validated against real court outcomes.\n\nThe 70% display threshold is experimental only. This score is not a legal finding and must not determine a hearing, custody, enforcement, or judicial decision.`;
     alert(msg);
 }

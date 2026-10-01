@@ -8,7 +8,7 @@ Implemented:
 - Authentication on exposed case detail/prediction, user list, cron and message-log routes.
 - Chief Registrar-only user list and message logs; password hashes omitted from user list.
 - Simulator disabled by default, with an environment-configured shared secret when explicitly enabled.
-- Shared fail-closed case authorization applied to case lookups, scoped batch predictions and NJC export.
+- Shared fail-closed case authorization applied to case lookups, scoped batch predictions and the prototype summary export.
 - Clerks cannot register cases outside their assigned court.
 - Stored user profile determines token permissions; deleted/disabled users rejected on access and refresh.
 - Prevent admin self-deletion/last-active-admin deletion.
@@ -153,7 +153,7 @@ Verification:
 - `python -m compileall -q backend tests`, `node --check frontend/app.js`, and `git diff --check`: passed.
 - API tests verify that tokens are not persisted raw, unauthorized/unassigned users cannot scan, server attribution is used, a pre-handover label cannot authorize the former Sheriff, and manifest/service-worker assets are served.
 
-Still open: no printer output or actual pilot phone/browser camera test has been performed. Camera permission, focus, QR print size/readability, iOS/Android install prompts, and real network-loss recovery therefore remain unverified; C2 stays unchecked and is not reported complete. Runtime Tailwind/Chart/font CDNs remain open under D6. No real court data was used, no legal rule was changed, and this implementation does not establish staging or pilot readiness.
+Still open: no printer output or actual pilot phone/browser camera test has been performed. Camera permission, focus, QR print size/readability, iOS/Android install prompts, and real network-loss recovery therefore remain unverified; C2 stays unchecked and is not reported complete. D6 local asset work was still open at the time of this entry and is closed in the later progress note. No real court data was used, no legal rule was changed, and this implementation does not establish staging or pilot readiness.
 
 ## 1 October 2026 — C3 missing/found workflow
 
@@ -169,4 +169,23 @@ Verification:
 - `python -m compileall -q backend tests`, `node --check frontend/app.js`, `git diff --check`, and `.venv/bin/python -m pip check`: passed.
 - API coverage verifies separation from idle/ML flags, persistence through check-ins and sweeps, explicit resolution, actor/reason history, authorization, and alert removal only after found action. Frontend coverage confirms Clerk controls stay hidden, Sheriff/Chief Registrar controls are available, and simultaneous idle/missing badges remain distinct.
 
-C3 is checked in the completion plan. Current checklist counts: 7 of 55 named A–H tasks (12.7%) and 13 of 78 total plan checkboxes (16.7%). C2 remains unchecked pending printed-label and camera testing on the actual pilot phone. C4 is the next scheduled module task but requires Law Lead sign-off before any hearing-policy change; no legal rule was changed here.
+C3 is checked in the completion plan. At this point in the log, counts were 7 of 55 named A–H tasks (12.7%) and 13 of 78 total plan checkboxes (16.7%). C2 remains unchecked pending printed-label and camera testing on the actual pilot phone. C4 remains open and requires Law Lead sign-off before any hearing-policy change; no legal rule was changed in this C3 tranche.
+
+## 1 October 2026 — C5 alert/clock separation, D6 local assets, and current-claims review
+
+Implemented:
+- Removed the adjournment-review block's write to `risk_flag`; it now records only the separate DCR review state. Existing case-level trigger logic (`adjournment_count >= 4`) was not changed and remains a prototype setting pending A3/Law Lead sign-off.
+- Added durable DCR request, acknowledgement, escalation, and decision history with actor/time/reason, an authorized DCR/Chief Registrar acknowledgement endpoint that does **not** approve or unblock, and a separate >24-hour in-app escalation clock anchored to the DCR request timestamp. The compliance sweep no longer uses the ML-risk notification clock for DCR escalation; historical records with no request timestamp initialize a new clock on first observation. Escalation is in-app state only; no external notification is sent.
+- Updated the DCR queue to distinguish a configured threshold prompt from an actual pending review, show acknowledgement/escalation state, provide separate acknowledge and decision actions, and avoid presenting the count as a per-party statutory limit. Added the Judge/Chief Registrar scoped alert panel for upcoming hearing, adjournment-review, experimental delay-risk, and missing-file prompts; server content is rendered with `textContent`.
+- Corrected frontend claims: hearing failures are no longer always reported as fifth-adjournment blocks; successful hearing logging no longer claims WhatsApp delivery; AI UI now discloses generated synthetic training rows, the possible heuristic fallback, lack of independent real-outcome validation, and the non-legal nature of the score. Updated the abstract/team brief and marked older project audit/status snapshots as superseded.
+- Replaced the former NJC-labelled export and ML-derived compliance percentages with a scoped, PII-minimized prototype workflow summary; renamed the weekly DCR report fields to avoid treating ML risk as compliance. Print output is watermarked “Prototype Draft — Not Issued.” CSV/PDF formats, formal reporting schemas, and legal review remain open under D4/A4.
+- Final UI/API label review replaced remaining compliance-themed page branding and sweep/status labels with prototype/workflow and execution-review wording. The configured 90-day behavior and stored legacy case flag are unchanged; only user-facing descriptions and the sweep response field name were clarified.
+- Completed D6 local dependency assets: pinned Tailwind CSS, Chart.js, Font Awesome, and fonts are served from local bundles/assets; builder copies notices/licenses; service-worker cache is now v3. README documents the offline shell and confirms API/case data and scans are not cached or queued. QR generation remains local.
+
+Verification:
+- `npm run test:frontend`: passed (security/XSS, session/actions, and PWA suites; local frontend build included).
+- `.venv/bin/python -m pytest -q`: **49 passed**, with two existing FastAPI `on_event` deprecation warnings. Backend tests use isolated temporary SQLite databases; the tracked `data/courtlog.db` was not used or modified.
+- `python -m compileall -q backend tests`, `node --check frontend/app.js`, `node --check tests/frontend_security.cjs`, `node --check tests/frontend_session.cjs`, and `git diff --check`: passed.
+- `npm audit --audit-level=high`: 0 vulnerabilities. `.venv/bin/pip-audit -r requirements.txt`: no known vulnerabilities. `.venv/bin/pip check`: no broken requirements.
+
+Checklist reconciliation: C5 and D6 are checked. Current counts are **9 of 55 named A–H tasks (16.4%)** and **15 of 78 total plan checkboxes (19.2%)**. D7 remains open because complete 7/90-day boundary, concurrency, provider retry/failure, and actual device coverage are outstanding. C2 remains open pending phone/printer acceptance; C4/A3 legal approval, actual messaging integration, staging, live-data permission, production review, and pilot go/no-go remain external gates. No legal threshold or rule was changed; no real court data was used.
