@@ -45,7 +45,10 @@ Every task is initially unchecked. Proposed owners are responsibility areas, not
 - [ ] **B7 — Harden requests and dependencies.** Rate limits, CORS allowlist, appropriate headers, validated dates/phones/lengths/path containment, dependency upgrades and removal of unused packages. Retest compatibility and triage scanner results. *(S-07–S-10, E-03)*
   - [x] Validation slice: constrain case IDs on request bodies and every case-ID path route; validate ISO hearing dates, normalize/check Nigerian E.164 contact numbers, cap/trim request fields, reject document filename paths, and stop creating upload directories for metadata-only records.
   - [x] Add baseline security headers and disable `/docs`, `/redoc`, and OpenAPI outside explicit demo mode.
-  - [ ] Still open: rate limiting/lockout, broad enum review, dependency upgrades/removals, and full scanner triage.
+  - [x] Add persistent login throttling: rolling 15-minute default of 5 failures per username/client pair and 25 per client address; successful logins remove their reservation. Returns 429 with `Retry-After` and does not permanently lock accounts. Counts are stored as pseudonymous hashes, not raw usernames/IPs.
+  - [x] Upgrade vulnerable runtime/test dependencies and remove unused `passlib`, `xhtml2pdf`, and `python-multipart`; `pip-audit` reports no known vulnerabilities for the fresh dev environment or requirements set as of 1 October 2026.
+  - [x] Restrict the hearing `outcome` field to the two existing UI choices (`Heard`, `Adjourned`) without changing hearing policy.
+  - [ ] Still open: enum/schema review for reason codes and execution actions; deployment must also ensure correct client-address handling behind any reverse proxy. Wider scanner/CI triage remains open.
 - [ ] **B8 — Record trustworthy actions.** Actor identity from authentication; actor/time/reason on hearings and overrides; append-only application audit events for edits, exports and administrative changes. *(S-05)*
 
 **Gate:** unauthenticated requests denied, cross-scope requests denied, no hashes leaked, XSS regression tests pass, disabled/deleted users lose access, no unresolved critical security findings.

@@ -1,16 +1,14 @@
-# Runtime dependencies
-fastapi==0.115.0
-uvicorn[standard]==0.30.1
-pydantic==2.9.0
+# Runtime dependencies — versions reviewed 1 October 2026
+fastapi==0.142.2
+starlette==1.7.0
+uvicorn[standard]==0.54.0
+pydantic==2.13.5
 joblib==1.4.2
 scikit-learn==1.5.1
 numpy==1.26.4
 pandas==2.2.2
-passlib==1.7.4
-bcrypt==4.1.2
-python-dotenv==1.0.1
-requests==2.32.3
-PyJWT==2.9.0
-cryptography==43.0.0
-xhtml2pdf==0.2.16
-python-multipart==0.0.12
+bcrypt==5.0.0
+python-dotenv==1.2.4
+requests==2.34.2
+PyJWT==2.15.1
+cryptography==50.0.2

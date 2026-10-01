@@ -83,3 +83,21 @@ Verification:
 - `python -m compileall -q backend` and `git diff --check`: passed.
 
 B7 remains open: rate limiting/lockout, broad enum review, dependency upgrades/removals, and full scanner triage have not been completed. Document binary upload/storage remains a separate D3 task. Real-browser, device, staging and pilot readiness have not been established; legal-rule changes remain pending Law Lead sign-off.
+
+## 1 October 2026 — B7 login throttling and dependency hardening
+
+Implemented:
+- Added SQLite-backed, atomic rolling-window login attempt reservations. Defaults: five failures per username/client pair and 25 failures per client address over 15 minutes; successful sign-ins clear their reservation. Rate-limited requests return 429 with `Retry-After`; there is no permanent account lockout.
+- Persist only SHA-256 pseudonymous keys for username/client buckets; raw usernames and request peer addresses are not added to the limiter table. Login failures (including unknown usernames) perform a bcrypt verification against a dummy hash to reduce timing-based username discovery.
+- Restrict `HearingRequest.outcome` to the existing `Heard`/`Adjourned` UI values. Reason codes and execution action strings remain open pending the broader workflow/schema review; no legal rule or threshold changed.
+- Upgraded FastAPI/Starlette/Pydantic, PyJWT, cryptography, requests, python-dotenv, Uvicorn and bcrypt; removed unused `passlib`, `xhtml2pdf` and `python-multipart`. Updated dev tooling to current pytest/httpx2 and added `pip-audit`.
+- Documented rate-limit settings in `.env.example` and updated B7 tracking in the completion plan.
+
+Verification:
+- Fresh `.venv`, `pip check`: no broken requirements.
+- `.venv/bin/python -m pytest tests/test_security.py -q`: 28 passed, two FastAPI lifespan deprecation warnings.
+- `npm run test:frontend`, `node --check frontend/app.js`, and `python -m compileall -q backend`: passed.
+- `pip-audit -r requirements-dev.txt` and full fresh environment audit: no known vulnerabilities found (1 October 2026 database snapshot).
+- Regression tests cover threshold, `Retry-After`, rolling expiry, clearing successful reservations, concurrent request atomicity, and rejection of unknown hearing outcomes.
+
+Still open: proper trusted-proxy client-IP configuration/edge throttling for the deployment, review of reason/action enums, broader scanner/CI triage, and all remaining workflow, legal, staging and pilot gates. The rate limiter does not by itself establish production readiness.

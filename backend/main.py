@@ -3,12 +3,13 @@ import joblib
 import logging
 import re
 import secrets
+import hashlib
 import sqlite3
 import uuid
 from dotenv import load_dotenv
 from datetime import datetime, timezone, timedelta
 from typing import Dict, Any, List, Optional, Annotated, Literal
-from fastapi import FastAPI, HTTPException, BackgroundTasks, Body, Header, Depends, Response, Cookie
+from fastapi import FastAPI, HTTPException, BackgroundTasks, Body, Header, Depends, Response, Cookie, Request
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import AfterValidator, BaseModel, Field, field_validator, model_validator
 
@@ -65,6 +66,22 @@ REFRESH_COOKIE_PATH = "/api"
 COOKIE_SECURE = os.getenv("COOKIE_SECURE", "true").strip().lower() in {"1", "true", "yes", "on"}
 
 
+def _positive_env_int(name: str, default: int) -> int:
+    value = os.getenv(name, str(default))
+    try:
+        parsed = int(value)
+    except ValueError as exc:
+        raise RuntimeError(f"{name} must be a positive integer") from exc
+    if parsed < 1:
+        raise RuntimeError(f"{name} must be a positive integer")
+    return parsed
+
+
+LOGIN_RATE_LIMIT_WINDOW_SECONDS = _positive_env_int("LOGIN_RATE_LIMIT_WINDOW_SECONDS", 900)
+LOGIN_RATE_LIMIT_PER_USERNAME_IP = _positive_env_int("LOGIN_RATE_LIMIT_PER_USERNAME_IP", 5)
+LOGIN_RATE_LIMIT_PER_IP = _positive_env_int("LOGIN_RATE_LIMIT_PER_IP", 25)
+
+
 def _set_refresh_cookie(response: Response, token: str) -> None:
     response.set_cookie(
         key=REFRESH_COOKIE_NAME, value=token,
@@ -87,6 +104,8 @@ def _safe_user(user: Dict[str, Any]) -> Dict[str, Any]:
 
 # Global variables
 db = get_db_client()
+# Keep unknown-user login checks close to the cost of a real bcrypt verification.
+DUMMY_PASSWORD_HASH = get_password_hash(secrets.token_urlsafe(32))
 
 def can_access_case(case: Dict[str, Any], auth: Dict[str, str]) -> bool:
     """Fail closed; use the current stored profile, never client-supplied scope."""
@@ -194,8 +213,9 @@ class ScanRequest(BaseModel):
 
 
 class HearingRequest(BaseModel):
-    # Bound the free-form value now; the exhaustive workflow enum audit remains a separate task.
-    outcome: str = Field(min_length=1, max_length=40, pattern=r"\S")
+    # These are the two current UI outcomes, not a statutory hearing policy.
+    # Legal reason codes and workflow rules remain subject to Law Lead review.
+    outcome: Literal["Heard", "Adjourned"]
     reason_code: Optional[str] = Field(default="None", max_length=100)
     next_date: Optional[datetime] = None
 
@@ -215,10 +235,10 @@ class HearingRequest(BaseModel):
             raise ValueError("next_date must be a valid ISO 8601 date or datetime")
         return parsed if parsed.tzinfo else parsed.replace(tzinfo=timezone.utc)
 
-    @field_validator("outcome")
+    @field_validator("outcome", mode="before")
     @classmethod
     def trim_hearing_outcome(cls, value):
-        return value.strip()
+        return value.strip() if isinstance(value, str) else value
 
     @field_validator("reason_code")
     @classmethod
@@ -420,44 +440,74 @@ def client_config():
 
 
 @app.post("/api/login")
-def login(req: LoginRequest, response: Response):
-    """Authenticate, create a server-revocable session and set an HttpOnly refresh cookie."""
+def login(req: LoginRequest, response: Response, request: Request):
+    """Authenticate, rate-limit failures, and issue a server-revocable session."""
     response.headers["Cache-Control"] = "no-store"
+    username_lower = req.username.strip().casefold()
+    client_address = request.client.host if request.client else "unknown"
+
+    # Store pseudonymous rate-limit keys, not usernames or raw client addresses.
+    principal_key = hashlib.sha256(f"{username_lower}\0{client_address}".encode("utf-8")).hexdigest()
+    client_key = hashlib.sha256(client_address.encode("utf-8")).hexdigest()
+    attempt_id, retry_after = db.reserve_login_attempt(
+        principal_key=principal_key,
+        client_key=client_key,
+        now=int(datetime.now(timezone.utc).timestamp()),
+        window_seconds=LOGIN_RATE_LIMIT_WINDOW_SECONDS,
+        principal_limit=LOGIN_RATE_LIMIT_PER_USERNAME_IP,
+        client_limit=LOGIN_RATE_LIMIT_PER_IP,
+    )
+    if attempt_id is None:
+        raise HTTPException(
+            status_code=429,
+            detail="Too many login attempts. Try again later.",
+            headers={"Retry-After": str(retry_after), "Cache-Control": "no-store"},
+        )
+
     users = db.list_users()
-    username_lower = req.username.strip().lower()
+    user = next(
+        (candidate for candidate in users
+         if str(candidate.get("username", "")).strip().casefold() == username_lower),
+        None,
+    )
+    stored_hash = str(user.get("password", "")) if user else ""
+    password_hash = stored_hash if stored_hash.startswith(("$2a$", "$2b$", "$2y$")) else DUMMY_PASSWORD_HASH
+    try:
+        password_matches = verify_password(req.password, password_hash)
+    except (ValueError, TypeError):
+        password_matches = False
 
-    for user in users:
-        u_name = str(user.get("username", "")).strip().lower()
-        u_pass = str(user.get("password", ""))
-        if u_name == username_lower and verify_password(req.password, u_pass):
-            if user.get("disabled"):
-                raise HTTPException(status_code=401, detail="Invalid username or password.")
+    if user and stored_hash and stored_hash == password_hash and password_matches and not user.get("disabled"):
+        user_id = user["user_id"]
+        role = user.get("role", "Clerk")
+        session_id = secrets.token_urlsafe(32)
+        refresh_jti = secrets.token_urlsafe(32)
+        expires_at = int((datetime.now(timezone.utc) + timedelta(days=REFRESH_TOKEN_EXPIRE_DAYS)).timestamp())
+        db.create_auth_session(session_id, user_id, refresh_jti, expires_at)
 
-            user_id = user["user_id"]
-            role = user.get("role", "Clerk")
-            session_id = secrets.token_urlsafe(32)
-            refresh_jti = secrets.token_urlsafe(32)
-            expires_at = int((datetime.now(timezone.utc) + timedelta(days=REFRESH_TOKEN_EXPIRE_DAYS)).timestamp())
-            db.create_auth_session(session_id, user_id, refresh_jti, expires_at)
+        token_data = {
+            "sub": user_id, "role": role,
+            "username": user.get("username", ""), "sid": session_id,
+        }
+        access_token = create_access_token(token_data)
+        refresh_token = create_refresh_token({**token_data, "jti": refresh_jti})
+        _set_refresh_cookie(response, refresh_token)
+        db.complete_login_attempt(attempt_id)
 
-            token_data = {
-                "sub": user_id, "role": role,
-                "username": user.get("username", ""), "sid": session_id,
-            }
-            access_token = create_access_token(token_data)
-            refresh_token = create_refresh_token({**token_data, "jti": refresh_jti})
-            _set_refresh_cookie(response, refresh_token)
+        logger.info("User authenticated successfully: %s", user_id)
+        return {
+            "status": "success",
+            "message": "Authentication successful",
+            "access_token": access_token,
+            "token_type": "bearer",
+            "user": _safe_user(user),
+        }
 
-            logger.info("User authenticated successfully: %s", user_id)
-            return {
-                "status": "success",
-                "message": "Authentication successful",
-                "access_token": access_token,
-                "token_type": "bearer",
-                "user": _safe_user(user),
-            }
-
-    raise HTTPException(status_code=401, detail="Invalid username or password.")
+    raise HTTPException(
+        status_code=401,
+        detail="Invalid username or password.",
+        headers={"Cache-Control": "no-store"},
+    )
 
 
 @app.post("/api/refresh")

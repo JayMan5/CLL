@@ -6,6 +6,7 @@ import sqlite3
 import secrets
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from concurrent.futures import ThreadPoolExecutor
 from unittest.mock import patch
 
 _runtime = tempfile.TemporaryDirectory()
@@ -232,9 +233,10 @@ def test_legacy_user_table_migrates_username_index_and_session_store(tmp_path, m
     monkeypatch.setenv('COURTLOG_DB_PATH', str(legacy_path))
     migrated = SQLiteDatabase()
     assert migrated.get_user('legacy_user')['username'] == 'Legacy.User'
-    assert 'auth_sessions' in {
+    migrated_tables = {
         row[0] for row in migrated.conn.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()
     }
+    assert {'auth_sessions', 'auth_login_attempts'} <= migrated_tables
     with pytest.raises(sqlite3.IntegrityError):
         migrated.save_user('duplicate_user', {'user_id':'duplicate_user', 'username':'legacy.user', 'role':'Clerk'})
     migrated.conn.close()
@@ -418,3 +420,85 @@ def test_cors_does_not_reflect_unconfigured_origins():
         'Access-Control-Request-Method':'GET',
     })
     assert 'access-control-allow-origin' not in preflight.headers
+
+
+def test_login_endpoint_limits_failed_attempts_per_username_and_client(monkeypatch):
+    monkeypatch.setattr(main, 'LOGIN_RATE_LIMIT_PER_USERNAME_IP', 2)
+    with TestClient(main.app, client=('198.51.100.41', 43100)) as limited_client:
+        payload = {'username':'throttle-regression-user', 'password':'wrong-password'}
+        assert limited_client.post('/api/login', json=payload).status_code == 401
+        assert limited_client.post('/api/login', json=payload).status_code == 401
+        blocked = limited_client.post('/api/login', json=payload)
+        assert blocked.status_code == 429
+        assert blocked.json()['detail'] == 'Too many login attempts. Try again later.'
+        assert int(blocked.headers['Retry-After']) >= 1
+        assert blocked.headers['Cache-Control'] == 'no-store'
+        # A different username from the same address is not account-locked.
+        assert limited_client.post('/api/login', json={
+            'username':'another-throttle-user', 'password':'wrong-password'
+        }).status_code == 401
+
+
+def test_login_rate_limit_window_and_success_reservation_release():
+    principal_key = 'a' * 64
+    client_key = 'b' * 64
+    first, delay = main.db.reserve_login_attempt(principal_key, client_key, 200_000, 60, 2, 10)
+    second, delay = main.db.reserve_login_attempt(principal_key, client_key, 200_001, 60, 2, 10)
+    assert first and second and delay == 0
+
+    blocked, delay = main.db.reserve_login_attempt(principal_key, client_key, 200_002, 60, 2, 10)
+    assert blocked is None and delay == 58
+
+    # A correct credential removes its reservation and doesn't count as failure.
+    main.db.complete_login_attempt(second)
+    next_attempt, delay = main.db.reserve_login_attempt(principal_key, client_key, 200_003, 60, 2, 10)
+    assert next_attempt and delay == 0
+
+    # Reservations naturally expire after the rolling window.
+    after_expiry, delay = main.db.reserve_login_attempt(principal_key, client_key, 200_061, 60, 2, 10)
+    assert after_expiry and delay == 0
+    for attempt_id in (first, next_attempt, after_expiry):
+        main.db.complete_login_attempt(attempt_id)
+
+
+def test_hearing_outcome_rejects_values_outside_current_ui_choices():
+    fixture_case('SEC/ENUM')
+    response = client.post(
+        '/api/cases/SEC/ENUM/hearings', headers=headers('usr_clerk_01'),
+        json={'outcome':'Unknown Workflow State', 'reason_code':'Other'},
+    )
+    assert response.status_code == 422
+
+
+def test_successful_login_clears_its_rate_limit_reservation(monkeypatch):
+    monkeypatch.setattr(main, 'LOGIN_RATE_LIMIT_PER_USERNAME_IP', 2)
+    with TestClient(main.app, client=('198.51.100.42', 43101)) as limited_client:
+        assert limited_client.post('/api/login', json={
+            'username':'cr', 'password':'12345'
+        }).status_code == 200
+        for _ in range(2):
+            failed = limited_client.post('/api/login', json={
+                'username':'cr', 'password':'incorrect-password'
+            })
+            assert failed.status_code == 401
+            assert failed.headers['Cache-Control'] == 'no-store'
+        assert limited_client.post('/api/login', json={
+            'username':'cr', 'password':'incorrect-password'
+        }).status_code == 429
+
+
+def test_login_rate_limit_reservations_are_atomic_under_concurrency():
+    principal_key = 'c' * 64
+    client_key = 'd' * 64
+    def reserve(_):
+        return main.db.reserve_login_attempt(principal_key, client_key, 400_000, 60, 3, 100)
+
+    with ThreadPoolExecutor(max_workers=8) as executor:
+        results = list(executor.map(reserve, range(16)))
+    allowed = [attempt_id for attempt_id, _ in results if attempt_id]
+    blocked = [(attempt_id, delay) for attempt_id, delay in results if not attempt_id]
+    assert len(allowed) == 3
+    assert len(blocked) == 13
+    assert all(delay >= 1 for _, delay in blocked)
+    for attempt_id in allowed:
+        main.db.complete_login_attempt(attempt_id)

@@ -155,6 +155,17 @@ class BaseDatabase:
     def revoke_user_sessions(self, user_id: str) -> int:
         raise NotImplementedError
 
+    def reserve_login_attempt(
+        self, principal_key: str, client_key: str, now: int,
+        window_seconds: int, principal_limit: int, client_limit: int,
+    ) -> tuple[Optional[str], int]:
+        """Reserve an attempt or return its retry delay; keys must be pseudonymous."""
+        raise NotImplementedError
+
+    def complete_login_attempt(self, attempt_id: str) -> None:
+        """Remove a successful login reservation so only failures consume quota."""
+        raise NotImplementedError
+
 
 # ---- SQLite Implementation ----
 
@@ -215,6 +226,22 @@ class SQLiteDatabase(BaseDatabase):
                 )
             """)
             cursor.execute("CREATE INDEX IF NOT EXISTS idx_auth_sessions_user_id ON auth_sessions(user_id)")
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS auth_login_attempts (
+                    attempt_id TEXT PRIMARY KEY,
+                    principal_key TEXT NOT NULL,
+                    client_key TEXT NOT NULL,
+                    attempted_at INTEGER NOT NULL
+                )
+            """)
+            cursor.execute(
+                "CREATE INDEX IF NOT EXISTS idx_login_attempts_principal_client_time "
+                "ON auth_login_attempts(principal_key, client_key, attempted_at)"
+            )
+            cursor.execute(
+                "CREATE INDEX IF NOT EXISTS idx_login_attempts_client_time "
+                "ON auth_login_attempts(client_key, attempted_at)"
+            )
             self.conn.commit()
 
     def _seed_users_if_empty(self) -> None:
@@ -445,6 +472,71 @@ class SQLiteDatabase(BaseDatabase):
             )
             self.conn.commit()
             return cursor.rowcount
+
+    def reserve_login_attempt(
+        self, principal_key: str, client_key: str, now: int,
+        window_seconds: int, principal_limit: int, client_limit: int,
+    ) -> tuple[Optional[str], int]:
+        """Atomically reserve a login attempt within principal and client windows.
+
+        Only failed attempts remain in this table: a successful request deletes its
+        reservation. Values supplied as keys are one-way hashes; raw usernames and
+        client addresses are never written to the rate-limit table.
+        """
+        if window_seconds < 1 or principal_limit < 1 or client_limit < 1:
+            raise ValueError("Login rate-limit settings must be positive")
+        cutoff = now - window_seconds
+        with self._lock:
+            cursor = self.conn.cursor()
+            try:
+                # BEGIN IMMEDIATE serializes the count-and-reserve operation across
+                # threads and SQLite workers sharing this database file.
+                cursor.execute("BEGIN IMMEDIATE")
+                cursor.execute(
+                    "DELETE FROM auth_login_attempts WHERE attempted_at <= ?", (cutoff,)
+                )
+
+                cursor.execute(
+                    "SELECT COUNT(*), MIN(attempted_at) FROM auth_login_attempts "
+                    "WHERE principal_key = ? AND client_key = ? AND attempted_at > ?",
+                    (principal_key, client_key, cutoff),
+                )
+                principal_count, principal_oldest = cursor.fetchone()
+                cursor.execute(
+                    "SELECT COUNT(*), MIN(attempted_at) FROM auth_login_attempts "
+                    "WHERE client_key = ? AND attempted_at > ?",
+                    (client_key, cutoff),
+                )
+                client_count, client_oldest = cursor.fetchone()
+
+                retry_delays = []
+                if principal_count >= principal_limit:
+                    retry_delays.append(window_seconds - (now - principal_oldest))
+                if client_count >= client_limit:
+                    retry_delays.append(window_seconds - (now - client_oldest))
+                if retry_delays:
+                    self.conn.commit()
+                    return None, max(1, max(retry_delays))
+
+                attempt_id = uuid.uuid4().hex
+                cursor.execute(
+                    "INSERT INTO auth_login_attempts "
+                    "(attempt_id, principal_key, client_key, attempted_at) VALUES (?, ?, ?, ?)",
+                    (attempt_id, principal_key, client_key, now),
+                )
+                self.conn.commit()
+                return attempt_id, 0
+            except Exception:
+                self.conn.rollback()
+                raise
+
+    def complete_login_attempt(self, attempt_id: str) -> None:
+        """Remove a successful attempt reservation so it does not count as a failure."""
+        with self._lock:
+            self.conn.execute(
+                "DELETE FROM auth_login_attempts WHERE attempt_id = ?", (attempt_id,)
+            )
+            self.conn.commit()
 
     # ---- Maintenance ----
 
