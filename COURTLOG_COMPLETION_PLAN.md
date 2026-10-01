@@ -43,6 +43,9 @@ Every task is initially unchecked. Proposed owners are responsibility areas, not
 - [x] **B5 — Finish account management.** Unique IDs, username/password setup, validated roles and assignments, password change/reset, forced initial password change; UI driven by authenticated profile rather than demo identities. *(S-09, F-04)*
 - [x] **B6 — Remove unsafe defaults.** No pre-filled admin password; environment-driven bootstrap; explicit demo mode; role switcher and simulator unavailable in live mode. *(S-03)*
 - [ ] **B7 — Harden requests and dependencies.** Rate limits, CORS allowlist, appropriate headers, validated dates/phones/lengths/path containment, dependency upgrades and removal of unused packages. Retest compatibility and triage scanner results. *(S-07–S-10, E-03)*
+  - [x] Validation slice: constrain case IDs on request bodies and every case-ID path route; validate ISO hearing dates, normalize/check Nigerian E.164 contact numbers, cap/trim request fields, reject document filename paths, and stop creating upload directories for metadata-only records.
+  - [x] Add baseline security headers and disable `/docs`, `/redoc`, and OpenAPI outside explicit demo mode.
+  - [ ] Still open: rate limiting/lockout, broad enum review, dependency upgrades/removals, and full scanner triage.
 - [ ] **B8 — Record trustworthy actions.** Actor identity from authentication; actor/time/reason on hearings and overrides; append-only application audit events for edits, exports and administrative changes. *(S-05)*
 
 **Gate:** unauthenticated requests denied, cross-scope requests denied, no hashes leaked, XSS regression tests pass, disabled/deleted users lose access, no unresolved critical security findings.

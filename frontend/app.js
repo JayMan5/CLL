@@ -1789,13 +1789,13 @@ async function submitAssignJudge(e) {
     }
 }
 
-// Document Upload (Clerk)
+// Record document metadata (Clerk); binary file storage is not implemented yet.
 async function handleUploadDocument(e) {
     e.preventDefault();
-    const caseId = document.getElementById("upload-case-id").value;
+    const caseId = document.getElementById("upload-case-id").value.trim();
     const docType = document.getElementById("upload-doc-type").value;
-    const title = document.getElementById("upload-title").value;
-    const filename = document.getElementById("upload-filename").value;
+    const title = document.getElementById("upload-title").value.trim();
+    const filename = document.getElementById("upload-filename").value.trim();
 
     try {
         const response = await apiFetch(`${API_BASE}/cases/${caseId}/documents`, {
@@ -1805,15 +1805,15 @@ async function handleUploadDocument(e) {
         });
 
         if (response.ok) {
-            showToast(`Document uploaded to ${caseId}.`, "success");
+            showToast(`Document metadata recorded for ${caseId}; file storage is not enabled yet.`, "success");
             document.getElementById("form-upload-doc").reset();
             await loadDashboardData();
         } else {
             const err = await response.json();
-            showToast(err.detail || "Failed to upload document.", "error");
+            showToast(err.detail || "Failed to record document metadata.", "error");
         }
     } catch (error) {
-        showToast("Network error uploading document.", "error");
+        showToast("Network error recording document metadata.", "error");
     }
 }
 

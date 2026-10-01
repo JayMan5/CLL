@@ -65,3 +65,21 @@ At this checkpoint, not complete: no real-browser/device or staging test; forgot
 - The WhatsApp code now returns `disabled` without making any outbound network request outside demo mode. UI labels state that simulation is not live Meta/WhatsApp delivery; the mock API token default was removed.
 - Verification: `.venv/bin/python -m pytest tests/test_security.py -q`: 16 passed; `npm ci && npm run test:frontend`: passed; `python -m compileall -q backend`, `node --check frontend/app.js`, `npm audit --audit-level=high`, and `git diff --check`: passed.
 - Remaining before live use: secrets must be provisioned safely, the first admin must be bootstrapped and tested in staging, no real WhatsApp adapter is implemented, and the broader pilot/showcase gates remain open.
+
+## 1 October 2026 — B7 request-validation slice
+
+Implemented:
+- Applied the existing constrained case-ID type to every `/api/cases/{case_id:path}` handler as well as case-creation and scan request bodies. Traversal-shaped IDs are rejected before a route uses them.
+- Added maximum lengths and blank-value checks to scan, execution, hearing, assignment, reassignment, missing-file, case-registration, login, and document-metadata inputs.
+- Validated hearing dates as ISO 8601; an adjournment now needs a date, while the existing date-only HTML input and optional next date for a matter heard remain supported. No statutory interval or adjournment-count rule was changed.
+- Validated and normalized Nigerian contact numbers to `+234…` E.164 form while accepting the existing `+234`, `234`, and domestic `0` formats (including ordinary spacing/punctuation).
+- Removed filesystem directory creation and path joining from the metadata-only document endpoint; rejects path-like filenames and returns `storage_status: metadata_only` / `storage_path: null`. Updated UI copy so it no longer claims a binary document was uploaded.
+- Added baseline security response headers and disabled interactive API docs/OpenAPI unless explicit demo mode is enabled.
+- Added regression tests for invalid path-route IDs, traversal filenames, valid/invalid phone numbers, blank/invalid dates, and production-mode docs/security headers.
+
+Verification:
+- `.venv/bin/python -m pytest tests/test_security.py -q`: 23 passed (three existing deprecation warnings).
+- `node --check frontend/app.js`, `npm run test:frontend`, and `npm audit --audit-level=high`: passed; 0 npm vulnerabilities.
+- `python -m compileall -q backend` and `git diff --check`: passed.
+
+B7 remains open: rate limiting/lockout, broad enum review, dependency upgrades/removals, and full scanner triage have not been completed. Document binary upload/storage remains a separate D3 task. Real-browser, device, staging and pilot readiness have not been established; legal-rule changes remain pending Law Lead sign-off.

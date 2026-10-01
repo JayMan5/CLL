@@ -296,3 +296,125 @@ def test_demo_simulator_requires_configured_secret(monkeypatch):
     assert accepted.status_code == 200
     assert client.get('/api/whatsapp/logs', headers=headers('usr_cr_01')).status_code == 200
     main.whatsapp_logs.clear()
+
+
+def test_case_identifiers_are_validated_on_path_routes():
+    h = headers('usr_cr_01')
+    for path in (
+        '/api/cases/SEC/A..B',
+        '/api/cases/SEC/A..B/alerts',
+        '/api/cases/SEC/A..B/documents',
+    ):
+        response = client.get(path, headers=h) if path.endswith(('A..B', 'alerts')) else client.post(
+            path, headers=h,
+            json={'document_type':'Motion', 'title':'Motion', 'filename':'motion.pdf'},
+        )
+        assert response.status_code == 422, (path, response.status_code, response.text)
+
+
+def test_document_metadata_rejects_paths_and_does_not_claim_file_storage():
+    fixture_case('SEC/DOC')
+    h = headers('usr_clerk_01')
+    endpoint = '/api/cases/SEC/DOC/documents'
+    payload = {'document_type':'Motion', 'title':'Motion for Bail', 'filename':'motion.pdf'}
+
+    for filename in ('../escape.pdf', r'..\\escape.pdf', 'motion..pdf'):
+        response = client.post(endpoint, headers=h, json={**payload, 'filename':filename})
+        assert response.status_code == 422
+
+    recorded = client.post(endpoint, headers=h, json=payload)
+    assert recorded.status_code == 200
+    document = recorded.json()['documents'][-1]
+    assert document['storage_path'] is None
+    assert document['storage_status'] == 'metadata_only'
+
+
+def test_case_creation_normalizes_nigerian_phones_and_rejects_invalid_values():
+    h = headers('usr_clerk_01')
+    payload = {
+        'case_id':'FHC/ABJ/CR/200/2026', 'case_type':'Criminal',
+        'court':'FHC Abuja Court 4', 'counsel_phone':'0803 123 4567',
+        'litigant_phone':'0811-111-1111',
+    }
+    created = client.post('/api/cases', headers=h, json=payload)
+    assert created.status_code == 201, created.text
+    contacts = created.json()['party_contact']
+    assert contacts['counsel_phone'] == '+2348031234567'
+    assert contacts['litigant_phone'] == '+2348111111111'
+
+    invalid_phone = client.post('/api/cases', headers=h, json={
+        **payload, 'case_id':'FHC/ABJ/CR/201/2026', 'counsel_phone':'not a phone',
+    })
+    assert invalid_phone.status_code == 422
+    too_long = client.post('/api/cases', headers=h, json={
+        **payload, 'case_id':'FHC/ABJ/CR/202/2026', 'case_type':'C' * 81,
+    })
+    assert too_long.status_code == 422
+
+
+def test_hearing_dates_are_iso_valid_and_adjournments_require_a_date():
+    fixture_case('SEC/DATE')
+    h = headers('usr_clerk_01')
+    endpoint = '/api/cases/SEC/DATE/hearings'
+
+    for next_date in ('2026-02-30', 'not-a-date', ''):
+        response = client.post(endpoint, headers=h, json={
+            'outcome':'Adjourned', 'reason_code':'Counsel Absent', 'next_date':next_date,
+        })
+        assert response.status_code == 422
+
+    valid = client.post(endpoint, headers=h, json={
+        'outcome':'Adjourned', 'reason_code':'Counsel Absent', 'next_date':'2026-10-02',
+    })
+    assert valid.status_code == 200, valid.text
+    assert valid.json()['hearing_log'][-1]['next_date'] == '2026-10-02'
+
+    fixture_case('SEC/HEARD')
+    heard = client.post('/api/cases/SEC/HEARD/hearings', headers=h, json={
+        'outcome':'Heard', 'reason_code':'None', 'next_date':'',
+    })
+    assert heard.status_code == 200, heard.text
+    assert heard.json()['hearing_log'][-1]['next_date'] == ''
+
+
+def test_security_headers_and_production_docs_configuration():
+    response = client.get('/api/config')
+    assert response.status_code == 200
+    assert response.headers['X-Content-Type-Options'] == 'nosniff'
+    assert response.headers['X-Frame-Options'] == 'DENY'
+    assert response.headers['Referrer-Policy'] == 'strict-origin-when-cross-origin'
+    assert response.headers['Permissions-Policy'] == 'camera=(self), geolocation=(), microphone=()'
+    assert response.headers['Cross-Origin-Opener-Policy'] == 'same-origin'
+    assert main.app.docs_url is None
+    assert main.app.redoc_url is None
+    assert main.app.openapi_url is None
+    assert client.get('/docs').status_code == 404
+    assert client.get('/openapi.json').status_code == 404
+
+
+def test_required_text_inputs_reject_whitespace_only_values():
+    fixture_case('SEC/BLANK')
+    clerk_headers = headers('usr_clerk_01')
+    scan = client.post('/api/scan', headers=clerk_headers, json={
+        'case_id':'SEC/BLANK', 'location':'   ', 'staff_id':'usr_clerk_01',
+    })
+    assert scan.status_code == 422
+
+    hearing = client.post('/api/cases/SEC/BLANK/hearings', headers=clerk_headers, json={
+        'outcome':'Adjourned', 'reason_code':'   ', 'next_date':'2026-10-02',
+    })
+    assert hearing.status_code == 422
+
+    document = client.post('/api/cases/SEC/BLANK/documents', headers=clerk_headers, json={
+        'document_type':'Motion', 'title':'   ', 'filename':'motion.pdf',
+    })
+    assert document.status_code == 422
+    assert client.post('/api/login', json={'username':'   ', 'password':'password'}).status_code == 422
+
+
+def test_cors_does_not_reflect_unconfigured_origins():
+    preflight = client.options('/api/config', headers={
+        'Origin':'https://evil.example',
+        'Access-Control-Request-Method':'GET',
+    })
+    assert 'access-control-allow-origin' not in preflight.headers

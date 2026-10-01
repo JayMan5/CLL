@@ -355,8 +355,10 @@
                                 <form id="form-create-case" onsubmit="handleCreateCase(event)" class="space-y-3">
                                     <div>
                                         <label class="stat-label block mb-1">SUIT NO / Case ID</label>
-                                        <input type="text" id="new-case-id" required class="th-input w-full"
-                                            placeholder="e.g. FHC/ABJ/CR/200/2026">
+                                        <input type="text" id="new-case-id" required maxlength="120"
+                                            pattern="[A-Za-z0-9][A-Za-z0-9_()./-]*" class="th-input w-full"
+                                            placeholder="e.g. FHC/ABJ/CR/200/2026"
+                                            title="Use letters, numbers, and suit-number separators only.">
                                     </div>
                                     <div class="grid grid-cols-2 gap-3">
                                         <div>
@@ -384,13 +386,13 @@
                                     <div class="grid grid-cols-2 gap-3">
                                         <div>
                                             <label class="stat-label block mb-1">Counsel Phone</label>
-                                            <input type="text" id="new-case-counsel" required class="th-input w-full"
-                                                placeholder="+234...">
+                                            <input type="tel" id="new-case-counsel" required maxlength="32" autocomplete="tel"
+                                                class="th-input w-full" placeholder="e.g. +2348031234567">
                                         </div>
                                         <div>
                                             <label class="stat-label block mb-1">Litigant Phone</label>
-                                            <input type="text" id="new-case-litigant" required class="th-input w-full"
-                                                placeholder="+234...">
+                                            <input type="tel" id="new-case-litigant" required maxlength="32" autocomplete="tel"
+                                                class="th-input w-full" placeholder="e.g. +2348031234567">
                                         </div>
                                     </div>
 
@@ -455,16 +457,17 @@
                     </div>
 
 
-                    <!-- Document Upload -->
+                    <!-- Document Metadata -->
                     <div class="space-y-4 pt-6" style="border-top:1px solid var(--border-color)">
                         <h4 class="font-heading font-bold text-sm text-heading flex items-center gap-2">
-                            <i class="fa-solid fa-file-arrow-up text-accent"></i> Upload Case Document
+                            <i class="fa-solid fa-file-lines text-accent"></i> Record Document Metadata
                         </h4>
                         <form id="form-upload-doc" onsubmit="handleUploadDocument(event)" class="space-y-3">
                             <div class="grid grid-cols-2 gap-3">
                                 <div>
                                     <label class="stat-label block mb-1">Case ID</label>
-                                    <input type="text" id="upload-case-id" required class="th-input w-full py-2"
+                                    <input type="text" id="upload-case-id" required maxlength="120"
+                                        pattern="[A-Za-z0-9][A-Za-z0-9_()./-]*" class="th-input w-full py-2"
                                         placeholder="e.g. CR-104-2025">
                                 </div>
                                 <div>
@@ -480,17 +483,18 @@
                             <div class="grid grid-cols-2 gap-3">
                                 <div>
                                     <label class="stat-label block mb-1">Document Title</label>
-                                    <input type="text" id="upload-title" required class="th-input w-full py-2"
+                                    <input type="text" id="upload-title" required maxlength="200" class="th-input w-full py-2"
                                         placeholder="e.g. Motion for Bail">
                                 </div>
                                 <div>
                                     <label class="stat-label block mb-1">Filename</label>
-                                    <input type="text" id="upload-filename" required class="th-input w-full py-2"
+                                    <input type="text" id="upload-filename" required maxlength="120"
+                                        pattern="[A-Za-z0-9][A-Za-z0-9 _().-]*" class="th-input w-full py-2"
                                         placeholder="e.g. bail_motion.pdf">
                                 </div>
                             </div>
                             <button type="submit" class="btn-primary w-full mt-3">
-                                <i class="fa-solid fa-cloud-arrow-up"></i> Upload Document
+                                <i class="fa-solid fa-clipboard-check"></i> Record Metadata
                             </button>
                         </form>
                     </div>
@@ -1231,7 +1235,8 @@
             <form onsubmit="submitReassignCase(event)" class="space-y-4 text-xs">
                 <div>
                     <label class="stat-label block mb-1 font-semibold">Case ID</label>
-                    <input type="text" id="reassign-case-id" required class="th-input w-full p-2.5 rounded-lg text-xs"
+                    <input type="text" id="reassign-case-id" required maxlength="120"
+                        pattern="[A-Za-z0-9][A-Za-z0-9_()./-]*" class="th-input w-full p-2.5 rounded-lg text-xs"
                         placeholder="e.g. CR-104-2025">
                 </div>
                 <div>
@@ -1284,7 +1289,8 @@
             <form onsubmit="submitAssignJudge(event)" class="space-y-4 text-xs">
                 <div>
                     <label class="stat-label block mb-1 font-semibold">Case ID</label>
-                    <input type="text" id="assign-judge-case-id" required
+                    <input type="text" id="assign-judge-case-id" required maxlength="120"
+                        pattern="[A-Za-z0-9][A-Za-z0-9_()./-]*"
                         class="th-input w-full p-2.5 rounded-lg text-xs" placeholder="e.g. CR-104-2025">
                 </div>
                 <div>

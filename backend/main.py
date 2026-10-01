@@ -1,6 +1,7 @@
 import os
 import joblib
 import logging
+import re
 import secrets
 import sqlite3
 import uuid
@@ -9,7 +10,7 @@ from datetime import datetime, timezone, timedelta
 from typing import Dict, Any, List, Optional, Annotated, Literal
 from fastapi import FastAPI, HTTPException, BackgroundTasks, Body, Header, Depends, Response, Cookie
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel, Field, field_validator
+from pydantic import AfterValidator, BaseModel, Field, field_validator, model_validator
 
 load_dotenv()
 
@@ -24,8 +25,17 @@ from backend.auth import (
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("courtlog.main")
 
+# Expose interactive API docs only in explicitly enabled demo mode.
+DEMO_MODE_ENABLED = os.getenv("DEMO_MODE", "false").strip().lower() == "true"
+
 # Initialize FastAPI
-app = FastAPI(title="COURTLOG 2.0 API", description="Court File Tracking & Delay Compliance System API")
+app = FastAPI(
+    title="COURTLOG 2.0 API",
+    description="Court File Tracking & Delay Compliance System API",
+    docs_url="/docs" if DEMO_MODE_ENABLED else None,
+    redoc_url="/redoc" if DEMO_MODE_ENABLED else None,
+    openapi_url="/openapi.json" if DEMO_MODE_ENABLED else None,
+)
 
 # Enable CORS for frontend integration
 app.add_middleware(
@@ -36,11 +46,23 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+
+@app.middleware("http")
+async def add_security_headers(request, call_next):
+    response = await call_next(request)
+    response.headers.setdefault("X-Content-Type-Options", "nosniff")
+    response.headers.setdefault("X-Frame-Options", "DENY")
+    response.headers.setdefault("Referrer-Policy", "strict-origin-when-cross-origin")
+    response.headers.setdefault("Permissions-Policy", "camera=(self), geolocation=(), microphone=()")
+    response.headers.setdefault("Cross-Origin-Opener-Policy", "same-origin")
+    response.headers.setdefault("Cross-Origin-Resource-Policy", "same-origin")
+    return response
+
+
 # Session cookies are host-only, HttpOnly and SameSite-restricted.
 REFRESH_COOKIE_NAME = "courtlog_refresh"
 REFRESH_COOKIE_PATH = "/api"
 COOKIE_SECURE = os.getenv("COOKIE_SECURE", "true").strip().lower() in {"1", "true", "yes", "on"}
-DEMO_MODE_ENABLED = os.getenv("DEMO_MODE", "false").strip().lower() == "true"
 
 
 def _set_refresh_cookie(response: Response, token: str) -> None:
@@ -130,46 +152,139 @@ def startup_event():
     # Run initial compliance sweep
     run_compliance_checks_sync()
 
-# Identifiers allow Nigerian suit-number separators but reject traversal and HTML.
-CaseIdentifier = Annotated[str, Field(min_length=1, max_length=120, pattern=r"^[A-Za-z0-9][A-Za-z0-9_()./-]*$")]
+# Nigerian case references can contain suit-number separators, but never path
+# traversal segments or characters that could become markup in the UI.
+def _validate_case_identifier(value: str) -> str:
+    if ".." in value or "//" in value or value.endswith("/"):
+        raise ValueError("Invalid case identifier")
+    return value
+
+
+CaseIdentifier = Annotated[
+    str,
+    Field(min_length=1, max_length=120, pattern=r"^[A-Za-z0-9][A-Za-z0-9_()./-]*$"),
+    AfterValidator(_validate_case_identifier),
+]
+
+
+def _normalize_nigerian_phone(value: str) -> str:
+    normalized = re.sub(r"[\s().-]", "", value)
+    if normalized.startswith("00"):
+        normalized = "+" + normalized[2:]
+    elif normalized.startswith("0"):
+        normalized = "+234" + normalized[1:]
+    elif normalized.startswith("234"):
+        normalized = "+" + normalized
+
+    if not re.fullmatch(r"\+234[1-9]\d{6,9}", normalized):
+        raise ValueError("Enter a valid Nigerian phone number, such as +2348031234567")
+    return normalized
+
 
 # Helper Pydantic Models for Input Validation
-class CaseIdentifierRequest(BaseModel):
-    @field_validator("case_id", check_fields=False)
-    @classmethod
-    def reject_traversal(cls, value):
-        if ".." in value or "//" in value or value.endswith("/"):
-            raise ValueError("Invalid case identifier")
-        return value
-
-
-class ScanRequest(CaseIdentifierRequest):
+class ScanRequest(BaseModel):
     case_id: CaseIdentifier
-    location: str
-    staff_id: str
+    location: str = Field(min_length=1, max_length=160, pattern=r"\S")
+    staff_id: str = Field(min_length=1, max_length=64, pattern=r"\S")
+
+    @field_validator("location", "staff_id")
+    @classmethod
+    def trim_scan_fields(cls, value):
+        return value.strip()
+
 
 class HearingRequest(BaseModel):
-    outcome: str  # "Heard" or "Adjourned"
-    reason_code: Optional[str] = "None"
-    next_date: str  # ISO8601 string
+    # Bound the free-form value now; the exhaustive workflow enum audit remains a separate task.
+    outcome: str = Field(min_length=1, max_length=40, pattern=r"\S")
+    reason_code: Optional[str] = Field(default="None", max_length=100)
+    next_date: Optional[datetime] = None
+
+    @field_validator("next_date", mode="before")
+    @classmethod
+    def parse_iso_date(cls, value):
+        if value is None or (isinstance(value, str) and not value.strip()):
+            return None
+        if isinstance(value, datetime):
+            parsed = value
+        elif isinstance(value, str):
+            try:
+                parsed = datetime.fromisoformat(value.strip().replace("Z", "+00:00"))
+            except ValueError as exc:
+                raise ValueError("next_date must be a valid ISO 8601 date or datetime") from exc
+        else:
+            raise ValueError("next_date must be a valid ISO 8601 date or datetime")
+        return parsed if parsed.tzinfo else parsed.replace(tzinfo=timezone.utc)
+
+    @field_validator("outcome")
+    @classmethod
+    def trim_hearing_outcome(cls, value):
+        return value.strip()
+
+    @field_validator("reason_code")
+    @classmethod
+    def trim_hearing_reason(cls, value):
+        if value is None:
+            return None
+        value = value.strip()
+        if not value:
+            raise ValueError("reason_code cannot be blank")
+        return value
+
+    @model_validator(mode="after")
+    def adjournment_requires_date(self):
+        if self.outcome == "Adjourned" and self.next_date is None:
+            raise ValueError("next_date is required when outcome is Adjourned")
+        return self
+
 
 class ExecutionRequest(BaseModel):
-    action: str  # "Writ of Fi Fa Filed", "Garnishee Order Filed", etc.
-    sheriff_id: str
+    action: str = Field(min_length=3, max_length=300, pattern=r"\S")
+    sheriff_id: str = Field(min_length=1, max_length=64, pattern=r"\S")
 
-class CaseCreateRequest(CaseIdentifierRequest):
+    @field_validator("action", "sheriff_id")
+    @classmethod
+    def trim_execution_fields(cls, value):
+        return value.strip()
+
+
+class CaseCreateRequest(BaseModel):
     case_id: CaseIdentifier
-    case_type: str
-    court: str
-    counsel_phone: str
-    litigant_phone: str
+    case_type: str = Field(min_length=1, max_length=80, pattern=r"\S")
+    court: str = Field(min_length=1, max_length=120, pattern=r"\S")
+    counsel_phone: str = Field(min_length=8, max_length=32)
+    litigant_phone: str = Field(min_length=8, max_length=32)
+
+    @field_validator("case_type", "court")
+    @classmethod
+    def trim_case_fields(cls, value):
+        return value.strip()
+
+    @field_validator("counsel_phone", "litigant_phone")
+    @classmethod
+    def normalize_nigerian_phones(cls, value):
+        return _normalize_nigerian_phone(value)
+
 
 class DCROverrideRequest(BaseModel):
     exceptional_reason: str = Field(min_length=1, max_length=2000, pattern=r"\S")
 
+    @field_validator("exceptional_reason")
+    @classmethod
+    def trim_exceptional_reason(cls, value):
+        return value.strip()
+
+
 class LoginRequest(BaseModel):
     username: str = Field(min_length=1, max_length=32)
     password: str = Field(min_length=1, max_length=72)
+
+    @field_validator("username")
+    @classmethod
+    def validate_username(cls, value):
+        value = value.strip()
+        if not value:
+            raise ValueError("Username cannot be blank")
+        return value
 
     @field_validator("password")
     @classmethod
@@ -178,24 +293,71 @@ class LoginRequest(BaseModel):
             raise ValueError("Password must be no more than 72 UTF-8 bytes")
         return value
 
+
 class ReassignRequest(BaseModel):
-    new_division: Optional[str] = None
-    new_court: Optional[str] = None
-    reason: str
+    new_division: Optional[str] = Field(default=None, max_length=120)
+    new_court: Optional[str] = Field(default=None, max_length=120)
+    reason: str = Field(min_length=1, max_length=1000, pattern=r"\S")
+
+    @field_validator("new_division", "new_court", "reason")
+    @classmethod
+    def trim_reassignment_fields(cls, value):
+        return value.strip() if value is not None else None
+
+    @model_validator(mode="after")
+    def require_reassignment_target(self):
+        if not self.new_division and not self.new_court:
+            raise ValueError("Provide a new division or court")
+        return self
+
 
 class AssignJudgeRequest(BaseModel):
-    judge_id: str
-    reason: Optional[str] = "Balloting assignment"
+    judge_id: str = Field(min_length=1, max_length=64, pattern=r"\S")
+    reason: Optional[str] = Field(default="Balloting assignment", max_length=500)
+
+    @field_validator("judge_id")
+    @classmethod
+    def trim_judge_id(cls, value):
+        return value.strip()
+
+    @field_validator("reason")
+    @classmethod
+    def trim_assignment_reason(cls, value):
+        if value is None:
+            return None
+        value = value.strip()
+        if not value:
+            raise ValueError("reason cannot be blank")
+        return value
+
 
 class FileMissingRequest(BaseModel):
-    last_known_location: str
-    notes: Optional[str] = ""
+    last_known_location: str = Field(min_length=1, max_length=160, pattern=r"\S")
+    notes: Optional[str] = Field(default="", max_length=1000)
+
+    @field_validator("last_known_location", "notes")
+    @classmethod
+    def trim_missing_file_fields(cls, value):
+        return value.strip() if value is not None else None
+
 
 class DocumentUploadRequest(BaseModel):
-    document_type: str  # "Ruling", "Motion", "Exhibit", "Affidavit", etc.
-    title: str
-    filename: str
-    notes: Optional[str] = ""
+    document_type: str = Field(min_length=1, max_length=40, pattern=r"\S")
+    title: str = Field(min_length=1, max_length=200, pattern=r"\S")
+    filename: str = Field(min_length=1, max_length=120, pattern=r"^[A-Za-z0-9][A-Za-z0-9 _().-]*$")
+    notes: Optional[str] = Field(default="", max_length=1000)
+
+    @field_validator("document_type", "title", "filename", "notes")
+    @classmethod
+    def trim_document_fields(cls, value):
+        return value.strip() if value is not None else None
+
+    @field_validator("filename")
+    @classmethod
+    def reject_path_components(cls, value):
+        if value in {".", ".."} or ".." in value:
+            raise ValueError("Filename must be a plain filename, not a path")
+        return value
 
 class UserCreateRequest(BaseModel):
     username: str = Field(min_length=3, max_length=32, pattern=r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
@@ -740,7 +902,7 @@ def record_scan_event(req: ScanRequest, auth: Dict[str, str] = Depends(get_curre
     return db.get_case(req.case_id)
 
 @app.post("/api/cases/{case_id:path}/hearings", response_model=Dict[str, Any])
-def log_hearing_outcome(case_id: str, req: HearingRequest, background_tasks: BackgroundTasks, auth: Dict[str, str] = Depends(get_current_user)):
+def log_hearing_outcome(case_id: CaseIdentifier, req: HearingRequest, background_tasks: BackgroundTasks, auth: Dict[str, str] = Depends(get_current_user)):
     """
     Module 2: Hearing Compliance Engine.
     Enforces 5th Adjournment DCR Hard Block rule under ACJA/ACJL compliance.
@@ -775,11 +937,19 @@ def log_hearing_outcome(case_id: str, req: HearingRequest, background_tasks: Bac
                 detail="5th Adjournment BLOCKED by System under ACJA/ACJL Section 396 compliance rules. Requires Deputy Chief Registrar (DCR) approval with exceptional reason."
             )
             
+    if req.next_date is None:
+        next_date_value = ""
+    elif req.next_date.time() == datetime.min.time() and req.next_date.microsecond == 0:
+        # Keep the existing date-only frontend format for <input type="date">.
+        next_date_value = req.next_date.date().isoformat()
+    else:
+        next_date_value = format_date(req.next_date)
+
     hearing_event = {
         "date": format_date(get_current_time()),
         "outcome": req.outcome,
         "reason_code": req.reason_code if req.outcome == "Adjourned" else "None",
-        "next_date": req.next_date
+        "next_date": next_date_value
     }
     
     updates = {
@@ -792,7 +962,7 @@ def log_hearing_outcome(case_id: str, req: HearingRequest, background_tasks: Bac
         background_tasks.add_task(
             send_adjournment_broadcast,
             case_id=case_id,
-            next_date=req.next_date,
+            next_date=next_date_value,
             reason_code=req.reason_code,
             group_id="registry-group-104"
         )
@@ -822,7 +992,7 @@ def log_hearing_outcome(case_id: str, req: HearingRequest, background_tasks: Bac
     return db.get_case(case_id)
 
 @app.post("/api/cases/{case_id:path}/dcr-override", response_model=Dict[str, Any])
-def override_dcr_adjournment(case_id: str, req: DCROverrideRequest, auth: Dict[str, str] = Depends(get_current_user)):
+def override_dcr_adjournment(case_id: CaseIdentifier, req: DCROverrideRequest, auth: Dict[str, str] = Depends(get_current_user)):
     """
     Module 3: DCR 5th Adjournment Approval & Override.
     Allows DCR to upload exceptional reasons to unblock cases.
@@ -847,7 +1017,7 @@ def override_dcr_adjournment(case_id: str, req: DCROverrideRequest, auth: Dict[s
 # ----------------- NEW ENDPOINTS: RBAC FEATURE COMPLETION -----------------
 
 @app.post("/api/cases/{case_id:path}/report-missing", response_model=Dict[str, Any])
-def report_file_missing(case_id: str, req: FileMissingRequest, auth: Dict[str, str] = Depends(get_current_user)):
+def report_file_missing(case_id: CaseIdentifier, req: FileMissingRequest, auth: Dict[str, str] = Depends(get_current_user)):
     """
     Sheriff-only: Report a case file as physically missing.
     Records who reported it, when, and last known location.
@@ -879,7 +1049,7 @@ def report_file_missing(case_id: str, req: FileMissingRequest, auth: Dict[str, s
 
 
 @app.post("/api/cases/{case_id:path}/assign-judge", response_model=Dict[str, Any])
-def assign_judge_to_case(case_id: str, req: AssignJudgeRequest, auth: Dict[str, str] = Depends(get_current_user)):
+def assign_judge_to_case(case_id: CaseIdentifier, req: AssignJudgeRequest, auth: Dict[str, str] = Depends(get_current_user)):
     """
     CR-only: Assign or reassign a judge to a case (balloting).
     """
@@ -905,7 +1075,7 @@ def assign_judge_to_case(case_id: str, req: AssignJudgeRequest, auth: Dict[str, 
 
 
 @app.post("/api/cases/{case_id:path}/reassign", response_model=Dict[str, Any])
-def reassign_case(case_id: str, req: ReassignRequest, auth: Dict[str, str] = Depends(get_current_user)):
+def reassign_case(case_id: CaseIdentifier, req: ReassignRequest, auth: Dict[str, str] = Depends(get_current_user)):
     """
     DCR/CR: Reassign a case to a different division or court.
     DCR can reassign within their division; CR can reassign anywhere.
@@ -980,22 +1150,15 @@ def export_dcr_weekly_report(auth: Dict[str, str] = Depends(get_current_user)):
 
 
 @app.post("/api/cases/{case_id:path}/documents", response_model=Dict[str, Any])
-def upload_document(case_id: str, req: DocumentUploadRequest, auth: Dict[str, str] = Depends(get_current_user)):
-    """
-    Clerk/CR: Upload a document record (Ruling, Motion, Exhibit, Affidavit).
-    Stores metadata; actual file goes to data/documents/{case_id}/.
-    """
+def upload_document(case_id: CaseIdentifier, req: DocumentUploadRequest, auth: Dict[str, str] = Depends(get_current_user)):
+    """Record document metadata only; binary file storage is not implemented yet."""
     if auth["role"] not in ["Clerk", "Chief Registrar"]:
-        raise HTTPException(status_code=403, detail="Permission Denied: Document upload is restricted to Clerks and the Chief Registrar.")
+        raise HTTPException(status_code=403, detail="Permission Denied: Document metadata entry is restricted to Clerks and the Chief Registrar.")
 
     case = db.get_case(case_id)
     if not case:
         raise HTTPException(status_code=404, detail="Case file not found")
     authorize_case(case, auth)
-
-    # Ensure documents directory exists
-    docs_dir = os.path.join(DATA_DIR, "documents", case_id)
-    os.makedirs(docs_dir, exist_ok=True)
 
     doc_record = {
         "document_type": req.document_type,
@@ -1004,19 +1167,20 @@ def upload_document(case_id: str, req: DocumentUploadRequest, auth: Dict[str, st
         "uploaded_by": auth["user_id"],
         "uploaded_at": format_date(get_current_time()),
         "notes": req.notes,
-        "storage_path": os.path.join("data", "documents", case_id, req.filename)
+        "storage_path": None,
+        "storage_status": "metadata_only"
     }
 
     db.update_case(case_id, {
         "documents": [doc_record]
     })
 
-    logger.info(f"DOCUMENT UPLOADED: {req.document_type} '{req.title}' for case {case_id} by {auth['user_id']}")
+    logger.info(f"DOCUMENT METADATA RECORDED: {req.document_type} '{req.title}' for case {case_id} by {auth['user_id']}")
     return db.get_case(case_id)
 
 
 @app.get("/api/cases/{case_id:path}/alerts", response_model=Dict[str, Any])
-def get_case_alerts(case_id: str, auth: Dict[str, str] = Depends(get_current_user)):
+def get_case_alerts(case_id: CaseIdentifier, auth: Dict[str, str] = Depends(get_current_user)):
     """
     Returns active alerts for a specific case (24hr hearing alerts, RED flags, etc.).
     Used by Judge docket to show upcoming hearing warnings.
@@ -1074,7 +1238,7 @@ def get_case_alerts(case_id: str, auth: Dict[str, str] = Depends(get_current_use
 
 
 @app.get("/api/cases/{case_id:path}", response_model=Dict[str, Any])
-def get_case(case_id: str, auth: Dict[str, str] = Depends(get_current_user)):
+def get_case(case_id: CaseIdentifier, auth: Dict[str, str] = Depends(get_current_user)):
     """Retrieves a single case document by ID."""
     case = db.get_case(case_id)
     if not case:
@@ -1180,7 +1344,7 @@ def export_njc_report(auth: Dict[str, str] = Depends(get_current_user)):
 
 
 @app.post("/api/cases/{case_id:path}/predict", response_model=Dict[str, Any])
-def predict_case_risk(case_id: str, auth: Dict[str, str] = Depends(get_current_user)):
+def predict_case_risk(case_id: CaseIdentifier, auth: Dict[str, str] = Depends(get_current_user)):
     """
     Module 3: Run delay-risk prediction on-demand for a case.
     Returns and saves updated delay_risk_score and risk_flag.
@@ -1244,7 +1408,7 @@ def batch_predict_all_cases(auth: Dict[str, str] = Depends(get_current_user)):
     return results
 
 @app.post("/api/cases/{case_id:path}/execution", response_model=Dict[str, Any])
-def add_execution_action(case_id: str, req: ExecutionRequest, auth: Dict[str, str] = Depends(get_current_user)):
+def add_execution_action(case_id: CaseIdentifier, req: ExecutionRequest, auth: Dict[str, str] = Depends(get_current_user)):
     """
     Module 4: Execution Tracker.
     Appends sheriff action to execution log. Restricted to Sheriff and Chief Registrar.
