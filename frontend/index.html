@@ -3,7 +3,13 @@
 
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+    <meta name="theme-color" content="#0b1220">
+    <meta name="mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <link rel="manifest" href="/static/manifest.webmanifest">
+    <link rel="apple-touch-icon" href="/static/icons/courtlog-192.png">
     <title>COURTLOG 2.0 - Court File Tracking & Adjournment Compliance</title>
     <meta name="description"
         content="A lightweight, low-overhead GovTech file tracking and predictive delay-risk compliance registry dashboard for Nigerian courts.">
@@ -171,6 +177,10 @@
                     <button id="btn-njc-export" onclick="exportNJCReport()"
                         class="btn-primary flex items-center gap-1.5 py-1.5 text-xs shadow-lg">
                         <i class="fa-solid fa-file-export text-sm"></i> NJC Export
+                    </button>
+                    <button id="btn-install-pwa" type="button"
+                        class="btn-secondary hidden items-center gap-1.5 py-1.5 text-xs">
+                        <i class="fa-solid fa-mobile-screen-button"></i> Install CourtLOG
                     </button>
 
                     <!-- Simulation Time -->
@@ -497,36 +507,71 @@
                     </div>
                 </section>
 
-                <!-- ================== TAB 2: QR CUSTODY SCAN ================== -->
-                <section id="tab-qr-scan" class="hidden space-y-8 max-w-4xl mx-auto">
-                    <div class="glass-panel rounded-2xl p-8 space-y-6">
-                        <div class="text-center max-w-lg mx-auto space-y-2">
+                <!-- ================== TAB 2: SHERIFF QR CUSTODY CHECK-IN ================== -->
+                <section id="tab-qr-scan" class="hidden space-y-8 max-w-5xl mx-auto">
+                    <div class="glass-panel rounded-2xl p-5 md:p-8 space-y-6">
+                        <div class="text-center max-w-2xl mx-auto space-y-2">
                             <div class="w-14 h-14 rounded-full flex items-center justify-center mx-auto text-xl shadow-lg"
                                 style="background:var(--accent-soft); color:var(--accent)">
-                                <i class="fa-solid fa-qrcode"></i>
+                                <i class="fa-solid fa-qrcode" aria-hidden="true"></i>
                             </div>
-                            <h3 class="font-heading font-bold text-lg text-heading">Custody Check-In (Scanner Simulation)
-                            </h3>
-                            <p class="text-xs text-body">This prototype records a simulated check-in; no camera or QR reader is connected. The audit actor comes from your authenticated account.</p>
+                            <h3 class="font-heading font-bold text-lg text-heading">Sheriff Custody Check-In</h3>
+                            <p class="text-xs text-body">QR labels contain only a random opaque token—not a case number or case details. The signed-in Sheriff and current court/custody assignment are checked by CourtLOG before a scan is recorded. Offline scans are not saved or queued.</p>
+                            <div id="scan-network-status" class="scan-network-status" role="status" aria-live="polite">Checking connection…</div>
                         </div>
 
-                        <!-- Main QR Scanner Mock Interface -->
-                        <div class="grid grid-cols-1 md:grid-cols-2 gap-8 pt-6"
+                        <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 pt-5"
                             style="border-top:1px solid var(--border-color)">
-                            <!-- Left: Scan Form Simulator -->
-                            <div class="space-y-4">
-                                <h4 class="text-sm font-semibold text-heading"><i
-                                        class="fa-solid fa-keyboard text-accent mr-2"></i> Simulated Scanner Input</h4>
-                                <form id="form-qr-scan" onsubmit="handleScanSubmit(event)" class="space-y-3">
+                            <div class="space-y-5">
+                                <div id="sheriff-qr-tools" class="scan-tool-card space-y-4">
                                     <div>
-                                        <label class="stat-label block mb-1">Select Case File to Check-In</label>
-                                        <select id="scan-case-id" class="th-input w-full py-2">
-                                            <!-- Dynamic option cases from JS -->
-                                        </select>
+                                        <h4 class="text-sm font-semibold text-heading"><i class="fa-solid fa-camera text-accent mr-2"></i>Camera QR scanner</h4>
+                                        <p class="text-xs text-body mt-1">Allow camera access when prompted. The camera reads the local label, then the server validates your assignment.</p>
                                     </div>
-                                    <div class="grid grid-cols-2 gap-3">
+                                    <video id="qr-camera-video" class="qr-camera-video hidden" playsinline muted aria-label="Live QR scanner camera preview"></video>
+                                    <div class="flex flex-wrap gap-2">
+                                        <button id="btn-start-camera" type="button" onclick="startQrCamera()" class="btn-primary flex-1 py-2">
+                                            <i class="fa-solid fa-camera"></i> Start camera
+                                        </button>
+                                        <button id="btn-stop-camera" type="button" onclick="stopQrCamera()" class="btn-secondary hidden flex-1 py-2">
+                                            Stop camera
+                                        </button>
+                                    </div>
+                                    <p id="camera-scan-status" class="text-xs text-body" role="status" aria-live="polite">Camera not started.</p>
+                                    <form id="form-qr-token" onsubmit="handleQrTokenSubmit(event)" class="space-y-2">
+                                        <label for="qr-payload-input" class="stat-label block">USB scanner / manual QR token</label>
+                                        <input id="qr-payload-input" class="th-input w-full py-2" type="text" maxlength="128"
+                                            autocomplete="off" autocapitalize="off" spellcheck="false" inputmode="text"
+                                            placeholder="courtlog:v1:…" required>
+                                        <button type="submit" class="btn-secondary w-full py-2">
+                                            <i class="fa-solid fa-barcode"></i> Submit scanned token
+                                        </button>
+                                    </form>
+                                </div>
+
+                                <div id="manual-checkin-tools" class="scan-tool-card space-y-4">
+                                    <div>
+                                        <h4 class="text-sm font-semibold text-heading"><i class="fa-solid fa-keyboard text-accent mr-2"></i>Manual case-selection fallback</h4>
+                                        <p class="text-xs text-body mt-1">Use only if camera/USB scanning is unavailable. The server applies the same authenticated case-scope check.</p>
+                                    </div>
+                                    <form id="form-qr-scan" onsubmit="handleScanSubmit(event)" class="space-y-3">
                                         <div>
-                                            <label class="stat-label block mb-1">Checkpoint Location</label>
+                                            <label for="scan-case-id" class="stat-label block mb-1">Select an authorised case file</label>
+                                            <select id="scan-case-id" class="th-input w-full py-2" onchange="updateQRDisplay()">
+                                                <!-- Dynamic, server-scoped case options from JS -->
+                                            </select>
+                                        </div>
+                                        <button type="submit" class="btn-primary w-full py-2">
+                                            <i class="fa-solid fa-clipboard-check"></i> Record manual check-in
+                                        </button>
+                                    </form>
+                                </div>
+
+                                <div class="scan-tool-card space-y-3">
+                                    <h4 class="text-sm font-semibold text-heading">Checkpoint and signed-in operator</h4>
+                                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                                        <div>
+                                            <label for="scan-location" class="stat-label block mb-1">Checkpoint location</label>
                                             <select id="scan-location" class="th-input w-full py-2">
                                                 <option value="Registry Desk A">Registry Desk A</option>
                                                 <option value="Registry Desk B">Registry Desk B</option>
@@ -537,75 +582,78 @@
                                             </select>
                                         </div>
                                         <div>
-                                            <label class="stat-label block mb-1">Authenticated operator</label>
+                                            <span class="stat-label block mb-1">Authenticated operator</span>
                                             <div class="th-input w-full py-2 min-h-[40px] flex items-center" aria-live="polite">
                                                 <span id="scan-authenticated-operator">Signed-in account</span>
                                             </div>
                                         </div>
                                     </div>
-                                    <button type="submit" class="btn-primary w-full mt-3">
-                                        <i class="fa-solid fa-barcode"></i> Register Checkpoint Log
-                                    </button>
-                                </form>
-                            </div>
-
-
-                            <!-- Report Missing File -->
-                            <div class="space-y-4 pt-6" style="border-top:1px solid var(--border-color)">
-                                <h4 class="text-sm font-semibold text-rose"><i
-                                        class="fa-solid fa-triangle-exclamation mr-2"></i> Report File Missing</h4>
-                                <form id="form-report-missing" onsubmit="handleReportMissing(event)" class="space-y-3">
-                                    <div>
-                                        <label class="stat-label block mb-1">Missing Case ID</label>
-                                        <select id="missing-case-id" class="th-input w-full py-2 border-rose-500/50">
-                                            <!-- Dynamic option cases from JS -->
-                                        </select>
-                                    </div>
-                                    <div class="grid grid-cols-2 gap-3">
-                                        <div>
-                                            <label class="stat-label block mb-1">Last Known Location</label>
-                                            <input type="text" id="missing-location" required
-                                                class="th-input w-full py-2" placeholder="e.g. Registry B">
-                                        </div>
-                                        <div>
-                                            <label class="stat-label block mb-1">Notes</label>
-                                            <input type="text" id="missing-notes" class="th-input w-full py-2"
-                                                placeholder="Optional notes">
-                                        </div>
-                                    </div>
-                                    <button type="submit" class="btn-primary w-full mt-3 bg-rose-600 hover:bg-rose-700">
-                                        <i class="fa-solid fa-flag"></i> Flag Case as Missing
-                                    </button>
-                                </form>
-                            </div>
-                            <!-- Right: Scanner Screen -->
-                            <div class="qr-area flex flex-col items-center justify-center p-6 relative">
-                                <div class="w-36 h-36 border-4 rounded-xl flex items-center justify-center relative p-3 bg-white group hover:scale-105 transition duration-200"
-                                    style="border-color:var(--accent)">
-                                    <div id="qr-display-img" role="img" aria-label="QR generation is not enabled in this prototype"
-                                        class="w-full h-full flex flex-col items-center justify-center gap-2 text-slate-800">
-                                        <i class="fa-solid fa-qrcode text-5xl" aria-hidden="true"></i>
-                                        <span class="text-[9px] font-bold uppercase tracking-wide">Preview only</span>
-                                    </div>
-                                    <div class="absolute inset-0 border-2 opacity-20 animate-pulse pointer-events-none"
-                                        style="border-color:var(--accent)"></div>
+                                    <p id="scan-checkin-status" class="scan-checkin-status" role="status" aria-live="polite">No check-in submitted.</p>
                                 </div>
-                                <span class="text-[10px] font-mono mt-4 uppercase tracking-wider"
-                                    style="color:var(--text-muted)">Selected case (no QR generated): <span id="qr-display-suit"
-                                        class="text-heading font-bold">CR/104/2025</span></span>
+                            </div>
 
-                                <div class="qr-history w-full mt-6 text-[11px] font-mono space-y-1"
-                                    style="color:var(--text-muted)">
-                                    <p class="text-heading font-bold uppercase"><i
-                                            class="fa-solid fa-timeline text-accent mr-1.5"></i> Chain of Custody
-                                        History</p>
-                                    <div id="case-scan-history"
-                                        class="space-y-1 max-h-32 overflow-y-auto custom-scrollbar pt-2">
+                            <div class="space-y-5">
+                                <div id="qr-label-tools" class="scan-tool-card space-y-4 hidden">
+                                    <div>
+                                        <h4 class="text-sm font-semibold text-heading"><i class="fa-solid fa-print text-accent mr-2"></i>Issue and print an opaque QR label</h4>
+                                        <p class="text-xs text-body mt-1">Registry staff can issue a random label token. QR generation is local in this browser; no case data or QR image is sent to a third party.</p>
+                                    </div>
+                                    <p class="text-xs text-body">Selected case: <strong id="qr-display-suit" class="text-heading">No case selected</strong></p>
+                                    <div class="flex flex-wrap gap-2">
+                                        <button id="btn-generate-qr-label" type="button" onclick="generateQrLabel()" class="btn-primary flex-1 py-2">
+                                            <i class="fa-solid fa-qrcode"></i> Generate local QR label
+                                        </button>
+                                        <button id="btn-print-qr-label" type="button" onclick="printQrLabel()" class="btn-secondary flex-1 py-2" disabled>
+                                            <i class="fa-solid fa-print"></i> Print label
+                                        </button>
+                                    </div>
+                                    <p id="qr-label-status" class="text-xs text-body" role="status" aria-live="polite">No label generated.</p>
+                                    <div id="qr-print-label" class="qr-print-label">
+                                        <div class="qr-print-brand">COURTLOG · CUSTODY CHECK-IN</div>
+                                        <div id="qr-display-img" class="qr-code-surface" role="img" aria-label="Opaque CourtLOG QR label; no case details are encoded">
+                                            <canvas id="qr-label-canvas" width="320" height="320" role="img" aria-label="Opaque CourtLOG check-in token"></canvas>
+                                        </div>
+                                        <p class="qr-print-caption">Scan with a signed-in, assigned CourtLOG Sheriff account</p>
+                                    </div>
+                                    <p class="text-[10px] text-body">The printed QR contains no case ID. Confirm the selected case before printing and affixing the label.</p>
+                                </div>
+
+                                <div id="report-missing-tools" class="scan-tool-card space-y-4">
+                                    <div>
+                                        <h4 class="text-sm font-semibold text-rose"><i class="fa-solid fa-triangle-exclamation mr-2"></i>Report File Missing</h4>
+                                        <p class="text-xs text-body mt-1">Flag a missing physical file at the last known location. Recovery/resolution workflow remains a separate open task.</p>
+                                    </div>
+                                    <form id="form-report-missing" onsubmit="handleReportMissing(event)" class="space-y-3">
+                                        <div>
+                                            <label for="missing-case-id" class="stat-label block mb-1">Missing case file</label>
+                                            <select id="missing-case-id" class="th-input w-full py-2 border-rose-500/50">
+                                                <!-- Dynamic, server-scoped case options from JS -->
+                                            </select>
+                                        </div>
+                                        <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                                            <label class="stat-label block">Last known location
+                                                <input type="text" id="missing-location" required class="th-input w-full py-2 mt-1" placeholder="e.g. Registry Desk B">
+                                            </label>
+                                            <label class="stat-label block">Notes
+                                                <input type="text" id="missing-notes" class="th-input w-full py-2 mt-1" placeholder="Optional notes">
+                                            </label>
+                                        </div>
+                                        <button type="submit" class="btn-primary w-full py-2 bg-rose-600 hover:bg-rose-700">
+                                            <i class="fa-solid fa-flag"></i> Flag case as missing
+                                        </button>
+                                    </form>
+                                </div>
+
+                                <div class="scan-tool-card space-y-3">
+                                    <p class="text-heading font-bold uppercase text-xs"><i class="fa-solid fa-timeline text-accent mr-1.5"></i>Chain of Custody History</p>
+                                    <div id="case-scan-history" class="space-y-1 max-h-64 overflow-y-auto custom-scrollbar pt-2 text-[11px] font-mono" style="color:var(--text-muted)">
                                         <!-- Scans updated in app.js -->
                                     </div>
                                 </div>
                             </div>
                         </div>
+                        <p id="pwa-install-status" class="text-xs text-body text-center" role="status" aria-live="polite"></p>
+                        <p class="text-[10px] text-body text-center">Install from the browser menu. On iPhone or iPad, use Safari Share → Add to Home Screen.</p>
                     </div>
                 </section>
 
@@ -1456,6 +1504,8 @@
     <!-- Toast Notifications -->
     <div id="toast-container"></div>
 
+    <!-- Locally bundled QR generation and browser camera scanner -->
+    <script src="/static/c2-pwa.bundle.js"></script>
     <!-- Client app code file integration -->
     <script src="/static/app.js"></script>
 </body>

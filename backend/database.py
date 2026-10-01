@@ -166,6 +166,19 @@ class BaseDatabase:
         """Remove a successful login reservation so only failures consume quota."""
         raise NotImplementedError
 
+    def create_case_qr_token(
+        self, token_hash: str, case_id: str, issued_by: str, created_at: str,
+    ) -> None:
+        raise NotImplementedError
+
+    def resolve_case_qr_token(self, token_hash: str) -> Optional[str]:
+        raise NotImplementedError
+
+    def append_scan_if_assigned(
+        self, case_id: str, sheriff_id: str, scan_event: Dict[str, Any],
+    ) -> Optional[Dict[str, Any]]:
+        raise NotImplementedError
+
     def append_audit_event(
         self, actor_user_id: Optional[str], action: str, entity_type: str,
         entity_id: str, reason: Optional[str] = None,
@@ -266,6 +279,18 @@ class SQLiteDatabase(BaseDatabase):
                     metadata TEXT NOT NULL
                 )
             """)
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS case_qr_tokens (
+                    token_hash TEXT PRIMARY KEY,
+                    case_id TEXT NOT NULL,
+                    issued_by TEXT NOT NULL,
+                    created_at TEXT NOT NULL
+                )
+            """)
+            cursor.execute(
+                "CREATE INDEX IF NOT EXISTS idx_case_qr_tokens_case_id "
+                "ON case_qr_tokens(case_id)"
+            )
             cursor.execute(
                 "CREATE INDEX IF NOT EXISTS idx_audit_events_time "
                 "ON audit_events(occurred_at DESC, event_id DESC)"
@@ -417,6 +442,61 @@ class SQLiteDatabase(BaseDatabase):
         cursor = self.conn.cursor()
         cursor.execute("SELECT data FROM cases")
         return [json.loads(row[0]) for row in cursor.fetchall()]
+
+    def create_case_qr_token(
+        self, token_hash: str, case_id: str, issued_by: str, created_at: str,
+    ) -> None:
+        """Persist only a one-way hash of the opaque printed QR token."""
+        with self._lock:
+            self.conn.execute(
+                "INSERT INTO case_qr_tokens (token_hash, case_id, issued_by, created_at) "
+                "VALUES (?, ?, ?, ?)",
+                (token_hash, case_id, issued_by, created_at),
+            )
+            self.conn.commit()
+
+    def resolve_case_qr_token(self, token_hash: str) -> Optional[str]:
+        """Resolve an opaque QR token to a case ID; callers must authorize anew."""
+        with self._lock:
+            cursor = self.conn.execute(
+                "SELECT case_id FROM case_qr_tokens WHERE token_hash = ?",
+                (token_hash,),
+            )
+            row = cursor.fetchone()
+            return row[0] if row else None
+
+    def append_scan_if_assigned(
+        self, case_id: str, sheriff_id: str, scan_event: Dict[str, Any],
+    ) -> Optional[Dict[str, Any]]:
+        """Atomically confirm current Sheriff custody and append a QR scan event."""
+        with self._lock:
+            cursor = self.conn.cursor()
+            try:
+                cursor.execute("BEGIN IMMEDIATE")
+                cursor.execute("SELECT data FROM cases WHERE case_id = ?", (case_id,))
+                row = cursor.fetchone()
+                if not row:
+                    self.conn.rollback()
+                    return None
+                case_data = json.loads(row[0])
+                if case_data.get("assigned_sheriff_id") != sheriff_id:
+                    self.conn.rollback()
+                    return None
+                scans = case_data.get("scan_events")
+                if not isinstance(scans, list):
+                    scans = []
+                scans.append(scan_event)
+                case_data["scan_events"] = scans
+                case_data["custody_alert"] = False
+                cursor.execute(
+                    "UPDATE cases SET data = ? WHERE case_id = ?",
+                    (json.dumps(case_data), case_id),
+                )
+                self.conn.commit()
+                return case_data
+            except Exception:
+                self.conn.rollback()
+                raise
 
     # ---- User operations ----
 
@@ -647,12 +727,13 @@ class SQLiteDatabase(BaseDatabase):
     # ---- Maintenance ----
 
     def _clear_cases(self) -> None:
-        """Delete all cases. Used by seed_db.py for re-seeding."""
+        """Delete all cases and their opaque labels. Used by seed_db.py for re-seeding."""
         with self._lock:
             cursor = self.conn.cursor()
+            cursor.execute("DELETE FROM case_qr_tokens")
             cursor.execute("DELETE FROM cases")
             self.conn.commit()
-            logger.info("All cases cleared from database.")
+            logger.info("All cases and QR labels cleared from database.")
 
 
 # ---- Factory ----

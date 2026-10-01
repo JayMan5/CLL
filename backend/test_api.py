@@ -1,6 +1,8 @@
 """Authenticated workflow smoke tests using an isolated, fictional SQLite database."""
 import os
 import secrets
+import hashlib
+import re
 import sys
 import tempfile
 from datetime import datetime, timedelta, timezone
@@ -86,6 +88,21 @@ def add_case(suffix, *, court="Smoke Test Court", assigned_sheriff_id="smoke_she
     return case
 
 
+def test_installable_pwa_shell_manifest_and_root_scoped_service_worker_are_served():
+    root = client.get("/")
+    assert root.status_code == 200
+    assert '/static/manifest.webmanifest' in root.text
+    manifest = client.get("/static/manifest.webmanifest")
+    assert manifest.status_code == 200
+    assert manifest.json()["start_url"] == "/"
+    worker = client.get("/service-worker.js")
+    assert worker.status_code == 200
+    assert worker.headers["Service-Worker-Allowed"] == "/"
+    assert worker.headers["Cache-Control"] == "no-cache"
+    assert "does not queue custody scans" in worker.text
+    assert client.get("/static/c2-pwa.bundle.js").status_code == 200
+
+
 def test_case_directory_requires_authentication_and_respects_court_scope():
     visible = add_case("VISIBLE")
     hidden = add_case("FOREIGN", court="Other Fictional Court")
@@ -109,6 +126,93 @@ def test_scan_records_authenticated_actor_and_needs_no_typed_staff_id():
     assert updated["custody_alert"] is False
     assert updated["scan_events"][-1]["location"] == "Fictional Registry Desk"
     assert updated["scan_events"][-1]["staff_id"] == "smoke_sheriff"
+
+
+def test_qr_token_is_opaque_hashed_and_server_checks_current_sheriff_scope():
+    case = add_case("OPAQUE-QR")
+    issue_url = f"/api/cases/{case['case_id']}/qr-label"
+    assert client.post(issue_url, headers=auth_headers("smoke_sheriff")).status_code == 403
+    issued = client.post(issue_url, headers=auth_headers("smoke_clerk"))
+    assert issued.status_code == 201
+    qr_payload = issued.json()["qr_payload"]
+    assert re.fullmatch(r"courtlog:v1:[A-Za-z0-9_-]{43}", qr_payload)
+    assert case["case_id"] not in qr_payload
+    assert case["case_title"] not in qr_payload
+    assert "Cache-Control" in issued.headers and "no-store" in issued.headers["Cache-Control"]
+
+    token_hash = hashlib.sha256(qr_payload.encode("utf-8")).hexdigest()
+    stored = main.db.conn.execute(
+        "SELECT token_hash, case_id, issued_by FROM case_qr_tokens WHERE token_hash = ?",
+        (token_hash,),
+    ).fetchone()
+    assert stored == (token_hash, case["case_id"], "smoke_clerk")
+    assert qr_payload not in str(stored), "the raw QR token is never persisted"
+
+    scan_request = {"qr_payload": qr_payload, "location": "Fictional QR Desk", "staff_id": "forged-client-id"}
+    assert client.post("/api/scan/qr", json=scan_request).status_code == 401
+    assert client.post("/api/scan/qr", headers=auth_headers("smoke_clerk"), json=scan_request).status_code == 403
+
+    main.db.save_user("smoke_sheriff_unassigned", {
+        "user_id": "smoke_sheriff_unassigned", "username": "smoke.sheriff.unassigned",
+        "password": get_password_hash("Smoke-Test-Password-2026!"),
+        "name": "Fictional Unassigned Sheriff", "role": "Sheriff", "badge": "Automated test account",
+        "court": "Smoke Test Court", "division": "Criminal", "disabled": False,
+    })
+    denied = client.post(
+        "/api/scan/qr", headers=auth_headers("smoke_sheriff_unassigned"), json=scan_request,
+    )
+    assert denied.status_code == 403
+    main.db.save_user("smoke_sheriff_other_court", {
+        "user_id": "smoke_sheriff_other_court", "username": "smoke.sheriff.other.court",
+        "password": get_password_hash("Smoke-Test-Password-2026!"),
+        "name": "Fictional Out-of-Court Sheriff", "role": "Sheriff", "badge": "Automated test account",
+        "court": "Other Fictional Court", "division": "Criminal", "disabled": False,
+    })
+    out_of_court = client.post(
+        "/api/scan/qr", headers=auth_headers("smoke_sheriff_other_court"), json=scan_request,
+    )
+    assert out_of_court.status_code == 403
+
+    unknown = client.post("/api/scan/qr", headers=auth_headers("smoke_sheriff"), json={
+        "qr_payload": "courtlog:v1:" + "z" * 43, "location": "Fictional QR Desk",
+    })
+    assert unknown.status_code == 404
+
+    accepted = client.post("/api/scan/qr", headers=auth_headers("smoke_sheriff"), json=scan_request)
+    assert accepted.status_code == 200
+    updated = accepted.json()
+    assert updated["scan_events"][-1]["staff_id"] == "smoke_sheriff"
+    assert updated["scan_events"][-1]["location"] == "Fictional QR Desk"
+    events = [event for event in main.db.list_audit_events(100) if event["entity_id"] == case["case_id"]]
+    qr_event = next(event for event in events if event["action"] == "case.qr_label.issue")
+    assert qr_event["actor_user_id"] == "smoke_clerk"
+    assert all(qr_payload not in str(event) for event in events)
+    assert any(event["action"] == "case.scan" and event["metadata"].get("source") == "qr" for event in events)
+
+
+def test_existing_qr_label_does_not_bypass_sheriff_handover():
+    case = add_case("QR-HANDOVER")
+    next_id = "smoke_sheriff_qr_next"
+    main.db.save_user(next_id, {
+        "user_id": next_id, "username": f"smoke.sheriff.qr.{secrets.token_hex(3)}",
+        "password": get_password_hash("Smoke-Test-Password-2026!"),
+        "name": "Fictional Receiving Sheriff", "role": "Sheriff", "badge": "Automated test account",
+        "court": "Smoke Test Court", "division": "Criminal", "disabled": False,
+    })
+    issued = client.post(
+        f"/api/cases/{case['case_id']}/qr-label", headers=auth_headers("smoke_clerk"),
+    )
+    assert issued.status_code == 201
+    payload = {"qr_payload": issued.json()["qr_payload"], "location": "Fictional Handover Desk"}
+
+    handover = client.post(f"/api/cases/{case['case_id']}/handover", headers=auth_headers("smoke_sheriff"), json={
+        "to_sheriff_id": next_id, "location": "Fictional Handover Desk", "reason": "Automated test handover",
+    })
+    assert handover.status_code == 200
+    assert client.post("/api/scan/qr", headers=auth_headers("smoke_sheriff"), json=payload).status_code == 403
+    accepted = client.post("/api/scan/qr", headers=auth_headers(next_id), json=payload)
+    assert accepted.status_code == 200
+    assert accepted.json()["scan_events"][-1]["staff_id"] == next_id
 
 
 def test_hearing_route_records_workflow_and_live_mode_sends_no_simulated_webhook():

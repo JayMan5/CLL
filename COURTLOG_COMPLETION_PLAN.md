@@ -61,7 +61,8 @@ Checkboxes are updated only after code-level verification; open items remain unc
 #### Module 1 — physical custody
 - [x] **C1 — Fix Sheriff visibility and onboarding.** Explicit file assignment/handover and authorised lookup so a Sheriff can receive an unscanned file without seeing unrelated cases. Use authenticated identity, not typed staff IDs. *(F-01; API, UI and isolated regression tests verified 1 Oct 2026)*
 - [ ] **C2 — Implement genuine QR capture.** Local QR generation; camera and keyboard/USB-scanner input with manual fallback; verify payload and case access; print labels. Test on the pilot device. *(F-03, S-13)*
-  - Current UI is explicitly a check-in simulation with a local non-scannable placeholder; case IDs are no longer sent to a third-party QR image service.
+  - Code implementation is present on the session branch: opaque random tokens, server-side current-assignment checks, local QR generation/print view, camera and keyboard/manual fallback, and an installable PWA shell; API/frontend regression tests pass. The checkbox stays open until the label is printed and camera/permission/focus/network behaviour is verified on the actual pilot phone.
+  - No offline scan is queued, no case details are encoded in the QR, and no third-party QR image service is used. Runtime Tailwind/Chart/font CDNs remain a separate D6 item.
 - [ ] **C3 — Complete missing/found workflow.** Separate idle and missing flags; resolve/recover action, reason and audit history; alerts survive sweeps until properly resolved. *(L-07)*
 
 #### Module 2 — hearings and compliance

@@ -120,6 +120,20 @@ function clearClientSession() {
         const select = document.getElementById(id);
         if (select) select.replaceChildren(new Option("Select a case", ""));
     });
+    window.CourtLogPwa?.stopCamera();
+    const qrInput = document.getElementById("qr-payload-input");
+    if (qrInput) qrInput.value = "";
+    const qrCanvas = document.getElementById("qr-label-canvas");
+    if (qrCanvas) {
+        qrCanvas.width = qrCanvas.width;
+        qrCanvas.height = qrCanvas.height;
+        delete qrCanvas.dataset.caseId;
+    }
+    const printLabelButton = document.getElementById("btn-print-qr-label");
+    if (printLabelButton) printLabelButton.disabled = true;
+    const qrLabelStatus = document.getElementById("qr-label-status");
+    if (qrLabelStatus) qrLabelStatus.textContent = "No label generated.";
+    setCustodyCheckinStatus("No check-in submitted.", "info");
     ["new-case-id", "new-case-counsel", "new-case-litigant", "upload-case-id", "writ-case-id",
         "writ-sheriff-id", "reassign-case-id", "assign-judge-case-id", "assign-sheriff-case-id"]
         .forEach(id => { const input = document.getElementById(id); if (input) input.value = ""; });
@@ -336,6 +350,8 @@ function updateSimulationClock() {
 
 // ===== APP INITIALIZATION =====
 document.addEventListener("DOMContentLoaded", async function () {
+    window.CourtLogPwa?.initialize();
+    window.CourtLogPwa?.setScanHandler(handleQrPayloadFromCamera);
     // Discard bearer/refresh tokens from pre-cookie versions; identity is re-derived from the server.
     localStorage.removeItem("courtlog-access-token");
     localStorage.removeItem("courtlog-refresh-token");
@@ -445,6 +461,12 @@ function updateRoleUI() {
     if (navUserAdmin) navUserAdmin.style.display = (role === "Chief Registrar") ? "flex" : "none";
     if (navWhatsApp) navWhatsApp.style.display = (demoMode && role === "Chief Registrar") ? "flex" : "none";
     if (btnNJC) btnNJC.style.display = (role === "Chief Registrar" || role === "DCR") ? "inline-flex" : "none";
+
+    const sheriffQrTools = document.getElementById("sheriff-qr-tools");
+    const qrLabelTools = document.getElementById("qr-label-tools");
+    if (sheriffQrTools) sheriffQrTools.classList.toggle("hidden", role !== "Sheriff");
+    if (qrLabelTools) qrLabelTools.classList.toggle("hidden", !["Clerk", "Chief Registrar"].includes(role));
+    window.CourtLogPwa?.setRole(role);
 }
 
 // Logger Utility
@@ -486,7 +508,7 @@ function switchTab(tabId) {
 
     const viewTitles = {
         "tab-overview": "Registry Performance Hub",
-        "tab-qr-scan": "Custody Check-In (Simulation)",
+        "tab-qr-scan": "Sheriff Custody Check-In",
         "tab-courtrooms": "Clerk Call-Over Logger",
         "tab-dcr-console": "DCR Division Supervisor Hub",
         "tab-judge-docket": "My Assigned Judicial Docket",
@@ -947,46 +969,111 @@ async function handleCreateCase(e) {
     }
 }
 
+function setCustodyCheckinStatus(message, state = "info") {
+    const status = document.getElementById("scan-checkin-status");
+    if (status) {
+        status.textContent = message;
+        status.dataset.state = state;
+    }
+}
+
+async function submitCustodyScan(endpoint, body, expectedLocation) {
+    if (navigator.onLine === false) {
+        const message = "Not submitted: this device is offline. CourtLOG does not queue scans; reconnect and scan again.";
+        setCustodyCheckinStatus(message, "error");
+        showToast(message, "error");
+        return false;
+    }
+
+    setCustodyCheckinStatus("Submitting to CourtLOG… no check-in is confirmed yet.", "pending");
+    try {
+        const response = await apiFetch(`${API_BASE}${endpoint}`, {
+            method: "POST",
+            headers: getAuthHeaders(),
+            body: JSON.stringify(body)
+        });
+
+        if (!response.ok) {
+            const errorBody = await response.json().catch(() => ({}));
+            const detail = errorBody.detail || "CourtLOG did not authorize or confirm this check-in.";
+            const message = `Not confirmed by CourtLOG: ${detail} Check custody history before retrying.`;
+            setCustodyCheckinStatus(message, "error");
+            showToast(message, "error");
+            return false;
+        }
+
+        const savedCase = await response.json();
+        const events = Array.isArray(savedCase?.scan_events) ? savedCase.scan_events : [];
+        const latest = events[events.length - 1];
+        if (!latest || latest.staff_id !== authenticatedUser?.user_id || latest.location !== expectedLocation) {
+            const message = "No matching server confirmation was returned. Do not assume the check-in succeeded; verify custody history before retrying.";
+            setCustodyCheckinStatus(message, "error");
+            showToast(message, "error");
+            return false;
+        }
+
+        setCustodyCheckinStatus("Check-in confirmed by CourtLOG for the signed-in account.", "success");
+        showToast("Custody check-in confirmed by CourtLOG.", "success");
+        await loadDashboardData();
+        const caseSelect = document.getElementById("scan-case-id");
+        if (caseSelect && savedCase.case_id && Array.from(caseSelect.options).some(option => option.value === savedCase.case_id)) {
+            caseSelect.value = savedCase.case_id;
+        }
+        updateQRDisplay();
+        return true;
+    } catch (_) {
+        const message = "No server confirmation received. Do not assume this check-in succeeded; check custody history before retrying. Offline scans are not queued.";
+        setCustodyCheckinStatus(message, "error");
+        showToast(message, "error");
+        return false;
+    }
+}
+
 async function handleScanSubmit(e) {
     e.preventDefault();
     const case_id = document.getElementById("scan-case-id").value;
     const location = document.getElementById("scan-location").value;
-
     if (!case_id) {
         showToast("Please select a case file.", "error");
-        return;
+        setCustodyCheckinStatus("No check-in submitted. Select an authorised case file first.", "error");
+        return false;
     }
+    return submitCustodyScan("/scan", { case_id, location }, location);
+}
 
-    logger(`Submitting custody check-in for case ${case_id} at ${location}`);
-
-    try {
-        const response = await apiFetch(`${API_BASE}/scan`, {
-            method: "POST",
-            headers: getAuthHeaders(),
-            body: JSON.stringify({ case_id, location })
-        });
-
-        if (!response.ok) {
-            const err = await response.json();
-            showToast(err.detail || "Custody check-in failed.", "error");
-            return;
-        }
-
-        await loadDashboardData();
-        updateQRDisplay();
-
-        const scanBtn = document.querySelector("#form-qr-scan button[type='submit']");
-        const origText = scanBtn.innerHTML;
-        scanBtn.innerHTML = `<i class="fa-solid fa-circle-check"></i> Scan Success!`;
-        scanBtn.style.background = '#059669';
-        setTimeout(() => {
-            scanBtn.innerHTML = origText;
-            scanBtn.style.background = '';
-        }, 1500);
-
-    } catch (error) {
-        logger(`Scan submission error: ${error}`);
+async function handleQrTokenSubmit(e) {
+    e.preventDefault();
+    const input = document.getElementById("qr-payload-input");
+    const qr_payload = String(input?.value || "").trim();
+    const location = document.getElementById("scan-location").value;
+    if (input) input.value = "";
+    if (!qr_payload) {
+        setCustodyCheckinStatus("No QR token received. Nothing was submitted.", "error");
+        return false;
     }
+    return submitCustodyScan("/scan/qr", { qr_payload, location }, location);
+}
+
+async function handleQrPayloadFromCamera(payload) {
+    const qr_payload = String(payload || "").trim();
+    if (!qr_payload) {
+        setCustodyCheckinStatus("The camera did not return a QR payload. No scan was submitted.", "error");
+        return false;
+    }
+    const location = document.getElementById("scan-location").value;
+    return submitCustodyScan("/scan/qr", { qr_payload, location }, location);
+}
+
+function startQrCamera() {
+    if (authenticatedUser?.role !== "Sheriff") {
+        setCustodyCheckinStatus("Camera check-in requires a signed-in Sheriff account.", "error");
+        return false;
+    }
+    return window.CourtLogPwa?.startCamera();
+}
+
+function stopQrCamera() {
+    window.CourtLogPwa?.stopCamera();
 }
 
 async function handleHearingSubmit(e) {
@@ -1348,19 +1435,30 @@ function shortcutHearingLog(caseId) {
     updateHearingLogDetails();
 }
 
-// Local custody-history preview. QR generation/capture is not implemented yet.
+// Update selected case reference and locally rendered custody history.
 function updateQRDisplay() {
-    const caseId = document.getElementById("scan-case-id").value;
-    if (!caseId) return;
+    const selector = document.getElementById("scan-case-id");
+    const caseId = selector?.value || "";
+    const selected = document.getElementById("qr-display-suit");
+    if (selected) selected.textContent = caseId || "No case selected";
 
-    document.getElementById("qr-display-suit").textContent = caseId;
+    const canvas = document.getElementById("qr-label-canvas");
+    if (canvas?.dataset.caseId && canvas.dataset.caseId !== caseId) {
+        canvas.width = canvas.width;
+        canvas.height = canvas.height;
+        delete canvas.dataset.caseId;
+        const printButton = document.getElementById("btn-print-qr-label");
+        if (printButton) printButton.disabled = true;
+        const status = document.getElementById("qr-label-status");
+        if (status) status.textContent = "Selection changed. Generate a new label before printing.";
+    }
 
-    // Bind chain of custody logs to preview
     const targetCase = casesData.find(c => c.case_id === caseId);
     const logsContainer = document.getElementById("case-scan-history");
-    logsContainer.innerHTML = "";
+    if (!logsContainer) return;
+    logsContainer.replaceChildren();
 
-    if (targetCase && targetCase.scan_events && targetCase.scan_events.length > 0) {
+    if (targetCase && Array.isArray(targetCase.scan_events) && targetCase.scan_events.length > 0) {
         [...targetCase.scan_events].reverse().map(safeRecord).forEach(scan => {
             const dt = new Date(scan.timestamp).toLocaleDateString() + " " + new Date(scan.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
             const item = document.createElement("div");
@@ -1373,8 +1471,71 @@ function updateQRDisplay() {
             logsContainer.appendChild(item);
         });
     } else {
-        logsContainer.innerHTML = `<div class="text-center py-4" style="color:var(--text-muted)">No scan checkpoint logs recorded.</div>`;
+        const empty = document.createElement("div");
+        empty.className = "text-center py-4";
+        empty.style.color = "var(--text-muted)";
+        empty.textContent = "No scan checkpoint logs recorded.";
+        logsContainer.appendChild(empty);
     }
+}
+
+async function generateQrLabel() {
+    const caseId = document.getElementById("scan-case-id")?.value || "";
+    const role = authenticatedUser?.role;
+    if (!["Clerk", "Chief Registrar"].includes(role)) {
+        showToast("QR labels can only be issued by registry staff.", "error");
+        return false;
+    }
+    if (!caseId) {
+        showToast("Select an authorised case before generating a label.", "error");
+        return false;
+    }
+    if (!window.CourtLogPwa || !document.getElementById("qr-label-canvas")) {
+        setCustodyCheckinStatus("Local QR generation is unavailable in this browser.", "error");
+        return false;
+    }
+
+    const button = document.getElementById("btn-generate-qr-label");
+    const status = document.getElementById("qr-label-status");
+    if (button) button.disabled = true;
+    if (status) status.textContent = "Requesting an opaque label token from CourtLOG…";
+    try {
+        const casePath = caseId.split("/").map(encodeURIComponent).join("/");
+        const response = await apiFetch(`${API_BASE}/cases/${casePath}/qr-label`, {
+            method: "POST",
+            headers: getAuthHeaders()
+        });
+        if (!response.ok) {
+            const errorBody = await response.json().catch(() => ({}));
+            throw new Error(errorBody.detail || "CourtLOG could not issue this label.");
+        }
+        const result = await response.json();
+        const canvas = document.getElementById("qr-label-canvas");
+        await window.CourtLogPwa.renderQrLabel(result.qr_payload, canvas);
+        canvas.dataset.caseId = caseId;
+        const printButton = document.getElementById("btn-print-qr-label");
+        if (printButton) printButton.disabled = false;
+        if (status) status.textContent = "Opaque label ready. The QR was rendered on this device; the printed label contains no case details.";
+        showToast("Opaque QR label generated locally.", "success");
+        return true;
+    } catch (error) {
+        if (status) status.textContent = `Label not ready: ${error.message || "QR generation failed."}`;
+        showToast(error.message || "QR label generation failed.", "error");
+        return false;
+    } finally {
+        if (button) button.disabled = false;
+    }
+}
+
+function printQrLabel() {
+    const selectedCase = document.getElementById("scan-case-id")?.value || "";
+    const canvas = document.getElementById("qr-label-canvas");
+    if (!selectedCase || !canvas?.dataset.caseId || canvas.dataset.caseId !== selectedCase) {
+        showToast("Generate a label for the currently selected case before printing.", "error");
+        return false;
+    }
+    window.print();
+    return true;
 }
 
 // Interactive Call-Over Logging outcome selectors

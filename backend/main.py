@@ -219,6 +219,9 @@ CaseIdentifier = Annotated[
     AfterValidator(_validate_case_identifier),
 ]
 
+QR_PAYLOAD_PREFIX = "courtlog:v1:"
+QR_PAYLOAD_PATTERN = re.compile(r"^courtlog:v1:[A-Za-z0-9_-]{43}$")
+
 
 def _normalize_nigerian_phone(value: str) -> str:
     normalized = re.sub(r"[\s().-]", "", value)
@@ -242,6 +245,16 @@ class ScanRequest(BaseModel):
     @field_validator("location")
     @classmethod
     def trim_scan_location(cls, value):
+        return value.strip()
+
+
+class QRScanRequest(BaseModel):
+    qr_payload: str = Field(min_length=1, max_length=128, pattern=r"\S")
+    location: str = Field(min_length=1, max_length=160, pattern=r"\S")
+
+    @field_validator("qr_payload", "location")
+    @classmethod
+    def trim_qr_scan_fields(cls, value):
         return value.strip()
 
 
@@ -1001,50 +1014,113 @@ def create_case(req: CaseCreateRequest, auth: Dict[str, str] = Depends(get_curre
     )
     return new_case
 
+def _record_case_scan(
+    case_id: str,
+    location: str,
+    auth: Dict[str, str],
+    source: str,
+    require_current_assignment: bool = False,
+) -> Dict[str, Any]:
+    """Append a custody scan with identity and time derived on the server."""
+    scan_event = {
+        "location": location,
+        "timestamp": format_date(get_current_time()),
+        "staff_id": auth["user_id"],
+    }
+    if require_current_assignment:
+        if not db.append_scan_if_assigned(case_id, auth["user_id"], scan_event):
+            raise HTTPException(status_code=403, detail="The current Sheriff assignment changed; refresh and verify custody before retrying")
+    else:
+        db.update_case(case_id, {"scan_events": [scan_event], "custody_alert": False})
+
+    case = db.get_case(case_id)
+    if not case:
+        raise HTTPException(status_code=404, detail="Case file not found")
+    filing_dt = parse_date(case["filing_date"])
+    case["days_since_filing"] = max(0, (get_current_time() - filing_dt).days)
+    prediction = run_model_inference(case)
+    db.update_case(case_id, {
+        "days_since_filing": case["days_since_filing"],
+        "delay_risk_score": prediction["delay_risk_score"],
+        "risk_flag": prediction["risk_flag"],
+    })
+    _record_audit_event(
+        auth["user_id"], "case.scan", "case", case_id,
+        metadata={"location": location, "source": source},
+    )
+    return db.get_case(case_id)
+
+
 @app.post("/api/scan", response_model=Dict[str, Any])
 def record_scan_event(req: ScanRequest, auth: Dict[str, str] = Depends(get_current_user)):
-    """
-    Module 1: QR Chain of Custody.
-    Scans physical file. Restricted to Sheriff, Clerk, or Chief Registrar.
-    """
+    """Manual case-selection fallback for Sheriff and registry staff."""
     if auth["role"] not in ["Sheriff", "Clerk", "Chief Registrar"]:
-        raise HTTPException(status_code=403, detail="Permission Denied: QR file scanning is restricted to Sheriff and Registry Staff.")
-        
+        raise HTTPException(status_code=403, detail="Permission Denied: custody scanning is restricted to Sheriff and Registry Staff.")
+
     case = db.get_case(req.case_id)
     if not case:
         raise HTTPException(status_code=404, detail="Case file not found")
     authorize_case(case, auth)
-        
-    scan_event = {
-        "location": req.location,
-        "timestamp": format_date(get_current_time()),
-        "staff_id": auth["user_id"]
-    }
-    
-    # Append the event and clear custody alert
-    updates = {
-        "scan_events": [scan_event],
-        "custody_alert": False
-    }
-    
-    db.update_case(req.case_id, updates)
-    
-    case = db.get_case(req.case_id)
-    filing_dt = parse_date(case["filing_date"])
-    case["days_since_filing"] = max(0, (get_current_time() - filing_dt).days)
-    
-    pred = run_model_inference(case)
-    
-    db.update_case(req.case_id, {
-        "days_since_filing": case["days_since_filing"],
-        "delay_risk_score": pred["delay_risk_score"],
-        "risk_flag": pred["risk_flag"]
-    })
+    return _record_case_scan(req.case_id, req.location, auth, "manual")
+
+
+@app.post("/api/scan/qr", response_model=Dict[str, Any])
+def record_qr_scan_event(req: QRScanRequest, auth: Dict[str, str] = Depends(get_current_user)):
+    """Resolve an opaque QR token, then enforce the current Sheriff assignment."""
+    if auth.get("role") != "Sheriff":
+        raise HTTPException(status_code=403, detail="QR check-in is restricted to the assigned Sheriff")
+    if not QR_PAYLOAD_PATTERN.fullmatch(req.qr_payload):
+        raise HTTPException(status_code=422, detail="QR label format is not recognized")
+
+    token_hash = hashlib.sha256(req.qr_payload.encode("utf-8")).hexdigest()
+    case_id = db.resolve_case_qr_token(token_hash)
+    if not case_id:
+        raise HTTPException(status_code=404, detail="QR label is not recognized")
+
+    case = db.get_case(case_id)
+    if not case:
+        raise HTTPException(status_code=404, detail="QR label is not recognized")
+    authorize_case(case, auth)
+    if case.get("assigned_sheriff_id") != auth["user_id"]:
+        raise HTTPException(status_code=403, detail="Only the currently assigned Sheriff may check in this QR label")
+    return _record_case_scan(case_id, req.location, auth, "qr", require_current_assignment=True)
+
+
+@app.post("/api/cases/{case_id:path}/qr-label", status_code=201)
+def issue_case_qr_label(
+    case_id: CaseIdentifier,
+    response: Response,
+    auth: Dict[str, str] = Depends(get_current_user),
+):
+    """Issue a random, opaque label token; it is never a substitute for authorization."""
+    if auth.get("role") not in ["Clerk", "Chief Registrar"]:
+        raise HTTPException(status_code=403, detail="Only registry staff may issue QR labels")
+
+    case = db.get_case(case_id)
+    if not case:
+        raise HTTPException(status_code=404, detail="Case file not found")
+    authorize_case(case, auth)
+
+    qr_payload = QR_PAYLOAD_PREFIX + secrets.token_urlsafe(32)
+    token_hash = hashlib.sha256(qr_payload.encode("utf-8")).hexdigest()
+    try:
+        db.create_case_qr_token(
+            token_hash=token_hash,
+            case_id=case_id,
+            issued_by=auth["user_id"],
+            created_at=format_date(get_current_time()),
+        )
+    except Exception as exc:
+        logger.exception("QR label issuance failed for case %s", case_id)
+        raise HTTPException(status_code=503, detail="QR label could not be issued; please retry") from exc
+
     _record_audit_event(
-        auth["user_id"], "case.scan", "case", req.case_id,
-        metadata={"location": req.location},
+        auth["user_id"], "case.qr_label.issue", "case", case_id,
+        metadata={"format": "courtlog:v1"},
     )
-    return db.get_case(req.case_id)
+    response.headers["Cache-Control"] = "no-store"
+    return {"qr_payload": qr_payload, "format": "courtlog:v1"}
+
 
 @app.post("/api/cases/{case_id:path}/hearings", response_model=Dict[str, Any])
 def log_hearing_outcome(case_id: CaseIdentifier, req: HearingRequest, background_tasks: BackgroundTasks, auth: Dict[str, str] = Depends(get_current_user)):
@@ -1839,6 +1915,19 @@ def serve_dashboard():
     if index_path.exists():
         return FileResponse(str(index_path))
     raise HTTPException(status_code=404, detail="Frontend index.html file not found")
+
+@app.get("/service-worker.js", include_in_schema=False)
+def serve_service_worker():
+    """Expose the worker at origin root so its scope can cover the installed app."""
+    worker_path = _FRONTEND_DIR / "service-worker.js"
+    if not worker_path.exists():
+        raise HTTPException(status_code=404, detail="Service worker not found")
+    return FileResponse(
+        str(worker_path),
+        media_type="application/javascript",
+        headers={"Service-Worker-Allowed": "/", "Cache-Control": "no-cache"},
+    )
+
 
 # Mount frontend assets on a sub-path so it doesn't swallow API routes
 app.mount("/static", StaticFiles(directory=str(_FRONTEND_DIR)), name="frontend")

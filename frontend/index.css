@@ -697,3 +697,155 @@ body::before {
 .toast-close:hover {
     color: var(--text-heading);
 }
+/* Installable Sheriff check-in / locally rendered QR label */
+.scan-tool-card {
+    padding: 1rem;
+    border: 1px solid var(--border-color);
+    border-radius: 1rem;
+    background: var(--bg-card);
+}
+
+.scan-network-status,
+.scan-checkin-status {
+    width: 100%;
+    padding: 0.7rem 0.9rem;
+    border: 1px solid var(--border-color);
+    border-radius: 0.75rem;
+    background: var(--bg-body);
+    color: var(--text-secondary);
+    font-size: 0.75rem;
+    line-height: 1.45;
+    text-align: left;
+}
+
+.scan-network-status[data-state="offline"],
+.scan-checkin-status[data-state="error"] {
+    border-color: color-mix(in srgb, var(--rose) 55%, transparent);
+    color: var(--rose);
+}
+
+.scan-checkin-status[data-state="success"] {
+    border-color: color-mix(in srgb, var(--emerald) 55%, transparent);
+    color: var(--emerald);
+}
+
+.scan-checkin-status[data-state="pending"] {
+    border-color: color-mix(in srgb, var(--amber) 50%, transparent);
+    color: var(--amber);
+}
+
+.qr-camera-video {
+    display: block;
+    width: 100%;
+    min-height: 13rem;
+    max-height: 60vh;
+    aspect-ratio: 4 / 3;
+    object-fit: cover;
+    border: 1px solid var(--border-color);
+    border-radius: 0.9rem;
+    background: #020617;
+}
+
+.qr-print-label {
+    display: flex;
+    width: min(100%, 24rem);
+    margin: 0 auto;
+    padding: 1rem;
+    align-items: center;
+    flex-direction: column;
+    gap: 0.65rem;
+    border: 1px solid #cbd5e1;
+    border-radius: 0.75rem;
+    background: #ffffff;
+    color: #0b1220;
+    text-align: center;
+}
+
+.qr-print-brand {
+    font-size: 0.75rem;
+    font-weight: 800;
+    letter-spacing: 0.14em;
+}
+
+.qr-code-surface {
+    display: grid;
+    width: min(100%, 20rem);
+    aspect-ratio: 1;
+    place-items: center;
+    overflow: hidden;
+    background: #ffffff;
+}
+
+.qr-code-surface canvas {
+    display: block;
+    width: 100%;
+    height: auto;
+    image-rendering: pixelated;
+}
+
+.qr-print-caption {
+    max-width: 18rem;
+    margin: 0;
+    color: #334155;
+    font-size: 0.65rem;
+    line-height: 1.35;
+}
+
+@media (max-width: 640px) {
+    .qr-camera-video {
+        min-height: 11rem;
+    }
+
+    .scan-tool-card {
+        padding: 0.85rem;
+    }
+}
+
+@media print {
+    @page {
+        margin: 8mm;
+    }
+
+    html,
+    body {
+        min-height: 0 !important;
+        background: #ffffff !important;
+    }
+
+    body * {
+        visibility: hidden !important;
+    }
+
+    #qr-print-label,
+    #qr-print-label * {
+        visibility: visible !important;
+    }
+
+    #qr-print-label {
+        position: fixed !important;
+        inset: 0 auto auto 0 !important;
+        display: flex !important;
+        width: 76mm !important;
+        max-width: 76mm !important;
+        min-height: 76mm !important;
+        margin: 0 !important;
+        padding: 5mm !important;
+        gap: 2mm !important;
+        border: 0.3mm solid #0b1220 !important;
+        border-radius: 2mm !important;
+        box-shadow: none !important;
+        background: #ffffff !important;
+        color: #0b1220 !important;
+        break-inside: avoid;
+    }
+
+    #qr-print-label .qr-code-surface {
+        width: 58mm !important;
+        height: 58mm !important;
+    }
+
+    #qr-print-label canvas {
+        width: 58mm !important;
+        height: 58mm !important;
+    }
+}

@@ -136,3 +136,21 @@ Verification:
 - Regression coverage includes an unassigned file invisible to a Sheriff, assignment visibility before scan, cross-court candidate rejection, authenticated scan identity, handover history, revocation of prior-Sheriff access, DCR division-scope rejection, and Judge court-scope enforcement for assignment, reads and alerts.
 
 Checklist reconciliation after implementation: 6 of 55 named A–H tasks are checked (10.9%); 12 of 78 total plan checkboxes are checked (15.4%). These are checklist counts, not a codebase-wide completion estimate. B1 remains open because the demo webhook uses a shared secret rather than a staff-role check; B3 remains open because the CSP/static-inline-handler migration is unfinished. The full C2 scanner and all pilot, legal, staging and production gates remain open. No legal rule was changed.
+
+## 1 October 2026 — C2 installable Sheriff QR PWA implementation slice
+
+Implemented in code:
+- Added a registry-only QR-label issuance API. Each label is `courtlog:v1:` plus a cryptographically random token; the SQLite store keeps only its SHA-256 hash, case reference, issuer and timestamp. The QR itself and printed label contain no case number/details; the token is never treated as authorization.
+- Added authenticated QR check-in for Sheriff accounts. The server resolves the token, checks current case/court scope and explicit Sheriff assignment, and atomically rechecks that assignment while appending the scan. The signed-in account is the recorded actor; the QR token is not included in the case event or audit metadata. Prior label tokens do not bypass a handover.
+- Kept both fallbacks: a USB keyboard-wedge scanner can enter the opaque payload into the submit field, and a manual authorized-case selection check-in remains available. The browser reports success only when the API returns a matching event for the current signed-in actor and location.
+- Added browser-local QR generation with `qrcode`, ZXing camera capture requesting the environment-facing camera, a print-only anonymous QR label, and a web app manifest/icons/install affordance. Registered a root-scoped service worker that caches only the static shell; `/api/` requests and non-GET requests bypass it. The offline page explicitly says scans are not saved or queued.
+- Pinned `@zxing/browser@0.1.5` with `@zxing/library@0.21.3` for Node 22-compatible development; retained `qrcode@1.5.4` and added `esbuild@0.28.2`. The prior Node >=24 engine warning is resolved.
+
+Verification:
+- `.venv/bin/python -m pytest -q`: 45 passed, two existing FastAPI `on_event` deprecation warnings.
+- `npm run test:frontend`: passed (XSS/session regression tests plus PWA token format, local QR encoder, camera constraints, cache policy, offline-no-queue and server-confirmation gating).
+- `npm audit --audit-level=high`: 0 vulnerabilities; `.venv/bin/python -m pip check`: no broken requirements.
+- `python -m compileall -q backend tests`, `node --check frontend/app.js`, and `git diff --check`: passed.
+- API tests verify that tokens are not persisted raw, unauthorized/unassigned users cannot scan, server attribution is used, a pre-handover label cannot authorize the former Sheriff, and manifest/service-worker assets are served.
+
+Still open: no printer output or actual pilot phone/browser camera test has been performed. Camera permission, focus, QR print size/readability, iOS/Android install prompts, and real network-loss recovery therefore remain unverified; C2 stays unchecked and is not reported complete. Runtime Tailwind/Chart/font CDNs remain open under D6. No real court data was used, no legal rule was changed, and this implementation does not establish staging or pilot readiness.
