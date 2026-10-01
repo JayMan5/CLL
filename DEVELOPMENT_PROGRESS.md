@@ -117,3 +117,22 @@ Verification:
 - `python -m compileall -q backend` and `git diff --check`: passed.
 
 Important limitation: the case/user mutation and audit insert are separate database commits. SQLite triggers deter ordinary app-level edits but are not protection against a database administrator or file replacement. Atomic write+audit transactions and off-host/tamper-evident retention remain production gates. Broad browser/device, staging, module and legal sign-offs remain pending.
+
+## 1 October 2026 — C1 Sheriff assignment, check-in and handover
+
+Implemented:
+- Added a court-scoped Sheriff lookup for an authorised case. It returns only active Sheriff accounts for the case's exact court and exposes only the selection fields needed by the UI.
+- Clerks/Chief Registrars can assign or reassign custody with a required reason. The authenticated, currently assigned Sheriff can hand a file to another active Sheriff in the same court, recording recipient, location, reason, actor and time.
+- An explicit assignment grants the receiving Sheriff access before any scan/check-in. After a handover, the prior Sheriff loses Sheriff-scoped access even if they scanned the case previously; legacy cases without an explicit assignment retain the previous last-scan/missing-report fallback until assigned.
+- Added custody-history entries and append-only audit events for assignment, reassignment and handover. Scan/check-in no longer accepts a required staff ID; the event actor is taken from the active session. The UI displays the authenticated operator and includes assignment/handover actions.
+- Tightened adjacent B2 scope: DCR reassignment cannot move a case outside the DCR's division, and a malformed DCR profile cannot make the weekly export fall back to all cases. Judge assignment, reads and alerts require an active Judge in the case's court. New registrations are not silently attached to a hard-coded demo Judge.
+- Removed the remote QR-image request that sent case IDs to a third-party service. The prototype now identifies the scanner/check-in and QR graphic as simulations; genuine local QR generation and camera/USB capture remain C2.
+- Replaced the stale unauthenticated API smoke tests with isolated, JWT/session-aware tests using fictional users and records. Test setup now configures a temporary database before importing the app, so the committed `data/courtlog.db` is not used or mutated by tests.
+
+Verification:
+- `.venv/bin/python -m pytest -q`: 42 passed, two FastAPI lifespan deprecation warnings.
+- `npm run test:frontend`: passed, including UI selection and request-body tests for assignment and handover.
+- `python -m compileall -q backend tests`, `node --check frontend/app.js`, and `git diff --check`: passed.
+- Regression coverage includes an unassigned file invisible to a Sheriff, assignment visibility before scan, cross-court candidate rejection, authenticated scan identity, handover history, revocation of prior-Sheriff access, DCR division-scope rejection, and Judge court-scope enforcement for assignment, reads and alerts.
+
+Checklist reconciliation after implementation: 6 of 55 named A–H tasks are checked (10.9%); 12 of 78 total plan checkboxes are checked (15.4%). These are checklist counts, not a codebase-wide completion estimate. B1 remains open because the demo webhook uses a shared secret rather than a staff-role check; B3 remains open because the CSP/static-inline-handler migration is unfinished. The full C2 scanner and all pilot, legal, staging and production gates remain open. No legal rule was changed.

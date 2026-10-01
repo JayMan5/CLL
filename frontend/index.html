@@ -76,8 +76,8 @@
                     </button>
                     <button id="nav-qr-scan" onclick="switchTab('tab-qr-scan')"
                         class="nav-item w-full flex items-center gap-3 px-4 py-3 rounded-xl text-left font-medium">
-                        <i class="fa-solid fa-qrcode text-lg"></i>
-                        <span>QR Chain of Custody</span>
+                        <i class="fa-solid fa-location-dot text-lg"></i>
+                        <span>Custody Check-In</span>
                     </button>
                     <button id="nav-courtrooms" onclick="switchTab('tab-courtrooms')"
                         class="nav-item w-full flex items-center gap-3 px-4 py-3 rounded-xl text-left font-medium">
@@ -243,7 +243,7 @@
                                 <i class="fa-solid fa-triangle-exclamation text-lg text-rose"></i>
                             </div>
                             <div>
-                                <h4 class="font-semibold text-heading text-sm">Critical QR Custody Alerts Detect</h4>
+                                <h4 class="font-semibold text-heading text-sm">Custody Check-In Alerts</h4>
                                 <p class="text-xs text-body"><span id="alert-count-custody"
                                         class="font-bold text-rose">0</span> physical case files have not been checked
                                     in for over 7 days.</p>
@@ -277,8 +277,7 @@
                             <div>
                                 <p class="stat-label">Total Tracked Files</p>
                                 <h3 id="stat-total-cases" class="stat-number mt-2">0</h3>
-                                <p class="text-xs mt-1.5 text-emerald-th"><i class="fa-solid fa-circle-check"></i> <span
-                                        class="font-mono">100%</span> QR cataloged</p>
+                                <p class="text-xs mt-1.5 text-emerald-th"><i class="fa-solid fa-circle-check"></i> Cases in your authorised scope</p>
                             </div>
                             <div class="w-12 h-12 rounded-xl flex items-center justify-center"
                                 style="background:var(--accent-soft); color:var(--accent)">
@@ -347,10 +346,8 @@
                         <!-- New Case Catalog Form -->
                         <div class="glass-panel rounded-2xl p-6 flex flex-col justify-between">
                             <div>
-                                <h3 class="font-heading font-bold text-base text-heading mb-2">Initialize Physical QR
-                                    File</h3>
-                                <p class="text-xs text-body mb-4">Pre-register physical file and generate matching QR
-                                    code metadata block.</p>
+                                <h3 class="font-heading font-bold text-base text-heading mb-2">Register a Case File</h3>
+                                <p class="text-xs text-body mb-4">Create the case record here. QR label generation is not enabled in this prototype.</p>
 
                                 <form id="form-create-case" onsubmit="handleCreateCase(event)" class="space-y-3">
                                     <div>
@@ -397,7 +394,7 @@
                                     </div>
 
                                     <button type="submit" class="btn-primary w-full mt-2">
-                                        <i class="fa-solid fa-plus-circle"></i> Create & Seed QR Code
+                                        <i class="fa-solid fa-plus-circle"></i> Register Case
                                     </button>
                                 </form>
                             </div>
@@ -439,7 +436,7 @@
                             <table class="w-full text-left border-collapse table-premium">
                                 <thead>
                                     <tr class="text-[11px] uppercase font-bold tracking-wider">
-                                        <th class="py-3 px-4">Suit / QR Code</th>
+                                        <th class="py-3 px-4">Suit / Case ID</th>
                                         <th class="py-3 px-4">Case Type</th>
                                         <th class="py-3 px-4">Location / Court</th>
                                         <th class="py-3 px-4">Adjournments</th>
@@ -508,10 +505,9 @@
                                 style="background:var(--accent-soft); color:var(--accent)">
                                 <i class="fa-solid fa-qrcode"></i>
                             </div>
-                            <h3 class="font-heading font-bold text-lg text-heading">Registry QR Chain of Custody Scanner
+                            <h3 class="font-heading font-bold text-lg text-heading">Custody Check-In (Scanner Simulation)
                             </h3>
-                            <p class="text-xs text-body">Scan barcodes or physical folder QR labels at checkpoint logs
-                                to document custody hand-offs across court registries and rooms.</p>
+                            <p class="text-xs text-body">This prototype records a simulated check-in; no camera or QR reader is connected. The audit actor comes from your authenticated account.</p>
                         </div>
 
                         <!-- Main QR Scanner Mock Interface -->
@@ -541,9 +537,10 @@
                                             </select>
                                         </div>
                                         <div>
-                                            <label class="stat-label block mb-1">Scanning Clerk ID</label>
-                                            <input type="text" id="scan-staff-id" required class="th-input w-full py-2"
-                                                value="ST-809" placeholder="ST-###">
+                                            <label class="stat-label block mb-1">Authenticated operator</label>
+                                            <div class="th-input w-full py-2 min-h-[40px] flex items-center" aria-live="polite">
+                                                <span id="scan-authenticated-operator">Signed-in account</span>
+                                            </div>
                                         </div>
                                     </div>
                                     <button type="submit" class="btn-primary w-full mt-3">
@@ -585,14 +582,16 @@
                             <div class="qr-area flex flex-col items-center justify-center p-6 relative">
                                 <div class="w-36 h-36 border-4 rounded-xl flex items-center justify-center relative p-3 bg-white group hover:scale-105 transition duration-200"
                                     style="border-color:var(--accent)">
-                                    <img id="qr-display-img"
-                                        src="https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=CR/104/2025&color=0f172a"
-                                        alt="Scan QR Code" class="w-full h-full object-cover">
+                                    <div id="qr-display-img" role="img" aria-label="QR generation is not enabled in this prototype"
+                                        class="w-full h-full flex flex-col items-center justify-center gap-2 text-slate-800">
+                                        <i class="fa-solid fa-qrcode text-5xl" aria-hidden="true"></i>
+                                        <span class="text-[9px] font-bold uppercase tracking-wide">Preview only</span>
+                                    </div>
                                     <div class="absolute inset-0 border-2 opacity-20 animate-pulse pointer-events-none"
                                         style="border-color:var(--accent)"></div>
                                 </div>
                                 <span class="text-[10px] font-mono mt-4 uppercase tracking-wider"
-                                    style="color:var(--text-muted)">QR Code: <span id="qr-display-suit"
+                                    style="color:var(--text-muted)">Selected case (no QR generated): <span id="qr-display-suit"
                                         class="text-heading font-bold">CR/104/2025</span></span>
 
                                 <div class="qr-history w-full mt-6 text-[11px] font-mono space-y-1"
@@ -1269,6 +1268,53 @@
                     <button type="submit" class="btn-primary">
                         <i class="fa-solid fa-check"></i> Reassign Case
                     </button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- ================== MODAL: SHERIFF CUSTODY ASSIGNMENT / HANDOVER ================== -->
+    <div id="sheriff-custody-modal" class="hidden fixed inset-0 z-50 flex items-center justify-center p-4"
+        style="background:rgba(0,0,0,0.6); backdrop-filter:blur(4px)">
+        <div class="glass-panel w-full max-w-lg rounded-2xl shadow-2xl p-6 relative border-emerald-500/50">
+            <div class="flex items-center justify-between pb-4 mb-4 border-b border-color">
+                <h3 id="sheriff-custody-title" class="font-heading font-bold text-lg text-heading flex items-center gap-2">
+                    <i class="fa-solid fa-person-walking-arrow-right text-emerald-400"></i> Assign Sheriff Custody
+                </h3>
+                <button type="button" onclick="closeSheriffCustodyModal()" class="text-body hover:text-heading"
+                    aria-label="Close Sheriff custody dialog"><i class="fa-solid fa-xmark text-lg"></i></button>
+            </div>
+            <p id="sheriff-custody-help" class="text-xs text-body mb-4">Select an active Sheriff assigned to this court.</p>
+            <form id="form-sheriff-custody" onsubmit="submitSheriffCustody(event)" class="space-y-4 text-xs">
+                <div>
+                    <label class="stat-label block mb-1 font-semibold" for="assign-sheriff-case-id">Case ID</label>
+                    <input type="text" id="assign-sheriff-case-id" readonly maxlength="120"
+                        class="th-input w-full p-2.5 rounded-lg text-xs">
+                </div>
+                <div>
+                    <label class="stat-label block mb-1 font-semibold" for="sheriff-custody-target">Eligible Sheriff</label>
+                    <select id="sheriff-custody-target" required class="th-input w-full p-2.5 rounded-lg text-xs">
+                        <option value="">Loading eligible Sheriffs…</option>
+                    </select>
+                </div>
+                <div id="sheriff-handover-location-field" class="hidden">
+                    <label class="stat-label block mb-1 font-semibold" for="sheriff-handover-location">Handover location</label>
+                    <select id="sheriff-handover-location" class="th-input w-full p-2.5 rounded-lg text-xs">
+                        <option value="Registry Desk A">Registry Desk A</option>
+                        <option value="Registry Desk B">Registry Desk B</option>
+                        <option value="Court Clerk Office 4">Court Clerk Office 4</option>
+                        <option value="Courtroom 2 File Rack">Courtroom 2 File Rack</option>
+                        <option value="Enforcement Unit">Enforcement Unit</option>
+                    </select>
+                </div>
+                <div>
+                    <label class="stat-label block mb-1 font-semibold" for="sheriff-custody-reason">Reason</label>
+                    <input type="text" id="sheriff-custody-reason" required maxlength="500"
+                        class="th-input w-full p-2.5 rounded-lg text-xs" value="Registry dispatch">
+                </div>
+                <div class="flex items-center justify-end gap-3 pt-4 mt-4 border-t border-color">
+                    <button type="button" onclick="closeSheriffCustodyModal()" class="btn-secondary">Cancel</button>
+                    <button id="sheriff-custody-submit" type="submit" class="btn-primary" disabled>Assign Sheriff</button>
                 </div>
             </form>
         </div>

@@ -18,6 +18,7 @@ document.addEventListener('click', event => {
     if (!button) return;
     const actions = {
         scan: shortcutQRScan, hearing: shortcutHearingLog, assign: openAssignJudgeModal,
+        assignSheriff: openAssignSheriffModal, handover: openSheriffHandoverModal,
         writ: selectCaseForWrit, override: openDCROverrideModal, ruling: logJudicialRuling,
         deleteUser: deleteUserAccount, resetPassword: resetUserPassword, explain: showExplainability
     };
@@ -40,6 +41,8 @@ let distributionChart = null;
 let currentHearingOutcome = "Adjourned";
 let activeOverrideCaseId = null;
 let selectedWritCaseId = null;
+let activeSheriffCustodyCaseId = null;
+let activeSheriffCustodyMode = null;
 
 // ===== USER PROFILES (5-Level Access Hierarchy) =====
 const USER_PROFILES = {
@@ -104,6 +107,8 @@ function clearClientSession() {
     casesData = [];
     usersData = [];
     whatsappLogs = [];
+    activeSheriffCustodyCaseId = null;
+    activeSheriffCustodyMode = null;
     ["cases-table-body", "dcr-approval-table-body", "judge-docket-table-body", "judgments-table-body",
         "ai-risk-table-body", "users-admin-table-body", "whatsapp-logs-container", "case-scan-history"]
         .forEach(id => document.getElementById(id)?.replaceChildren());
@@ -116,7 +121,7 @@ function clearClientSession() {
         if (select) select.replaceChildren(new Option("Select a case", ""));
     });
     ["new-case-id", "new-case-counsel", "new-case-litigant", "upload-case-id", "writ-case-id",
-        "writ-sheriff-id", "reassign-case-id", "assign-judge-case-id"]
+        "writ-sheriff-id", "reassign-case-id", "assign-judge-case-id", "assign-sheriff-case-id"]
         .forEach(id => { const input = document.getElementById(id); if (input) input.value = ""; });
     const overrideCase = document.getElementById("override-modal-case-id");
     if (overrideCase) overrideCase.textContent = "";
@@ -125,6 +130,8 @@ function clearClientSession() {
     document.getElementById("form-password-change")?.reset();
     document.getElementById("form-add-user")?.reset();
     document.getElementById("form-login")?.reset();
+    document.getElementById("form-sheriff-custody")?.reset();
+    document.getElementById("sheriff-custody-modal")?.classList.add("hidden");
     if (document.getElementById("role-switcher-select")) updateRoleUI();
     if (distributionChart) distributionChart.destroy();
     distributionChart = null;
@@ -417,16 +424,22 @@ function updateRoleUI() {
     document.getElementById("sidebar-user-name").textContent = user.name;
     document.getElementById("sidebar-user-role").textContent = user.badge;
     document.getElementById("active-user-initials").textContent = user.initials;
+    const scanOperator = document.getElementById("scan-authenticated-operator");
+    if (scanOperator) {
+        scanOperator.textContent = authenticatedUser?.user_id ? `${user.name} (${user.role})` : "No authenticated account";
+    }
 
     // Toggle tab permissions according to Permission Matrix
     const role = user.role;
 
+    const navCustody = document.getElementById("nav-qr-scan");
     const navDCR = document.getElementById("nav-dcr-console");
     const navJudge = document.getElementById("nav-judge-docket");
     const navUserAdmin = document.getElementById("nav-user-admin");
     const navWhatsApp = document.getElementById("nav-whatsapp");
     const btnNJC = document.getElementById("btn-njc-export");
 
+    if (navCustody) navCustody.style.display = ["Sheriff", "Clerk", "Chief Registrar"].includes(role) ? "flex" : "none";
     if (navDCR) navDCR.style.display = (role === "DCR" || role === "Chief Registrar") ? "flex" : "none";
     if (navJudge) navJudge.style.display = (role === "Judge" || role === "Chief Registrar") ? "flex" : "none";
     if (navUserAdmin) navUserAdmin.style.display = (role === "Chief Registrar") ? "flex" : "none";
@@ -442,6 +455,9 @@ function logger(message) {
 // Switching Tabs (Single Page App Navigation)
 function switchTab(tabId) {
     if (tabId === "tab-whatsapp" && (!demoMode || authenticatedUser?.role !== "Chief Registrar")) {
+        tabId = "tab-overview";
+    }
+    if (tabId === "tab-qr-scan" && !["Sheriff", "Clerk", "Chief Registrar"].includes(authenticatedUser?.role)) {
         tabId = "tab-overview";
     }
     document.querySelectorAll("main > div > section").forEach(section => {
@@ -470,7 +486,7 @@ function switchTab(tabId) {
 
     const viewTitles = {
         "tab-overview": "Registry Performance Hub",
-        "tab-qr-scan": "Registry QR Chain of Custody",
+        "tab-qr-scan": "Custody Check-In (Simulation)",
         "tab-courtrooms": "Clerk Call-Over Logger",
         "tab-dcr-console": "DCR Division Supervisor Hub",
         "tab-judge-docket": "My Assigned Judicial Docket",
@@ -612,6 +628,10 @@ function renderHeatmapTable(cases) {
             alertBadge = `<span class="badge badge-low">Enforced</span>`;
         }
 
+        const activeUser = getActiveUser();
+        const canRecordCustody = ["Sheriff", "Clerk", "Chief Registrar"].includes(activeUser.role);
+        const canAssignSheriff = ["Clerk", "Chief Registrar"].includes(activeUser.role);
+        const canHandoverCustody = activeUser.role === "Sheriff" && c.assigned_sheriff_id === activeUser.user_id;
         const row = document.createElement("tr");
         row.innerHTML = `
             <td class="py-3 px-4 font-mono font-bold text-heading tracking-wider"><span class="led-dot ${ledClass}"></span>${c.case_id}</td>
@@ -635,9 +655,11 @@ function renderHeatmapTable(cases) {
             <td class="py-3 px-4 text-center">${alertBadge}</td>
             <td class="py-3 px-4 text-right">
                 <div class="flex items-center justify-end gap-2">
-                    <button data-case-action="scan" data-record-id="${c.case_id}" class="btn-secondary" style="padding:2px 8px;font-size:10px;" title="Scan QR Code"><i class="fa-solid fa-qrcode mr-1"></i> Scan</button>
-                    ${getActiveUser().role !== 'Sheriff' ? `<button data-case-action="hearing" data-record-id="${c.case_id}" class="btn-secondary" style="padding:2px 8px;font-size:10px;" title="Log Hearing"><i class="fa-solid fa-gavel mr-1"></i> Log</button>` : ''}
-                    ${getActiveUser().role === 'Chief Registrar' ? `<button data-case-action="assign" data-record-id="${c.case_id}" class="btn-secondary" style="padding:2px 8px;font-size:10px; color:var(--purple-400)" title="Assign Judge"><i class="fa-solid fa-scale-balanced mr-1"></i> Assign</button>` : ''}
+                    ${canRecordCustody ? `<button data-case-action="scan" data-record-id="${c.case_id}" class="btn-secondary" style="padding:2px 8px;font-size:10px;" title="Record a custody check-in"><i class="fa-solid fa-location-dot mr-1"></i> Check-In</button>` : ''}
+                    ${activeUser.role !== 'Sheriff' ? `<button data-case-action="hearing" data-record-id="${c.case_id}" class="btn-secondary" style="padding:2px 8px;font-size:10px;" title="Log Hearing"><i class="fa-solid fa-gavel mr-1"></i> Log</button>` : ''}
+                    ${canAssignSheriff ? `<button data-case-action="assignSheriff" data-record-id="${c.case_id}" class="btn-secondary" style="padding:2px 8px;font-size:10px; color:var(--accent)" title="Assign or reassign Sheriff custody"><i class="fa-solid fa-person-walking-arrow-right mr-1"></i> Custody</button>` : ''}
+                    ${canHandoverCustody ? `<button data-case-action="handover" data-record-id="${c.case_id}" class="btn-secondary" style="padding:2px 8px;font-size:10px; color:var(--amber)" title="Hand over file custody"><i class="fa-solid fa-right-left mr-1"></i> Hand Over</button>` : ''}
+                    ${activeUser.role === 'Chief Registrar' ? `<button data-case-action="assign" data-record-id="${c.case_id}" class="btn-secondary" style="padding:2px 8px;font-size:10px; color:var(--purple-400)" title="Assign Judge"><i class="fa-solid fa-scale-balanced mr-1"></i> Assign</button>` : ''}
                 </div>
             </td>
         `;
@@ -929,22 +951,24 @@ async function handleScanSubmit(e) {
     e.preventDefault();
     const case_id = document.getElementById("scan-case-id").value;
     const location = document.getElementById("scan-location").value;
-    const staff_id = document.getElementById("scan-staff-id").value.trim();
 
-    if (!case_id || !staff_id) return;
+    if (!case_id) {
+        showToast("Please select a case file.", "error");
+        return;
+    }
 
-    logger(`Submitting QR scan for case ${case_id} at ${location}`);
+    logger(`Submitting custody check-in for case ${case_id} at ${location}`);
 
     try {
         const response = await apiFetch(`${API_BASE}/scan`, {
             method: "POST",
             headers: getAuthHeaders(),
-            body: JSON.stringify({ case_id, location, staff_id })
+            body: JSON.stringify({ case_id, location })
         });
 
         if (!response.ok) {
             const err = await response.json();
-            alert(`QR Scan Failed: ${err.detail || "Permission denied"}`);
+            showToast(err.detail || "Custody check-in failed.", "error");
             return;
         }
 
@@ -1098,7 +1122,7 @@ function renderJudgeDocketTable() {
     tableBody.innerHTML = "";
 
     const user = getActiveUser();
-    const judgeCases = casesData.filter(c => c.assigned_judge_id === user.user_id || user.role === "Chief Registrar" || c.court === user.court);
+    const judgeCases = casesData.filter(c => user.role === "Chief Registrar" || c.assigned_judge_id === user.user_id);
 
     const alertCountElem = document.getElementById("judge-alert-count");
     if (alertCountElem) alertCountElem.textContent = judgeCases.filter(c => c.risk_flag || c.adjournment_count >= 4).length;
@@ -1324,13 +1348,12 @@ function shortcutHearingLog(caseId) {
     updateHearingLogDetails();
 }
 
-// QR display image loader
+// Local custody-history preview. QR generation/capture is not implemented yet.
 function updateQRDisplay() {
     const caseId = document.getElementById("scan-case-id").value;
     if (!caseId) return;
 
     document.getElementById("qr-display-suit").textContent = caseId;
-    document.getElementById("qr-display-img").src = `https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=${encodeURIComponent(caseId)}&color=0f172a`;
 
     // Bind chain of custody logs to preview
     const targetCase = casesData.find(c => c.case_id === caseId);
@@ -1345,7 +1368,7 @@ function updateQRDisplay() {
             item.style.borderBottom = '1px solid var(--border-color)';
             item.innerHTML = `
                 <span><i class="fa-solid fa-location-arrow text-accent mr-1"></i> ${scan.location}</span>
-                <span style="color:var(--text-muted)" class="font-mono">${dt} (ID: ${scan.staff_id})</span>
+                <span style="color:var(--text-muted)" class="font-mono">${dt} (recorded actor: ${scan.staff_id})</span>
             `;
             logsContainer.appendChild(item);
         });
@@ -1786,6 +1809,122 @@ async function submitAssignJudge(e) {
         }
     } catch (error) {
         showToast("Network error assigning judge.", "error");
+    }
+}
+
+function openAssignSheriffModal(caseId = "") {
+    return openSheriffCustodyModal(caseId, "assign");
+}
+
+function openSheriffHandoverModal(caseId = "") {
+    return openSheriffCustodyModal(caseId, "handover");
+}
+
+async function openSheriffCustodyModal(caseId, mode) {
+    if (!caseId) {
+        showToast("Select a case file before managing custody.", "error");
+        return;
+    }
+    activeSheriffCustodyCaseId = caseId;
+    activeSheriffCustodyMode = mode;
+
+    const handover = mode === "handover";
+    const form = document.getElementById("form-sheriff-custody");
+    const caseInput = document.getElementById("assign-sheriff-case-id");
+    const title = document.getElementById("sheriff-custody-title");
+    const help = document.getElementById("sheriff-custody-help");
+    const locationField = document.getElementById("sheriff-handover-location-field");
+    const locationSelect = document.getElementById("sheriff-handover-location");
+    const reasonInput = document.getElementById("sheriff-custody-reason");
+    const targetSelect = document.getElementById("sheriff-custody-target");
+    const submitButton = document.getElementById("sheriff-custody-submit");
+
+    form.reset();
+    caseInput.value = caseId;
+    title.textContent = handover ? "Hand Over Case Custody" : "Assign Sheriff Custody";
+    help.textContent = handover
+        ? "Choose another active Sheriff assigned to this court. This records the authenticated handover actor and transfers case visibility."
+        : "Choose an active Sheriff assigned to this case's court. Only the assigned Sheriff will receive physical-custody access.";
+    locationField.classList.toggle("hidden", !handover);
+    locationSelect.required = handover;
+    reasonInput.value = handover ? "End of duty handover" : "Registry dispatch";
+    targetSelect.replaceChildren(new Option("Loading eligible Sheriffs…", ""));
+    targetSelect.disabled = true;
+    submitButton.disabled = true;
+    submitButton.textContent = handover ? "Record Handover" : "Assign Sheriff";
+    animateOpenModal("sheriff-custody-modal");
+
+    try {
+        const response = await apiFetch(`${API_BASE}/cases/${caseId}/sheriffs`, {
+            method: "GET",
+            headers: getAuthHeaders()
+        });
+        if (activeSheriffCustodyCaseId !== caseId || activeSheriffCustodyMode !== mode) return;
+        const result = await response.json();
+        if (!response.ok) {
+            showToast(result.detail || "Unable to load eligible Sheriffs.", "error");
+            closeSheriffCustodyModal();
+            return;
+        }
+
+        targetSelect.replaceChildren(new Option("Select a Sheriff", ""));
+        result.forEach(sheriff => {
+            const option = document.createElement("option");
+            option.value = sheriff.user_id;
+            option.textContent = `${sheriff.name} (${sheriff.user_id})`;
+            targetSelect.appendChild(option);
+        });
+        if (result.length === 0) {
+            targetSelect.replaceChildren(new Option("No eligible Sheriff for this court", ""));
+        }
+        targetSelect.disabled = result.length === 0;
+        submitButton.disabled = result.length === 0;
+    } catch (error) {
+        if (activeSheriffCustodyCaseId === caseId && activeSheriffCustodyMode === mode) {
+            showToast("Network error loading eligible Sheriffs.", "error");
+            closeSheriffCustodyModal();
+        }
+    }
+}
+
+function closeSheriffCustodyModal() {
+    activeSheriffCustodyCaseId = null;
+    activeSheriffCustodyMode = null;
+    animateCloseModal("sheriff-custody-modal");
+    document.getElementById("form-sheriff-custody")?.reset();
+}
+
+async function submitSheriffCustody(event) {
+    event.preventDefault();
+    const caseId = activeSheriffCustodyCaseId;
+    const mode = activeSheriffCustodyMode;
+    const sheriffId = document.getElementById("sheriff-custody-target").value;
+    const reason = document.getElementById("sheriff-custody-reason").value.trim();
+    const location = document.getElementById("sheriff-handover-location").value;
+    if (!caseId || !mode || !sheriffId || !reason) return;
+
+    const endpoint = mode === "handover" ? "handover" : "assign-sheriff";
+    const payload = mode === "handover"
+        ? { to_sheriff_id: sheriffId, location, reason }
+        : { sheriff_id: sheriffId, reason };
+    try {
+        const response = await apiFetch(`${API_BASE}/cases/${caseId}/${endpoint}`, {
+            method: "POST",
+            headers: getAuthHeaders(),
+            body: JSON.stringify(payload)
+        });
+        if (response.ok) {
+            showToast(mode === "handover"
+                ? `Custody handed over to ${sheriffId}.`
+                : `Sheriff ${sheriffId} assigned to ${caseId}.`, "success");
+            closeSheriffCustodyModal();
+            await loadDashboardData();
+        } else {
+            const err = await response.json();
+            showToast(err.detail || "Unable to update case custody.", "error");
+        }
+    } catch (error) {
+        showToast("Network error updating case custody.", "error");
     }
 }
 

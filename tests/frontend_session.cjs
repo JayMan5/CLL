@@ -10,6 +10,7 @@ const profile = {
     division: 'Criminal', must_change_password: true
 };
 const calls = [];
+const custodyPosts = [];
 let refreshCount = 0;
 let protectedCount = 0;
 function response(status, body = {}, headers = {}) {
@@ -35,6 +36,13 @@ dom.window.fetch = async (url, options = {}) => {
     }
     if (url === '/api/login') return response(200, {access_token: 'login-access', token_type: 'bearer', user: profile});
     if (url === '/api/cases') return response(200, []);
+    if (String(url).endsWith('/sheriffs')) return response(200, [
+        {user_id:'usr_sheriff_02', name:'Assigned Test Sheriff', badge:'Fictional'},
+    ]);
+    if (String(url).endsWith('/assign-sheriff') || String(url).endsWith('/handover')) {
+        custodyPosts.push({url, body: options.body});
+        return response(200, {assigned_sheriff_id:'usr_sheriff_02'});
+    }
     if (url === '/api/whatsapp/logs') return response(200, []);
     if (url === '/api/test-protected') {
         protectedCount += 1;
@@ -70,9 +78,32 @@ dom.window.fetch = async (url, options = {}) => {
     await vm.runInContext('apiFetch("/api/password-required")', context);
     assert.equal(dom.window.document.getElementById('password-change-overlay').classList.contains('hidden'), false);
 
+    vm.runInContext('loadDashboardData = async () => {}', context);
+    await vm.runInContext('openAssignSheriffModal("SAFE/ASSIGN")', context);
+    const targetSelect = dom.window.document.getElementById('sheriff-custody-target');
+    assert.equal(targetSelect.options[1].value, 'usr_sheriff_02');
+    targetSelect.value = 'usr_sheriff_02';
+    dom.window.document.getElementById('sheriff-custody-reason').value = 'Registry dispatch';
+    await vm.runInContext('submitSheriffCustody({preventDefault(){}})', context);
+    assert.ok(custodyPosts[0].url.endsWith('/api/cases/SAFE/ASSIGN/assign-sheriff'));
+    assert.deepEqual(JSON.parse(custodyPosts[0].body), {
+        sheriff_id:'usr_sheriff_02', reason:'Registry dispatch'
+    });
+    assert.equal(JSON.parse(custodyPosts[0].body).staff_id, undefined);
+
+    await vm.runInContext('openSheriffHandoverModal("SAFE/ASSIGN")', context);
+    targetSelect.value = 'usr_sheriff_02';
+    dom.window.document.getElementById('sheriff-handover-location').value = 'Registry Desk A';
+    dom.window.document.getElementById('sheriff-custody-reason').value = 'End of duty';
+    await vm.runInContext('submitSheriffCustody({preventDefault(){}})', context);
+    assert.ok(custodyPosts[1].url.endsWith('/api/cases/SAFE/ASSIGN/handover'));
+    assert.deepEqual(JSON.parse(custodyPosts[1].body), {
+        to_sheriff_id:'usr_sheriff_02', location:'Registry Desk A', reason:'End of duty'
+    });
+
     await vm.runInContext('handleLogout()', context);
     assert.equal(vm.runInContext('accessToken', context), null);
     assert.ok(calls.some(call => call.url === '/api/logout'));
-    console.log('Frontend session: cookie-backed restore, login, refresh retry, forced-change prompt and logout passed');
+    console.log('Frontend session: auth lifecycle and delegated Sheriff assignment/handover passed');
     dom.window.close();
 })().catch(error => { console.error(error); process.exitCode = 1; dom.window.close(); });

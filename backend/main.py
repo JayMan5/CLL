@@ -140,16 +140,26 @@ def can_access_case(case: Dict[str, Any], auth: Dict[str, str]) -> bool:
     if role == "Chief Registrar":
         return True
     if role == "Judge":
-        return case.get("assigned_judge_id") == user["user_id"]
+        return (bool(user.get("court"))
+                and case.get("assigned_judge_id") == user["user_id"]
+                and case.get("court") == user["court"])
     if role == "DCR":
         return bool(user.get("division")) and case.get("assigned_division") == user["division"]
     if role == "Clerk":
         return bool(user.get("court")) and case.get("court") == user["court"]
     if role == "Sheriff":
+        if not user.get("court") or case.get("court") != user["court"]:
+            return False
+        # Once custody has an explicit assignee, that assignment is authoritative:
+        # old scan history or a prior missing-file report must not preserve access
+        # after a handover. Legacy cases without an assignment retain their existing
+        # last-scan / missing-report scope until the registry assigns a custodian.
+        assigned_sheriff_id = case.get("assigned_sheriff_id")
+        if assigned_sheriff_id:
+            return assigned_sheriff_id == user["user_id"]
         scans = case.get("scan_events", [])
         missing = case.get("file_missing_report") or {}
-        return (case.get("assigned_sheriff_id") == user["user_id"]
-                or bool(scans and scans[-1].get("staff_id") == user["user_id"])
+        return (bool(scans and scans[-1].get("staff_id") == user["user_id"])
                 or missing.get("reported_by") == user["user_id"])
     return False
 
@@ -228,11 +238,31 @@ def _normalize_nigerian_phone(value: str) -> str:
 class ScanRequest(BaseModel):
     case_id: CaseIdentifier
     location: str = Field(min_length=1, max_length=160, pattern=r"\S")
-    staff_id: str = Field(min_length=1, max_length=64, pattern=r"\S")
 
-    @field_validator("location", "staff_id")
+    @field_validator("location")
     @classmethod
-    def trim_scan_fields(cls, value):
+    def trim_scan_location(cls, value):
+        return value.strip()
+
+
+class SheriffAssignmentRequest(BaseModel):
+    sheriff_id: str = Field(min_length=1, max_length=64, pattern=r"\S")
+    reason: str = Field(min_length=1, max_length=500, pattern=r"\S")
+
+    @field_validator("sheriff_id", "reason")
+    @classmethod
+    def trim_assignment_fields(cls, value):
+        return value.strip()
+
+
+class SheriffHandoverRequest(BaseModel):
+    to_sheriff_id: str = Field(min_length=1, max_length=64, pattern=r"\S")
+    location: str = Field(min_length=1, max_length=160, pattern=r"\S")
+    reason: str = Field(min_length=1, max_length=500, pattern=r"\S")
+
+    @field_validator("to_sheriff_id", "location", "reason")
+    @classmethod
+    def trim_handover_fields(cls, value):
         return value.strip()
 
 
@@ -928,7 +958,11 @@ def create_case(req: CaseCreateRequest, auth: Dict[str, str] = Depends(get_curre
         "case_type": req.case_type,
         "court": req.court,
         "assigned_division": "Criminal" if "Criminal" in req.case_type else "Civil",
-        "assigned_judge_id": "usr_judge_01",
+        # Judicial assignment is an explicit Chief Registrar action; do not bind
+        # every new case to a hard-coded demo Judge or grant cross-court visibility.
+        "assigned_judge_id": None,
+        "assigned_sheriff_id": None,
+        "custody_history": [],
         "filing_date": format_date(get_current_time()),
         "adjournment_count": 0,
         "days_since_filing": 0,
@@ -1176,6 +1210,131 @@ def report_file_missing(case_id: CaseIdentifier, req: FileMissingRequest, auth: 
     return db.get_case(case_id)
 
 
+def _active_sheriff_for_case(case: Dict[str, Any], sheriff_id: str) -> Dict[str, Any]:
+    """Resolve a current, active Sheriff assigned to the case's exact court."""
+    sheriff = db.get_user(sheriff_id)
+    if (not case.get("court") or not sheriff or sheriff.get("disabled")
+            or sheriff.get("role") != "Sheriff"
+            or sheriff.get("court") != case.get("court")):
+        raise HTTPException(
+            status_code=422,
+            detail="Selected Sheriff is not active or is assigned to a different court",
+        )
+    return sheriff
+
+
+@app.get("/api/cases/{case_id:path}/sheriffs", response_model=List[Dict[str, str]])
+def list_case_sheriffs(case_id: CaseIdentifier, auth: Dict[str, str] = Depends(get_current_user)):
+    """Return only active Sheriff accounts for this case's court."""
+    if auth["role"] not in ["Clerk", "Chief Registrar", "Sheriff"]:
+        raise HTTPException(status_code=403, detail="Permission Denied: Sheriff custody is managed by registry staff and the assigned Sheriff.")
+
+    case = db.get_case(case_id)
+    if not case:
+        raise HTTPException(status_code=404, detail="Case file not found")
+    authorize_case(case, auth)
+    if auth["role"] == "Sheriff" and case.get("assigned_sheriff_id") != auth["user_id"]:
+        raise HTTPException(status_code=403, detail="Only the assigned Sheriff may view handover recipients")
+
+    current_sheriff_id = case.get("assigned_sheriff_id")
+    sheriffs = [
+        {
+            "user_id": user["user_id"],
+            "name": user.get("name") or user.get("username") or user["user_id"],
+            "badge": user.get("badge") or "",
+        }
+        for user in db.list_users()
+        if case.get("court")
+        and user.get("role") == "Sheriff"
+        and not user.get("disabled")
+        and user.get("court") == case.get("court")
+        and user.get("user_id") != current_sheriff_id
+    ]
+    return sorted(sheriffs, key=lambda item: (item["name"].casefold(), item["user_id"]))
+
+
+@app.post("/api/cases/{case_id:path}/assign-sheriff", response_model=Dict[str, Any])
+def assign_sheriff_to_case(case_id: CaseIdentifier, req: SheriffAssignmentRequest, auth: Dict[str, str] = Depends(get_current_user)):
+    """Assign physical file custody to an active Sheriff in the same court."""
+    if auth["role"] not in ["Clerk", "Chief Registrar"]:
+        raise HTTPException(status_code=403, detail="Permission Denied: Sheriff assignment is restricted to registry staff")
+
+    case = db.get_case(case_id)
+    if not case:
+        raise HTTPException(status_code=404, detail="Case file not found")
+    authorize_case(case, auth)
+    _active_sheriff_for_case(case, req.sheriff_id)
+
+    previous_sheriff_id = case.get("assigned_sheriff_id")
+    if previous_sheriff_id == req.sheriff_id:
+        raise HTTPException(status_code=409, detail="That Sheriff is already assigned to this case")
+
+    now = format_date(get_current_time())
+    custody_event = {
+        "action": "reassigned" if previous_sheriff_id else "assigned",
+        "from_sheriff_id": previous_sheriff_id,
+        "to_sheriff_id": req.sheriff_id,
+        "actor_user_id": auth["user_id"],
+        "timestamp": now,
+        "reason": req.reason,
+    }
+    db.update_case(case_id, {
+        "assigned_sheriff_id": req.sheriff_id,
+        "assigned_sheriff_at": now,
+        "custody_history": [custody_event],
+    })
+    _record_audit_event(
+        auth["user_id"],
+        "case.sheriff.reassign" if previous_sheriff_id else "case.sheriff.assign",
+        "case", case_id, reason=req.reason,
+        metadata={"from_sheriff_id": previous_sheriff_id, "to_sheriff_id": req.sheriff_id},
+    )
+    return db.get_case(case_id)
+
+
+@app.post("/api/cases/{case_id:path}/handover", response_model=Dict[str, Any])
+def handover_case_custody(case_id: CaseIdentifier, req: SheriffHandoverRequest, auth: Dict[str, str] = Depends(get_current_user)):
+    """Record a custody handover initiated by the currently assigned Sheriff."""
+    if auth["role"] != "Sheriff":
+        raise HTTPException(status_code=403, detail="Permission Denied: Custody handover must be initiated by the assigned Sheriff")
+
+    case = db.get_case(case_id)
+    if not case:
+        raise HTTPException(status_code=404, detail="Case file not found")
+    authorize_case(case, auth)
+    if case.get("assigned_sheriff_id") != auth["user_id"]:
+        raise HTTPException(status_code=403, detail="Only the assigned Sheriff may hand over this file")
+    _active_sheriff_for_case(case, req.to_sheriff_id)
+    if req.to_sheriff_id == auth["user_id"]:
+        raise HTTPException(status_code=409, detail="A Sheriff cannot hand a file over to themself")
+
+    now = format_date(get_current_time())
+    custody_event = {
+        "action": "handover",
+        "from_sheriff_id": auth["user_id"],
+        "to_sheriff_id": req.to_sheriff_id,
+        "actor_user_id": auth["user_id"],
+        "timestamp": now,
+        "location": req.location,
+        "reason": req.reason,
+    }
+    db.update_case(case_id, {
+        "assigned_sheriff_id": req.to_sheriff_id,
+        "assigned_sheriff_at": now,
+        "custody_history": [custody_event],
+    })
+    _record_audit_event(
+        auth["user_id"], "case.sheriff.handover", "case", case_id,
+        reason=req.reason,
+        metadata={
+            "from_sheriff_id": auth["user_id"],
+            "to_sheriff_id": req.to_sheriff_id,
+            "location": req.location,
+        },
+    )
+    return db.get_case(case_id)
+
+
 @app.post("/api/cases/{case_id:path}/assign-judge", response_model=Dict[str, Any])
 def assign_judge_to_case(case_id: CaseIdentifier, req: AssignJudgeRequest, auth: Dict[str, str] = Depends(get_current_user)):
     """
@@ -1189,10 +1348,12 @@ def assign_judge_to_case(case_id: CaseIdentifier, req: AssignJudgeRequest, auth:
         raise HTTPException(status_code=404, detail="Case file not found")
     authorize_case(case, auth)
 
-    # Verify the judge exists
+    # Balloting targets must be active Judges of this exact court.
     judge = db.get_user(req.judge_id)
-    if not judge or judge.get("role") != "Judge":
-        raise HTTPException(status_code=400, detail=f"User {req.judge_id} is not a valid Judge account.")
+    if not judge or judge.get("disabled") or judge.get("role") != "Judge":
+        raise HTTPException(status_code=422, detail="Selected account is not an active Judge")
+    if not case.get("court") or judge.get("court") != case.get("court"):
+        raise HTTPException(status_code=422, detail="Selected Judge is assigned to a different court")
 
     db.update_case(case_id, {
         "assigned_judge_id": req.judge_id,
@@ -1220,6 +1381,10 @@ def reassign_case(case_id: CaseIdentifier, req: ReassignRequest, auth: Dict[str,
     if not case:
         raise HTTPException(status_code=404, detail="Case file not found")
     authorize_case(case, auth)
+    if auth["role"] == "DCR":
+        profile = db.get_user(auth["user_id"])
+        if req.new_division and req.new_division != (profile or {}).get("division"):
+            raise HTTPException(status_code=403, detail="DCR cannot move a case outside their assigned division")
 
     updates = {}
     if req.new_division:
@@ -1251,15 +1416,14 @@ def export_dcr_weekly_report(auth: Dict[str, str] = Depends(get_current_user)):
         raise HTTPException(status_code=403, detail="Permission Denied: Weekly report requires DCR or Chief Registrar authority.")
 
     user_profile = db.get_user(auth["user_id"])
-    division = user_profile.get("division", "All Divisions") if user_profile else "All Divisions"
-
-    cases = db.list_cases()
-
-    # Filter by division (unless CR seeing all)
-    if division and division != "All Divisions":
-        division_cases = [c for c in cases if c.get("assigned_division") == division]
+    if auth["role"] == "DCR":
+        division = (user_profile or {}).get("division")
+        if not division or division == "All Divisions":
+            raise HTTPException(status_code=403, detail="DCR account has no valid assigned division")
+        division_cases = [case for case in db.list_cases() if case.get("assigned_division") == division]
     else:
-        division_cases = cases
+        division = "All Divisions"
+        division_cases = db.list_cases()
 
     total = len(division_cases)
     stalled = [c for c in division_cases if c.get("risk_flag")]
@@ -1402,13 +1566,7 @@ def get_judge_alerts(auth: Dict[str, str] = Depends(get_current_user)):
     if auth["role"] not in ["Judge", "Chief Registrar"]:
         raise HTTPException(status_code=403, detail="Permission Denied: Judge alerts are restricted to Judges and Chief Registrar.")
 
-    all_cases = db.list_cases()
-    user_id = auth["user_id"]
-
-    if auth["role"] == "Judge":
-        docket = [c for c in all_cases if c.get("assigned_judge_id") == user_id]
-    else:
-        docket = all_cases
+    docket = scoped_cases(auth)
 
     alerts = []
     for case in docket:
@@ -1452,7 +1610,7 @@ def get_judge_alerts(auth: Dict[str, str] = Depends(get_current_user)):
             })
 
     return {
-        "judge_id": user_id,
+        "judge_id": auth["user_id"],
         "total_alerts": len(alerts),
         "alerts": alerts
     }

@@ -23,6 +23,9 @@ from backend.auth import create_access_token, create_refresh_token, REFRESH_TOKE
 from backend.database import SQLiteDatabase, get_password_hash, verify_password
 from backend.whatsapp import send_adjournment_broadcast
 
+# TestClient uses HTTP; production configuration remains secure by default.
+main.COOKIE_SECURE = False
+
 # Explicit fictional fixtures; production startup never receives these default credentials.
 _TEST_USERS = [
     ('usr_sheriff_01', 'sheriff', 'Sheriff', 'FHC Abuja Court 4', 'Criminal', '123'),
@@ -85,12 +88,156 @@ def test_cross_court_read_and_write_denied():
     assert client.post('/api/cases/SEC/OTHER/predict', headers=h).status_code == 403
     assert all(c['case_id'] != 'SEC/OTHER' for c in client.get('/api/predict/batch', headers=h).json())
 
+    # A stale/mis-scoped explicit Sheriff assignment does not bypass the court boundary.
+    sheriff_headers = headers('usr_sheriff_01')
+    assert client.get('/api/cases/SEC/OTHER', headers=sheriff_headers).status_code == 403
+    assert all(c['case_id'] != 'SEC/OTHER' for c in client.get('/api/cases', headers=sheriff_headers).json())
+
+def test_dcr_cannot_reassign_a_case_outside_their_division():
+    case = fixture_case('SEC/DCR-REASSIGN')
+    response = client.post(
+        '/api/cases/SEC/DCR-REASSIGN/reassign', headers=headers('usr_dcr_01'),
+        json={'new_division':'Civil', 'reason':'Attempted cross-division move'},
+    )
+    assert response.status_code == 403
+    assert main.db.get_case(case['case_id'])['assigned_division'] == 'Criminal'
+
+
+def test_judge_case_reads_and_alerts_are_court_scoped():
+    case = fixture_case('SEC/JUDGE-SCOPE', 'Other Court')
+    case['assigned_judge_id'] = 'usr_judge_01'  # stale or malformed cross-court assignment
+    case['risk_flag'] = True
+    main.db.save_case(case['case_id'], case)
+    main.db.save_user('usr_judge_other', {
+        'user_id':'usr_judge_other', 'username':'judge.other', 'password':get_password_hash('123'),
+        'name':'Other Court Judge', 'role':'Judge', 'badge':'Fictional Test Account',
+        'court':'Other Court', 'division':'Criminal',
+    })
+
+    current_judge_headers = headers('usr_judge_01')
+    assert client.get(f"/api/cases/{case['case_id']}", headers=current_judge_headers).status_code == 403
+    alerts = client.get('/api/judge/alerts', headers=current_judge_headers)
+    assert alerts.status_code == 200
+    assert all(item.get('case_id') != case['case_id'] for item in alerts.json()['alerts'])
+
+    registrar_headers = headers('usr_cr_01')
+    wrong_court = client.post(
+        f"/api/cases/{case['case_id']}/assign-judge", headers=registrar_headers,
+        json={'judge_id':'usr_judge_01', 'reason':'Wrong court'},
+    )
+    assert wrong_court.status_code == 422
+    assert main.db.get_case(case['case_id'])['assigned_judge_id'] == 'usr_judge_01'
+
+    assigned = client.post(
+        f"/api/cases/{case['case_id']}/assign-judge", headers=registrar_headers,
+        json={'judge_id':'usr_judge_other', 'reason':'Correct court'},
+    )
+    assert assigned.status_code == 200
+    assert client.get(f"/api/cases/{case['case_id']}", headers=current_judge_headers).status_code == 403
+    other_judge_headers = headers('usr_judge_other')
+    assert client.get(f"/api/cases/{case['case_id']}", headers=other_judge_headers).status_code == 200
+    other_alerts = client.get('/api/judge/alerts', headers=other_judge_headers)
+    assert any(item.get('case_id') == case['case_id'] for item in other_alerts.json()['alerts'])
+
+
 def test_scan_identity_comes_from_token():
     fixture_case('SEC/SCAN')
     response = client.post('/api/scan', headers=headers('usr_sheriff_01'),
-                           json={'case_id':'SEC/SCAN', 'location':'Desk', 'staff_id':'usr_cr_01'})
+                           json={'case_id':'SEC/SCAN', 'location':'Desk'})
     assert response.status_code == 200
     assert response.json()['scan_events'][-1]['staff_id'] == 'usr_sheriff_01'
+
+
+def test_registry_assigns_case_to_court_sheriff_and_receipt_uses_session_identity():
+    case = fixture_case('SEC/SHERIFF-ASSIGNMENT')
+    case['assigned_sheriff_id'] = None
+    case['custody_history'] = []
+    main.db.save_case(case['case_id'], case)
+
+    sheriff_headers = headers('usr_sheriff_01')
+    assert client.get('/api/cases/SEC/SHERIFF-ASSIGNMENT', headers=sheriff_headers).status_code == 403
+    assert all(item['case_id'] != case['case_id'] for item in client.get('/api/cases', headers=sheriff_headers).json())
+
+    clerk_headers = headers('usr_clerk_01')
+    candidates = client.get('/api/cases/SEC/SHERIFF-ASSIGNMENT/sheriffs', headers=clerk_headers)
+    assert candidates.status_code == 200
+    assert [item['user_id'] for item in candidates.json()] == ['usr_sheriff_01']
+    assert all('password' not in item for item in candidates.json())
+
+    assigned = client.post(
+        '/api/cases/SEC/SHERIFF-ASSIGNMENT/assign-sheriff', headers=clerk_headers,
+        json={'sheriff_id':'usr_sheriff_01', 'reason':'Registry dispatch'},
+    )
+    assert assigned.status_code == 200
+    body = assigned.json()
+    assert body['assigned_sheriff_id'] == 'usr_sheriff_01'
+    assert body['custody_history'][-1]['action'] == 'assigned'
+    assert body['custody_history'][-1]['actor_user_id'] == 'usr_clerk_01'
+    assert body['custody_history'][-1]['reason'] == 'Registry dispatch'
+    assert client.get('/api/cases/SEC/SHERIFF-ASSIGNMENT', headers=sheriff_headers).status_code == 200
+
+    receipt = client.post(
+        '/api/scan', headers=sheriff_headers,
+        json={'case_id':case['case_id'], 'location':'Registry Desk', 'staff_id':'forged-client-id'},
+    )
+    assert receipt.status_code == 200
+    assert receipt.json()['scan_events'][-1]['staff_id'] == 'usr_sheriff_01'
+
+    audit = [event for event in main.db.list_audit_events(100) if event['entity_id'] == case['case_id']]
+    assert any(event['action'] == 'case.sheriff.assign' and event['actor_user_id'] == 'usr_clerk_01' for event in audit)
+    assert any(event['action'] == 'case.scan' and event['actor_user_id'] == 'usr_sheriff_01' for event in audit)
+
+
+def test_sheriff_assignment_is_court_scoped_and_handover_revokes_previous_custody():
+    case = fixture_case('SEC/SHERIFF-HANDOVER')
+    case['custody_history'] = []
+    main.db.save_case(case['case_id'], case)
+    main.db.save_user('usr_sheriff_02', {
+        'user_id':'usr_sheriff_02', 'username':'sheriff.two', 'password':get_password_hash('123'),
+        'name':'Test Sheriff Two', 'role':'Sheriff', 'badge':'Fictional Test Account',
+        'court':'FHC Abuja Court 4', 'division':'Criminal',
+    })
+    main.db.save_user('usr_sheriff_other', {
+        'user_id':'usr_sheriff_other', 'username':'sheriff.other', 'password':get_password_hash('123'),
+        'name':'Out-of-court Sheriff', 'role':'Sheriff', 'badge':'Fictional Test Account',
+        'court':'Other Court', 'division':'Criminal',
+    })
+
+    clerk_headers = headers('usr_clerk_01')
+    candidates = client.get('/api/cases/SEC/SHERIFF-HANDOVER/sheriffs', headers=clerk_headers)
+    assert candidates.status_code == 200
+    candidate_ids = {item['user_id'] for item in candidates.json()}
+    assert candidate_ids == {'usr_sheriff_02'}
+    invalid_assignment = client.post(
+        '/api/cases/SEC/SHERIFF-HANDOVER/assign-sheriff', headers=clerk_headers,
+        json={'sheriff_id':'usr_sheriff_other', 'reason':'Wrong court'},
+    )
+    assert invalid_assignment.status_code == 422
+    assert main.db.get_case(case['case_id'])['assigned_sheriff_id'] == 'usr_sheriff_01'
+
+    handover = client.post(
+        '/api/cases/SEC/SHERIFF-HANDOVER/handover', headers=headers('usr_sheriff_01'),
+        json={
+            'to_sheriff_id':'usr_sheriff_02', 'location':'Registry Desk',
+            'reason':'End of duty', 'from_sheriff_id':'usr_sheriff_other',
+        },
+    )
+    assert handover.status_code == 200
+    body = handover.json()
+    assert body['assigned_sheriff_id'] == 'usr_sheriff_02'
+    assert body['custody_history'][-1] == {
+        'action':'handover', 'from_sheriff_id':'usr_sheriff_01',
+        'to_sheriff_id':'usr_sheriff_02', 'actor_user_id':'usr_sheriff_01',
+        'timestamp':body['custody_history'][-1]['timestamp'],
+        'location':'Registry Desk', 'reason':'End of duty',
+    }
+    assert client.get('/api/cases/SEC/SHERIFF-HANDOVER', headers=headers('usr_sheriff_01')).status_code == 403
+    new_sheriff_headers = headers('usr_sheriff_02')
+    assert client.get('/api/cases/SEC/SHERIFF-HANDOVER', headers=new_sheriff_headers).status_code == 200
+    assert any(item['case_id'] == case['case_id'] for item in client.get('/api/cases', headers=new_sheriff_headers).json())
+    audit = [event for event in main.db.list_audit_events(100) if event['entity_id'] == case['case_id']]
+    assert any(event['action'] == 'case.sheriff.handover' and event['actor_user_id'] == 'usr_sheriff_01' for event in audit)
+
 
 def test_deleted_account_cannot_use_or_refresh_token():
     user = {'user_id':'usr_deleted', 'role':'Clerk', 'court':'FHC Abuja Court 4'}
@@ -112,6 +259,16 @@ def test_dcr_export_is_scoped():
     response = client.get('/api/export/njc', headers=headers('usr_dcr_01'))
     assert response.status_code == 200
     assert all(c['assigned_division'] == 'Criminal' for c in response.json()['audited_cases'])
+
+    dcr = main.db.get_user('usr_dcr_01')
+    original_division = dcr['division']
+    try:
+        dcr['division'] = 'All Divisions'
+        main.db.save_user('usr_dcr_01', dcr)
+        assert client.get('/api/export/dcr-weekly', headers=headers('usr_dcr_01')).status_code == 403
+    finally:
+        dcr['division'] = original_division
+        main.db.save_user('usr_dcr_01', dcr)
 
 def test_hostile_case_identifiers_rejected():
     h = headers('usr_cr_01')

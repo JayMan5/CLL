@@ -22,7 +22,7 @@ There are **20 days to the pilot and 35 days to the showcase** from this plan's 
 
 ## 2. Task list — required before the pilot
 
-Every task is initially unchecked. Proposed owners are responsibility areas, not assigned individuals. Dependencies should be completed before dependent tasks.
+Checkboxes are updated only after code-level verification; open items remain unchecked. Proposed owners are responsibility areas, not assigned individuals. Dependencies should be completed before dependent tasks.
 
 ### A. Agree scope and resolve legal/operational decisions — 1–3 October
 
@@ -37,7 +37,8 @@ Every task is initially unchecked. Proposed owners are responsibility areas, not
 ### B. Secure access, sessions and data — 2–6 October
 
 - [ ] **B1 — Protect exposed endpoints.** Authentication and role checks for users, case detail/prediction, cron, message logs and simulator; strip password hashes from all responses. *(S-01)*
-- [ ] **B2 — Enforce object-level permissions everywhere.** Court/division/judge/custodian scoping on reads, writes, alerts, predictions and exports; reject cross-scope operations. *(S-04, S-11)*
+  - Open review: the demo webhook simulator is disabled outside demo mode and uses a dedicated shared secret, but it has no staff-role check because it models a webhook caller.
+- [x] **B2 — Enforce object-level permissions everywhere.** Court/division/judge/custodian scoping on reads, writes, alerts, predictions and exports; reject cross-scope operations. *(S-04, S-11; route audit and DCR/Judge/Sheriff regression tests verified 1 Oct 2026)*
 - [ ] **B3 — Remove XSS sinks.** Safe DOM rendering, event listeners instead of interpolated inline handlers, input constraints and a compatible CSP. Regression tests for malicious case IDs, scan fields and webhook data. *(S-02)*
 - [x] **B4 — Repair session lifecycle.** Refresh/re-login handling, secure refresh-token storage, logout/revocation, user-disable checks and last-admin/self-delete safeguards. *(S-06)*
 - [x] **B5 — Finish account management.** Unique IDs, username/password setup, validated roles and assignments, password change/reset, forced initial password change; UI driven by authenticated profile rather than demo identities. *(S-09, F-04)*
@@ -58,8 +59,9 @@ Every task is initially unchecked. Proposed owners are responsibility areas, not
 ### C. Complete all four modules — 4–11 October
 
 #### Module 1 — physical custody
-- [ ] **C1 — Fix Sheriff visibility and onboarding.** Explicit file assignment/handover and authorised lookup so a Sheriff can receive an unscanned file without seeing unrelated cases. Use authenticated identity, not typed staff IDs. *(F-01)*
+- [x] **C1 — Fix Sheriff visibility and onboarding.** Explicit file assignment/handover and authorised lookup so a Sheriff can receive an unscanned file without seeing unrelated cases. Use authenticated identity, not typed staff IDs. *(F-01; API, UI and isolated regression tests verified 1 Oct 2026)*
 - [ ] **C2 — Implement genuine QR capture.** Local QR generation; camera and keyboard/USB-scanner input with manual fallback; verify payload and case access; print labels. Test on the pilot device. *(F-03, S-13)*
+  - Current UI is explicitly a check-in simulation with a local non-scannable placeholder; case IDs are no longer sent to a third-party QR image service.
 - [ ] **C3 — Complete missing/found workflow.** Separate idle and missing flags; resolve/recover action, reason and audit history; alerts survive sweeps until properly resolved. *(L-07)*
 
 #### Module 2 — hearings and compliance
