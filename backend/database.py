@@ -138,6 +138,21 @@ class BaseDatabase:
     def delete_user(self, user_id: str) -> bool:
         raise NotImplementedError
 
+    def create_auth_session(self, session_id: str, user_id: str, refresh_jti: str, expires_at: int) -> None:
+        raise NotImplementedError
+
+    def is_auth_session_active(self, session_id: str, user_id: str) -> bool:
+        raise NotImplementedError
+
+    def is_refresh_session_active(self, session_id: str, user_id: str, refresh_jti: str) -> bool:
+        raise NotImplementedError
+
+    def revoke_auth_session(self, session_id: str, user_id: str) -> bool:
+        raise NotImplementedError
+
+    def revoke_user_sessions(self, user_id: str) -> int:
+        raise NotImplementedError
+
 
 # ---- SQLite Implementation ----
 
@@ -178,6 +193,26 @@ class SQLiteDatabase(BaseDatabase):
                     data TEXT NOT NULL
                 )
             """)
+            user_columns = {row[1] for row in cursor.execute("PRAGMA table_info(users)").fetchall()}
+            if "username" not in user_columns:
+                cursor.execute("ALTER TABLE users ADD COLUMN username TEXT")
+            # Backfill the indexed username from the existing JSON user records.
+            for user_id, data in cursor.execute("SELECT user_id, data FROM users").fetchall():
+                username = json.loads(data).get("username")
+                if username:
+                    cursor.execute("UPDATE users SET username = ? WHERE user_id = ?", (str(username).strip().lower(), user_id))
+            cursor.execute("CREATE UNIQUE INDEX IF NOT EXISTS ux_users_username ON users(username COLLATE NOCASE) WHERE username IS NOT NULL")
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS auth_sessions (
+                    session_id TEXT PRIMARY KEY,
+                    user_id TEXT NOT NULL,
+                    refresh_jti TEXT NOT NULL,
+                    expires_at INTEGER NOT NULL,
+                    created_at INTEGER NOT NULL,
+                    revoked_at INTEGER
+                )
+            """)
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_auth_sessions_user_id ON auth_sessions(user_id)")
             self.conn.commit()
 
     def _seed_users_if_empty(self) -> None:
@@ -190,8 +225,8 @@ class SQLiteDatabase(BaseDatabase):
             with self._lock:
                 for user in SEED_USERS:
                     cursor.execute(
-                        "INSERT INTO users (user_id, data) VALUES (?, ?)",
-                        (user["user_id"], json.dumps(user)),
+                        "INSERT INTO users (user_id, username, data) VALUES (?, ?, ?)",
+                        (user["user_id"], user.get("username", "").strip().lower() or None, json.dumps(user)),
                     )
                 self.conn.commit()
             logger.info(f"Seeded {len(SEED_USERS)} users.")
@@ -271,22 +306,85 @@ class SQLiteDatabase(BaseDatabase):
         """Insert or replace a user."""
         with self._lock:
             cursor = self.conn.cursor()
-            cursor.execute(
-                "INSERT OR REPLACE INTO users (user_id, data) VALUES (?, ?)",
-                (user_id, json.dumps(user_data)),
-            )
-            self.conn.commit()
+            username = str(user_data.get("username", "")).strip().lower() or None
+            try:
+                cursor.execute(
+                    "INSERT INTO users (user_id, username, data) VALUES (?, ?, ?) "
+                    "ON CONFLICT(user_id) DO UPDATE SET username = excluded.username, data = excluded.data",
+                    (user_id, username, json.dumps(user_data)),
+                )
+                self.conn.commit()
+            except sqlite3.IntegrityError:
+                self.conn.rollback()
+                raise
 
     def delete_user(self, user_id: str) -> bool:
-        """Delete a user by user_id. Returns True if deleted, False if not found."""
+        """Delete a user and revoke every session issued to that account."""
         with self._lock:
             cursor = self.conn.cursor()
             cursor.execute("SELECT 1 FROM users WHERE user_id = ?", (user_id,))
             if not cursor.fetchone():
                 return False
+            now = int(datetime.now(timezone.utc).timestamp())
+            cursor.execute(
+                "UPDATE auth_sessions SET revoked_at = ? WHERE user_id = ? AND revoked_at IS NULL",
+                (now, user_id),
+            )
             cursor.execute("DELETE FROM users WHERE user_id = ?", (user_id,))
             self.conn.commit()
             return True
+
+    # ---- Server-side authentication sessions ----
+
+    def create_auth_session(self, session_id: str, user_id: str, refresh_jti: str, expires_at: int) -> None:
+        now = int(datetime.now(timezone.utc).timestamp())
+        with self._lock:
+            self.conn.execute(
+                "INSERT INTO auth_sessions (session_id, user_id, refresh_jti, expires_at, created_at, revoked_at) "
+                "VALUES (?, ?, ?, ?, ?, NULL)",
+                (session_id, user_id, refresh_jti, expires_at, now),
+            )
+            self.conn.commit()
+
+    def is_auth_session_active(self, session_id: str, user_id: str) -> bool:
+        now = int(datetime.now(timezone.utc).timestamp())
+        with self._lock:
+            cursor = self.conn.execute(
+                "SELECT 1 FROM auth_sessions WHERE session_id = ? AND user_id = ? "
+                "AND revoked_at IS NULL AND expires_at > ?",
+                (session_id, user_id, now),
+            )
+            return cursor.fetchone() is not None
+
+    def is_refresh_session_active(self, session_id: str, user_id: str, refresh_jti: str) -> bool:
+        now = int(datetime.now(timezone.utc).timestamp())
+        with self._lock:
+            cursor = self.conn.execute(
+                "SELECT 1 FROM auth_sessions WHERE session_id = ? AND user_id = ? "
+                "AND refresh_jti = ? AND revoked_at IS NULL AND expires_at > ?",
+                (session_id, user_id, refresh_jti, now),
+            )
+            return cursor.fetchone() is not None
+
+    def revoke_auth_session(self, session_id: str, user_id: str) -> bool:
+        now = int(datetime.now(timezone.utc).timestamp())
+        with self._lock:
+            cursor = self.conn.execute(
+                "UPDATE auth_sessions SET revoked_at = ? WHERE session_id = ? AND user_id = ? AND revoked_at IS NULL",
+                (now, session_id, user_id),
+            )
+            self.conn.commit()
+            return cursor.rowcount == 1
+
+    def revoke_user_sessions(self, user_id: str) -> int:
+        now = int(datetime.now(timezone.utc).timestamp())
+        with self._lock:
+            cursor = self.conn.execute(
+                "UPDATE auth_sessions SET revoked_at = ? WHERE user_id = ? AND revoked_at IS NULL",
+                (now, user_id),
+            )
+            self.conn.commit()
+            return cursor.rowcount
 
     # ---- Maintenance ----
 

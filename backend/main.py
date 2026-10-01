@@ -1,18 +1,24 @@
 import os
 import joblib
 import logging
+import secrets
+import sqlite3
+import uuid
 from dotenv import load_dotenv
 from datetime import datetime, timezone, timedelta
-from typing import Dict, Any, List, Optional, Annotated
-from fastapi import FastAPI, HTTPException, BackgroundTasks, Body, Header, Depends
+from typing import Dict, Any, List, Optional, Annotated, Literal
+from fastapi import FastAPI, HTTPException, BackgroundTasks, Body, Header, Depends, Response, Cookie
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field, field_validator
 
 load_dotenv()
 
-from backend.database import get_db_client, parse_date, format_date, verify_password
+from backend.database import get_db_client, parse_date, format_date, verify_password, get_password_hash
 from backend.whatsapp import send_adjournment_broadcast
-from backend.auth import create_access_token, create_refresh_token, verify_token, get_current_user
+from backend.auth import (
+    REFRESH_TOKEN_EXPIRE_DAYS, create_access_token,
+    create_refresh_token, verify_token, get_current_user,
+)
 
 # Setup logging
 logging.basicConfig(level=logging.INFO)
@@ -29,6 +35,32 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Session cookies are host-only, HttpOnly and SameSite-restricted.
+REFRESH_COOKIE_NAME = "courtlog_refresh"
+REFRESH_COOKIE_PATH = "/api"
+COOKIE_SECURE = os.getenv("COOKIE_SECURE", "true").strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _set_refresh_cookie(response: Response, token: str) -> None:
+    response.set_cookie(
+        key=REFRESH_COOKIE_NAME, value=token,
+        max_age=REFRESH_TOKEN_EXPIRE_DAYS * 24 * 60 * 60,
+        httponly=True, secure=COOKIE_SECURE, samesite="strict",
+        path=REFRESH_COOKIE_PATH,
+    )
+
+
+def _clear_refresh_cookie(response: Response) -> None:
+    response.delete_cookie(
+        key=REFRESH_COOKIE_NAME, path=REFRESH_COOKIE_PATH,
+        httponly=True, secure=COOKIE_SECURE, samesite="strict",
+    )
+
+
+def _safe_user(user: Dict[str, Any]) -> Dict[str, Any]:
+    return {key: value for key, value in user.items() if key != "password"}
+
 
 # Global variables
 db = get_db_client()
@@ -135,8 +167,15 @@ class DCROverrideRequest(BaseModel):
     exceptional_reason: str = Field(min_length=1, max_length=2000, pattern=r"\S")
 
 class LoginRequest(BaseModel):
-    username: str
-    password: str
+    username: str = Field(min_length=1, max_length=32)
+    password: str = Field(min_length=1, max_length=72)
+
+    @field_validator("password")
+    @classmethod
+    def validate_bcrypt_password_size(cls, value):
+        if len(value.encode("utf-8")) > 72:
+            raise ValueError("Password must be no more than 72 UTF-8 bytes")
+        return value
 
 class ReassignRequest(BaseModel):
     new_division: Optional[str] = None
@@ -158,72 +197,158 @@ class DocumentUploadRequest(BaseModel):
     notes: Optional[str] = ""
 
 class UserCreateRequest(BaseModel):
-    name: str
-    role: str  # Sheriff, Clerk, DCR, Chief Registrar, Judge
-    badge: str
-    court: str
-    division: str
+    username: str = Field(min_length=3, max_length=32, pattern=r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
+    initial_password: str = Field(min_length=12, max_length=72)
+    name: str = Field(min_length=2, max_length=120)
+    role: Literal["Sheriff", "Clerk", "DCR", "Chief Registrar", "Judge"]
+    badge: str = Field(min_length=2, max_length=120)
+    court: str = Field(min_length=2, max_length=120)
+    division: str = Field(min_length=2, max_length=120)
+
+    @field_validator("username")
+    @classmethod
+    def normalize_username(cls, value):
+        return value.strip().lower()
+
+    @field_validator("initial_password")
+    @classmethod
+    def validate_bcrypt_password_size(cls, value):
+        if len(value.encode("utf-8")) > 72:
+            raise ValueError("Password must be no more than 72 UTF-8 bytes")
+        return value
+
+    @field_validator("name", "badge", "court", "division")
+    @classmethod
+    def trim_user_fields(cls, value):
+        value = value.strip()
+        if not value:
+            raise ValueError("Field cannot be blank")
+        return value
+
+
+class PasswordChangeRequest(BaseModel):
+    current_password: str = Field(min_length=1, max_length=72)
+    new_password: str = Field(min_length=12, max_length=72)
+
+    @field_validator("current_password", "new_password")
+    @classmethod
+    def validate_password_size(cls, value):
+        if len(value.encode("utf-8")) > 72:
+            raise ValueError("Password must be no more than 72 UTF-8 bytes")
+        return value
+
+
+class PasswordResetRequest(BaseModel):
+    temporary_password: str = Field(min_length=12, max_length=72)
+
+    @field_validator("temporary_password")
+    @classmethod
+    def validate_temporary_password_size(cls, value):
+        if len(value.encode("utf-8")) > 72:
+            raise ValueError("Password must be no more than 72 UTF-8 bytes")
+        return value
 # get_current_user is imported from backend.auth and used as a FastAPI Depends()
 # It validates Bearer tokens and returns {"user_id": ..., "role": ...}
 
 @app.post("/api/login")
-def login(req: LoginRequest):
-    """Authenticate user and return JWT tokens."""
+def login(req: LoginRequest, response: Response):
+    """Authenticate, create a server-revocable session and set an HttpOnly refresh cookie."""
+    response.headers["Cache-Control"] = "no-store"
     users = db.list_users()
     username_lower = req.username.strip().lower()
-    
+
     for user in users:
         u_name = str(user.get("username", "")).strip().lower()
         u_pass = str(user.get("password", ""))
         if u_name == username_lower and verify_password(req.password, u_pass):
-            logger.info(f"User {u_name} authenticated successfully.")
-            # Build JWT claims
+            if user.get("disabled"):
+                raise HTTPException(status_code=401, detail="Invalid username or password.")
+
+            user_id = user["user_id"]
+            role = user.get("role", "Clerk")
+            session_id = secrets.token_urlsafe(32)
+            refresh_jti = secrets.token_urlsafe(32)
+            expires_at = int((datetime.now(timezone.utc) + timedelta(days=REFRESH_TOKEN_EXPIRE_DAYS)).timestamp())
+            db.create_auth_session(session_id, user_id, refresh_jti, expires_at)
+
             token_data = {
-                "sub": user["user_id"],
-                "role": user.get("role", "Clerk"),
-                "username": user.get("username", ""),
+                "sub": user_id, "role": role,
+                "username": user.get("username", ""), "sid": session_id,
             }
             access_token = create_access_token(token_data)
-            refresh_token = create_refresh_token(token_data)
-            # Return user info without password hash
-            safe_user = {k: v for k, v in user.items() if k != "password"}
+            refresh_token = create_refresh_token({**token_data, "jti": refresh_jti})
+            _set_refresh_cookie(response, refresh_token)
+
+            logger.info("User authenticated successfully: %s", user_id)
             return {
                 "status": "success",
                 "message": "Authentication successful",
                 "access_token": access_token,
-                "refresh_token": refresh_token,
                 "token_type": "bearer",
-                "user": safe_user,
+                "user": _safe_user(user),
             }
-            
+
     raise HTTPException(status_code=401, detail="Invalid username or password.")
 
 
 @app.post("/api/refresh")
-def refresh_token_endpoint(body: Dict[str, str] = Body(...)):
-    """Exchange a valid refresh token for a new access token."""
-    token = body.get("refresh_token", "")
-    if not token:
-        raise HTTPException(status_code=400, detail="refresh_token is required")
-    
-    payload = verify_token(token)  # Raises 401 if invalid/expired
-    
+def refresh_token_endpoint(
+    response: Response,
+    refresh_token: Optional[str] = Cookie(None, alias=REFRESH_COOKIE_NAME),
+):
+    """Validate the HttpOnly refresh cookie and issue a new short-lived access token."""
+    response.headers["Cache-Control"] = "no-store"
+    if not refresh_token:
+        raise HTTPException(status_code=401, detail="Refresh session is missing")
+
+    payload = verify_token(refresh_token)
     if payload.get("type") != "refresh":
-        raise HTTPException(status_code=400, detail="Not a refresh token")
-    
-    user = db.get_user(payload.get("sub", ""))
+        raise HTTPException(status_code=401, detail="Invalid refresh session")
+
+    user_id = payload.get("sub")
+    session_id = payload.get("sid")
+    old_jti = payload.get("jti")
+    user = db.get_user(user_id or "")
     if not user or user.get("disabled"):
+        if user_id:
+            db.revoke_user_sessions(user_id)
         raise HTTPException(status_code=401, detail="Account is no longer active")
-    new_token_data = {
-        "sub": payload["sub"],
-        "role": user["role"],
-        "username": payload.get("username", ""),
+    if not session_id or not old_jti:
+        raise HTTPException(status_code=401, detail="Refresh session is invalid")
+
+    if not db.is_refresh_session_active(session_id, user_id, old_jti):
+        raise HTTPException(status_code=401, detail="Refresh session is no longer active")
+
+    token_data = {
+        "sub": user_id, "role": user["role"],
+        "username": user.get("username", ""), "sid": session_id,
     }
-    new_access_token = create_access_token(new_token_data)
+    access_token = create_access_token(token_data)
     return {
-        "access_token": new_access_token,
+        "access_token": access_token,
         "token_type": "bearer",
+        "user": _safe_user(user),
     }
+
+
+@app.post("/api/logout")
+def logout(
+    response: Response,
+    refresh_token: Optional[str] = Cookie(None, alias=REFRESH_COOKIE_NAME),
+):
+    """Revoke the browser session server-side and clear its refresh cookie."""
+    response.headers["Cache-Control"] = "no-store"
+    if refresh_token:
+        try:
+            payload = verify_token(refresh_token)
+            if payload.get("type") == "refresh" and payload.get("sid") and payload.get("sub"):
+                db.revoke_auth_session(payload["sid"], payload["sub"])
+        except HTTPException:
+            # Logout should still clear an expired or malformed cookie.
+            pass
+    _clear_refresh_cookie(response)
+    return {"status": "success", "message": "Session ended"}
+
 
 # ----------------- COMPLIANCE SWEEP LOGIC -----------------
 def run_compliance_checks_sync():
@@ -413,21 +538,79 @@ def list_users(auth: Dict[str, str] = Depends(get_current_user)):
 
 @app.post("/api/users", status_code=201)
 def create_user(req: UserCreateRequest, auth: Dict[str, str] = Depends(get_current_user)):
-    """Creates a new user profile. Restricted to Chief Registrar."""
+    """Create a named account with a temporary password that must be changed at first login."""
     if auth["role"] != "Chief Registrar":
-        raise HTTPException(status_code=403, detail="Permission Denied: User management requires Chief Registrar authority.")
-        
-    user_id = f"usr_{req.role.lower().replace(' ', '_')}_{int(datetime.now().timestamp())}"
+        raise HTTPException(status_code=403, detail="User management requires Chief Registrar authority")
+    if req.role == "Chief Registrar" and (req.court.casefold() != "all courts" or req.division.casefold() != "all divisions"):
+        raise HTTPException(status_code=422, detail="Chief Registrars must be assigned to All Courts and All Divisions")
+    if req.role != "Chief Registrar" and req.court.casefold() == "all courts":
+        raise HTTPException(status_code=422, detail="Only Chief Registrars may be assigned to All Courts")
+    if req.role != "Chief Registrar" and req.division.casefold() == "all divisions":
+        raise HTTPException(status_code=422, detail="Only Chief Registrars may be assigned to All Divisions")
+    if any(str(user.get("username", "")).strip().casefold() == req.username.casefold() for user in db.list_users()):
+        raise HTTPException(status_code=409, detail="Username is already in use")
+
+    user_id = f"usr_{uuid.uuid4().hex}"
     new_user = {
         "user_id": user_id,
+        "username": req.username,
+        "password": get_password_hash(req.initial_password),
         "name": req.name,
         "role": req.role,
         "badge": req.badge,
         "court": req.court,
-        "division": req.division
+        "division": req.division,
+        "must_change_password": True,
+        "disabled": False,
     }
-    db.save_user(user_id, new_user)
-    return new_user
+    try:
+        db.save_user(user_id, new_user)
+    except sqlite3.IntegrityError:
+        raise HTTPException(status_code=409, detail="Username is already in use")
+    return _safe_user(new_user)
+
+
+@app.post("/api/users/me/password")
+def change_my_password(req: PasswordChangeRequest, auth: Dict[str, str] = Depends(get_current_user)):
+    """Change the authenticated user's password and revoke every active session."""
+    user = db.get_user(auth["user_id"])
+    if not user or user.get("disabled"):
+        raise HTTPException(status_code=401, detail="Account is no longer active")
+    if not verify_password(req.current_password, str(user.get("password", ""))):
+        raise HTTPException(status_code=400, detail="Current password is incorrect")
+    if verify_password(req.new_password, str(user.get("password", ""))):
+        raise HTTPException(status_code=400, detail="New password must differ from the current password")
+
+    user["password"] = get_password_hash(req.new_password)
+    user["must_change_password"] = False
+    db.save_user(user["user_id"], user)
+    db.revoke_user_sessions(user["user_id"])
+    return {"status": "success", "relogin_required": True}
+
+
+@app.post("/api/users/{user_id}/reset-password")
+def reset_user_password(
+    user_id: str,
+    req: PasswordResetRequest,
+    auth: Dict[str, str] = Depends(get_current_user),
+):
+    """Chief Registrar issues a temporary credential; all target sessions are revoked."""
+    if auth["role"] != "Chief Registrar":
+        raise HTTPException(status_code=403, detail="Password reset requires Chief Registrar authority")
+    if user_id == auth["user_id"]:
+        raise HTTPException(status_code=409, detail="Use your own password-change workflow for this account")
+    user = db.get_user(user_id)
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    if user.get("disabled"):
+        raise HTTPException(status_code=409, detail="Disabled accounts cannot be reset")
+
+    user["password"] = get_password_hash(req.temporary_password)
+    user["must_change_password"] = True
+    db.save_user(user_id, user)
+    db.revoke_user_sessions(user_id)
+    return {"status": "success", "must_change_password": True}
+
 
 @app.delete("/api/users/{user_id}")
 def delete_user(user_id: str, auth: Dict[str, str] = Depends(get_current_user)):
@@ -1121,7 +1304,6 @@ def whatsapp_webhook_simulator(payload: Dict[str, Any] = Body(...), x_simulator_
     Simulates receiving the WhatsApp webhook request.
     Stores payloads in-memory so the dashboard can pull and display the live broadcast logs.
     """
-    import secrets
     secret = os.getenv("SIMULATOR_SECRET", "")
     if os.getenv("DEMO_MODE", "false").lower() != "true":
         raise HTTPException(status_code=404, detail="Simulator disabled")

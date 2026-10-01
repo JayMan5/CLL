@@ -15,7 +15,7 @@ import jwt
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import rsa
 from dotenv import load_dotenv
-from fastapi import Depends, HTTPException, status
+from fastapi import Depends, HTTPException, Request, status
 from fastapi.security import OAuth2PasswordBearer
 
 load_dotenv()
@@ -116,7 +116,7 @@ def verify_token(token: str) -> Dict[str, Any]:
         )
 
 
-def get_current_user(token: Optional[str] = Depends(oauth2_scheme)) -> Dict[str, str]:
+def get_current_user(request: Request, token: Optional[str] = Depends(oauth2_scheme)) -> Dict[str, str]:
     """FastAPI dependency that extracts user info from a valid Bearer token.
 
     Returns a dict with 'user_id' and 'role' keys — same shape as
@@ -150,6 +150,21 @@ def get_current_user(token: Optional[str] = Depends(oauth2_scheme)) -> Dict[str,
 
     from backend import main
     user = main.db.get_user(user_id)
-    if not user or user.get("disabled"):
+    if not user:
         raise HTTPException(status_code=401, detail="Account is no longer active")
+    if user.get("disabled"):
+        main.db.revoke_user_sessions(user_id)
+        raise HTTPException(status_code=401, detail="Account is no longer active")
+
+    session_id = payload.get("sid")
+    if not session_id or not main.db.is_auth_session_active(session_id, user_id):
+        raise HTTPException(status_code=401, detail="Session is no longer active")
+
+    if user.get("must_change_password") and request.url.path != "/api/users/me/password":
+        raise HTTPException(
+            status_code=403,
+            detail="Initial password change required",
+            headers={"X-Password-Change-Required": "true"},
+        )
+
     return {"user_id": user_id, "role": user["role"]}

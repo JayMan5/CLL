@@ -20,3 +20,4 @@ firebase_creds.json
 
 # Local environments and test tools
 .venv/
+node_modules/

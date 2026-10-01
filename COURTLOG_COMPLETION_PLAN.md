@@ -1,7 +1,7 @@
 # COURTLOG — Completion Plan and Approval Checklist
 
 **Prepared:** 1 October 2026  
-**Status:** PROPOSED — awaiting approval; development has not started.  
+**Status:** APPROVED by the user on 1 October 2026; development is in progress.
 **Basis:** `COURTLOG_FULL_AUDIT.md` (finding IDs below refer to that audit).
 
 ## 1. Confirmed dates and proposed delivery targets
@@ -39,8 +39,8 @@ Every task is initially unchecked. Proposed owners are responsibility areas, not
 - [ ] **B1 — Protect exposed endpoints.** Authentication and role checks for users, case detail/prediction, cron, message logs and simulator; strip password hashes from all responses. *(S-01)*
 - [ ] **B2 — Enforce object-level permissions everywhere.** Court/division/judge/custodian scoping on reads, writes, alerts, predictions and exports; reject cross-scope operations. *(S-04, S-11)*
 - [ ] **B3 — Remove XSS sinks.** Safe DOM rendering, event listeners instead of interpolated inline handlers, input constraints and a compatible CSP. Regression tests for malicious case IDs, scan fields and webhook data. *(S-02)*
-- [ ] **B4 — Repair session lifecycle.** Refresh/re-login handling, secure refresh-token storage, logout/revocation, user-disable checks and last-admin/self-delete safeguards. *(S-06)*
-- [ ] **B5 — Finish account management.** Unique IDs, username/password setup, validated roles and assignments, password change/reset, forced initial password change; UI driven by authenticated profile rather than demo identities. *(S-09, F-04)*
+- [x] **B4 — Repair session lifecycle.** Refresh/re-login handling, secure refresh-token storage, logout/revocation, user-disable checks and last-admin/self-delete safeguards. *(S-06)*
+- [x] **B5 — Finish account management.** Unique IDs, username/password setup, validated roles and assignments, password change/reset, forced initial password change; UI driven by authenticated profile rather than demo identities. *(S-09, F-04)*
 - [ ] **B6 — Remove unsafe defaults.** No pre-filled admin password; environment-driven bootstrap; explicit demo mode; role switcher and simulator unavailable in live mode. *(S-03)*
 - [ ] **B7 — Harden requests and dependencies.** Rate limits, CORS allowlist, appropriate headers, validated dates/phones/lengths/path containment, dependency upgrades and removal of unused packages. Retest compatibility and triage scanner results. *(S-07–S-10, E-03)*
 - [ ] **B8 — Record trustworthy actions.** Actor identity from authentication; actor/time/reason on hearings and overrides; append-only application audit events for edits, exports and administrative changes. *(S-05)*
@@ -140,13 +140,8 @@ These may run in parallel but must not be promised as automatically finished by 
 - [ ] Real-world ML validation using authorised registry/partner data, monitoring and human oversight before consequential reliance.
 - [ ] Production availability/support commitments, infrastructure budget, integration approval and long-term maintenance ownership.
 
-## 6. Approval requested before development
+## 6. Approval record and continuing external decisions
 
-Please approve or amend:
-1. **The scope and sequence above**, including the 16 October pilot candidate and 30 October showcase candidate.
-2. **Pilot data policy:** fictional/anonymised by default; real data only after written authorisation and privacy safeguards.
-3. **Integration policy:** genuine WhatsApp if onboarding succeeds; otherwise a clearly labelled fallback, never a claimed live integration.
-4. **AI policy:** experimental decision support unless independent real-data validation establishes stronger claims.
-5. **Owners and legal decisions in A1–A5.** External sign-offs will not be substituted with developer assumptions.
+The user approved development on **1 October 2026**. Work is underway on the fixed Arena session branch; the prior approval gate is closed. The pilot (21 October) and showcase (5 November) remain targets, not readiness claims.
 
-**No development is authorised by this document. Work begins only after the user approves.**
+Continue to track the non-developer decisions in A1–A5. Real court data remains out of scope until written permission and privacy safeguards exist; WhatsApp and scanner behaviour must be represented truthfully; legal rules/forms require Law Lead or institutional approval. No developer implementation substitutes for those sign-offs.

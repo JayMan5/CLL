@@ -19,7 +19,7 @@ document.addEventListener('click', event => {
     const actions = {
         scan: shortcutQRScan, hearing: shortcutHearingLog, assign: openAssignJudgeModal,
         writ: selectCaseForWrit, override: openDCROverrideModal, ruling: logJudicialRuling,
-        deleteUser: deleteUserAccount, explain: showExplainability
+        deleteUser: deleteUserAccount, resetPassword: resetUserPassword, explain: showExplainability
     };
     const action = actions[button.dataset.caseAction];
     if (action) action(button.dataset.recordId);
@@ -32,7 +32,9 @@ let usersData = [];
 let whatsappLogs = [];
 let currentUserId = null;
 let accessToken = null;
-let refreshToken = null;
+let authenticatedUser = null;
+let refreshPromise = null;
+let sessionExpiryHandled = false;
 let distributionChart = null;
 let currentHearingOutcome = "Adjourned";
 let activeOverrideCaseId = null;
@@ -50,10 +52,12 @@ const USER_PROFILES = {
 // ===== AUTH & SESSION MANAGEMENT =====
 
 function getActiveUser() {
-    if (currentUserId && USER_PROFILES[currentUserId]) {
-        return USER_PROFILES[currentUserId];
+    if (authenticatedUser) {
+        const initials = String(authenticatedUser.name || authenticatedUser.username || "User")
+            .split(/\s+/).filter(Boolean).slice(0, 2).map(part => part[0]).join("").toUpperCase();
+        return { ...authenticatedUser, initials: initials || "U" };
     }
-    // Fallback to Clerk if no valid user set
+    if (currentUserId && USER_PROFILES[currentUserId]) return USER_PROFILES[currentUserId];
     return USER_PROFILES["usr_clerk_01"];
 }
 
@@ -73,16 +77,112 @@ function updateThemeIcon(theme) {
 
 function getAuthHeaders() {
     const headers = { "Content-Type": "application/json" };
-    if (accessToken) {
-        headers["Authorization"] = `Bearer ${accessToken}`;
-    }
+    if (accessToken) headers["Authorization"] = `Bearer ${accessToken}`;
     return headers;
+}
+
+function clearClientSession() {
+    accessToken = null;
+    authenticatedUser = null;
+    currentUserId = null;
+    casesData = [];
+    usersData = [];
+    whatsappLogs = [];
+    ["cases-table-body", "dcr-approval-table-body", "judge-docket-table-body", "judgments-table-body",
+        "ai-risk-table-body", "users-admin-table-body", "whatsapp-logs-container", "case-scan-history"]
+        .forEach(id => document.getElementById(id)?.replaceChildren());
+    ["stat-total-cases", "stat-high-risk", "stat-custody-alerts", "stat-enforcement-alerts",
+        "alert-count-custody", "alert-count-enforcement", "judge-alert-count", "ai-total-cases"]
+        .forEach(id => { const el = document.getElementById(id); if (el) el.textContent = "0"; });
+    document.getElementById("quick-alert-bar")?.classList.add("hidden");
+    ["scan-case-id", "missing-case-id", "hearing-case-id"].forEach(id => {
+        const select = document.getElementById(id);
+        if (select) select.replaceChildren(new Option("Select a case", ""));
+    });
+    ["new-case-id", "new-case-counsel", "new-case-litigant", "upload-case-id", "writ-case-id",
+        "writ-sheriff-id", "reassign-case-id", "assign-judge-case-id"]
+        .forEach(id => { const input = document.getElementById(id); if (input) input.value = ""; });
+    const overrideCase = document.getElementById("override-modal-case-id");
+    if (overrideCase) overrideCase.textContent = "";
+    document.getElementById("password-change-overlay")?.classList.add("hidden");
+    document.getElementById("add-user-overlay")?.classList.add("hidden");
+    document.getElementById("form-password-change")?.reset();
+    document.getElementById("form-add-user")?.reset();
+    document.getElementById("form-login")?.reset();
+    if (distributionChart) distributionChart.destroy();
+    distributionChart = null;
+    // Clear tokens left by older versions; tokens are no longer persisted in web storage.
+    localStorage.removeItem("courtlog-access-token");
+    localStorage.removeItem("courtlog-refresh-token");
+    localStorage.removeItem("courtlog-active-user");
+}
+
+async function refreshSession() {
+    if (refreshPromise) return refreshPromise;
+    refreshPromise = (async () => {
+        try {
+            const response = await fetch(`${API_BASE}/refresh`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                credentials: "same-origin"
+            });
+            if (!response.ok) return false;
+            const data = await response.json();
+            if (!data.access_token || !data.user) return false;
+            accessToken = data.access_token;
+            authenticatedUser = data.user;
+            currentUserId = data.user.user_id;
+            sessionExpiryHandled = false;
+            return true;
+        } catch (error) {
+            logger(`Session refresh unavailable: ${error}`);
+            return false;
+        }
+    })();
+    try {
+        return await refreshPromise;
+    } finally {
+        refreshPromise = null;
+    }
+}
+
+async function expireClientSession() {
+    if (sessionExpiryHandled) return;
+    sessionExpiryHandled = true;
+    try {
+        await fetch(`${API_BASE}/logout`, { method: "POST", credentials: "same-origin" });
+    } catch (_) { /* The server may be offline; still clear local state. */ }
+    clearClientSession();
+    const overlay = document.getElementById("login-overlay");
+    if (overlay) overlay.classList.remove("hidden");
+    showToast("Your session ended. Please sign in again.", "warning");
+}
+
+async function apiFetch(url, options = {}) {
+    const protectedRoute = typeof url === "string" && url.startsWith(`${API_BASE}/`) &&
+        ![`${API_BASE}/login`, `${API_BASE}/refresh`, `${API_BASE}/logout`].includes(url.split("?")[0]);
+    const makeRequest = () => {
+        const headers = new Headers(options.headers || {});
+        if (accessToken) headers.set("Authorization", `Bearer ${accessToken}`);
+        else headers.delete("Authorization");
+        return fetch(url, { ...options, headers, credentials: "same-origin" });
+    };
+
+    let response = await makeRequest();
+    if (response.status === 401 && protectedRoute) {
+        if (await refreshSession()) response = await makeRequest();
+        if (response.status === 401) await expireClientSession();
+    }
+    if (response.status === 403 && response.headers.get("X-Password-Change-Required") === "true") {
+        showPasswordChangePrompt();
+    }
+    return response;
 }
 
 async function handleLoginSubmit(event) {
     event.preventDefault();
     const username = document.getElementById("login-username").value.trim();
-    const password = document.getElementById("login-password").value.trim();
+    const password = document.getElementById("login-password").value;
     const errorMsg = document.getElementById("login-error-msg");
     const errorText = document.getElementById("login-error-text");
     const submitBtn = document.getElementById("btn-login-submit");
@@ -96,6 +196,7 @@ async function handleLoginSubmit(event) {
         const response = await fetch(`${API_BASE}/login`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
+            credentials: "same-origin",
             body: JSON.stringify({ username, password })
         });
 
@@ -107,28 +208,24 @@ async function handleLoginSubmit(event) {
         }
 
         const data = await response.json();
+        if (!data.access_token || !data.user) throw new Error("Invalid sign-in response");
         accessToken = data.access_token;
-        refreshToken = data.refresh_token;
-        localStorage.setItem("courtlog-access-token", accessToken);
-        localStorage.setItem("courtlog-refresh-token", refreshToken);
-
-        // Map login username to USER_PROFILES key
-        const roleMap = {
-            "sheriff": "usr_sheriff_01",
-            "clerk": "usr_clerk_01",
-            "dcr": "usr_dcr_01",
-            "cr": "usr_cr_01",
-            "judge": "usr_judge_01"
-        };
-        currentUserId = roleMap[username] || data.user?.user_id || "usr_clerk_01";
-        localStorage.setItem("courtlog-active-user", currentUserId);
+        authenticatedUser = data.user;
+        currentUserId = data.user.user_id;
+        sessionExpiryHandled = false;
+        localStorage.removeItem("courtlog-access-token");
+        localStorage.removeItem("courtlog-refresh-token");
+        localStorage.removeItem("courtlog-active-user");
 
         errorMsg.classList.add("hidden");
         document.getElementById("login-overlay").classList.add("hidden");
-
         updateRoleUI();
+        if (authenticatedUser.must_change_password) {
+            showPasswordChangePrompt();
+            return;
+        }
         await loadDashboardData();
-        await loadUsersData();
+        if (authenticatedUser.role === "Chief Registrar") await loadUsersData();
 
         logger(`Authenticated as ${getActiveUser().name} (${getActiveUser().role})`);
     } catch (error) {
@@ -141,28 +238,69 @@ async function handleLoginSubmit(event) {
     }
 }
 
-function handleLogout() {
-    accessToken = null;
-    refreshToken = null;
-    currentUserId = null;
-    casesData = [];
-    usersData = [];
-    whatsappLogs = [];
-    localStorage.removeItem("courtlog-access-token");
-    localStorage.removeItem("courtlog-refresh-token");
-    localStorage.removeItem("courtlog-active-user");
+async function handleLogout() {
+    try {
+        await fetch(`${API_BASE}/logout`, { method: "POST", credentials: "same-origin" });
+    } catch (error) {
+        logger(`Server logout unavailable: ${error}`);
+    }
+    clearClientSession();
     document.getElementById("login-overlay").classList.remove("hidden");
+    document.getElementById("password-change-overlay")?.classList.add("hidden");
+    document.getElementById("add-user-overlay")?.classList.add("hidden");
+    const form = document.getElementById("form-login");
+    if (form) form.reset();
     switchTab("tab-overview");
     logger("User logged out.");
 }
 
 function changeActiveRole(userId) {
-    if (!USER_PROFILES[userId]) return;
-    currentUserId = userId;
-    localStorage.setItem("courtlog-active-user", userId);
-    logger(`Switched active access level to: ${USER_PROFILES[userId].name} (${USER_PROFILES[userId].role})`);
-    updateRoleUI();
-    loadDashboardData();
+    // Authorization belongs to the signed-in account; a browser-side selector cannot switch roles.
+    if (!authenticatedUser || userId !== authenticatedUser.user_id) {
+        updateRoleUI();
+    }
+}
+
+function showPasswordChangePrompt() {
+    const overlay = document.getElementById("password-change-overlay");
+    if (overlay) overlay.classList.remove("hidden");
+    document.getElementById("password-current")?.focus();
+}
+
+async function submitPasswordChange(event) {
+    event.preventDefault();
+    const error = document.getElementById("password-change-error");
+    const current = document.getElementById("password-current").value;
+    const next = document.getElementById("password-new").value;
+    const confirmNext = document.getElementById("password-confirm").value;
+    if (next !== confirmNext) {
+        error.textContent = "The new password and confirmation do not match.";
+        error.classList.remove("hidden");
+        return;
+    }
+    const button = document.getElementById("btn-password-change-submit");
+    button.disabled = true;
+    try {
+        const response = await apiFetch(`${API_BASE}/users/me/password`, {
+            method: "POST", headers: getAuthHeaders(),
+            body: JSON.stringify({ current_password: current, new_password: next })
+        });
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok) {
+            error.textContent = data.detail || "Password change failed.";
+            error.classList.remove("hidden");
+            return;
+        }
+        document.getElementById("form-password-change").reset();
+        document.getElementById("password-change-overlay").classList.add("hidden");
+        showToast("Password changed. Sign in with your new password.", "success");
+        await handleLogout();
+    } catch (err) {
+        error.textContent = "Connection error while changing your password.";
+        error.classList.remove("hidden");
+    } finally {
+        button.disabled = false;
+    }
 }
 
 function updateSimulationClock() {
@@ -173,21 +311,25 @@ function updateSimulationClock() {
 }
 
 // ===== APP INITIALIZATION =====
-document.addEventListener("DOMContentLoaded", function () {
-    const storedToken = localStorage.getItem("courtlog-access-token");
-    const storedRefresh = localStorage.getItem("courtlog-refresh-token");
-    const storedUser = localStorage.getItem("courtlog-active-user");
+document.addEventListener("DOMContentLoaded", async function () {
+    // Discard bearer/refresh tokens from pre-cookie versions; identity is re-derived from the server.
+    localStorage.removeItem("courtlog-access-token");
+    localStorage.removeItem("courtlog-refresh-token");
+    localStorage.removeItem("courtlog-active-user");
+    updateSimulationClock();
 
-    if (storedToken) {
-        accessToken = storedToken;
-        refreshToken = storedRefresh;
-        currentUserId = storedUser || "usr_clerk_01";
+    if (await refreshSession()) {
         document.getElementById("login-overlay").classList.add("hidden");
         updateRoleUI();
-        loadDashboardData();
-        loadUsersData();
+        if (authenticatedUser.must_change_password) {
+            showPasswordChangePrompt();
+            return;
+        }
+        await loadDashboardData();
+        if (authenticatedUser.role === "Chief Registrar") await loadUsersData();
+    } else {
+        document.getElementById("login-overlay").classList.remove("hidden");
     }
-    updateSimulationClock();
 });
 
 // ===== UI UTILITIES =====
@@ -243,7 +385,15 @@ function updateRoleUI() {
     const user = getActiveUser();
     const select = document.getElementById("role-switcher-select");
     if (select) {
-        select.value = (user.user_id === "usr_dev_01") ? "usr_cr_01" : user.user_id;
+        if (user.user_id && !Array.from(select.options).some(option => option.value === user.user_id)) {
+            const option = document.createElement("option");
+            option.value = user.user_id;
+            option.textContent = `${user.role}: ${user.name}`;
+            select.appendChild(option);
+        }
+        select.value = user.user_id || "";
+        select.disabled = true;
+        select.title = "Access level is determined by the authenticated account.";
     }
 
     document.getElementById("sidebar-user-name").textContent = user.name;
@@ -313,7 +463,7 @@ function switchTab(tabId) {
 
 async function loadDashboardData() {
     try {
-        const response = await fetch(`${API_BASE}/cases`, {
+        const response = await apiFetch(`${API_BASE}/cases`, {
             headers: getAuthHeaders()
         });
         if (!response.ok) throw new Error("HTTP error loading cases");
@@ -336,7 +486,7 @@ async function loadDashboardData() {
 
 async function loadUsersData() {
     try {
-        const response = await fetch(`${API_BASE}/users`, {
+        const response = await apiFetch(`${API_BASE}/users`, {
             headers: getAuthHeaders()
         });
         if (!response.ok) return;
@@ -349,7 +499,7 @@ async function loadUsersData() {
 
 async function loadWhatsAppLogs() {
     try {
-        const response = await fetch(`${API_BASE}/whatsapp/logs`, {
+        const response = await apiFetch(`${API_BASE}/whatsapp/logs`, {
             headers: getAuthHeaders()
         });
         if (!response.ok) throw new Error("HTTP error loading logs");
@@ -732,7 +882,7 @@ async function handleCreateCase(e) {
     logger(`Creating case ${case_id}...`);
 
     try {
-        const response = await fetch(`${API_BASE}/cases`, {
+        const response = await apiFetch(`${API_BASE}/cases`, {
             method: "POST",
             headers: getAuthHeaders(),
             body: JSON.stringify({ case_id, case_type, court, counsel_phone, litigant_phone })
@@ -763,7 +913,7 @@ async function handleScanSubmit(e) {
     logger(`Submitting QR scan for case ${case_id} at ${location}`);
 
     try {
-        const response = await fetch(`${API_BASE}/scan`, {
+        const response = await apiFetch(`${API_BASE}/scan`, {
             method: "POST",
             headers: getAuthHeaders(),
             body: JSON.stringify({ case_id, location, staff_id })
@@ -820,7 +970,7 @@ async function handleHearingSubmit(e) {
     logger(`Submitting hearing outcome for case ${case_id}: ${outcome}`);
 
     try {
-        const response = await fetch(`${API_BASE}/cases/${case_id}/hearings`, {
+        const response = await apiFetch(`${API_BASE}/cases/${case_id}/hearings`, {
             method: "POST",
             headers: getAuthHeaders(),
             body: JSON.stringify({ outcome, reason_code, next_date })
@@ -897,7 +1047,7 @@ async function submitDCROverride() {
     }
 
     try {
-        const response = await fetch(`${API_BASE}/cases/${activeOverrideCaseId}/dcr-override`, {
+        const response = await apiFetch(`${API_BASE}/cases/${activeOverrideCaseId}/dcr-override`, {
             method: "POST",
             headers: getAuthHeaders(),
             body: JSON.stringify({ exceptional_reason: reason })
@@ -955,7 +1105,7 @@ async function logJudicialRuling(caseId) {
     if (!confirm(`Deliver final judgment / ruling for case ${caseId}? This will stop the case delay timer.`)) return;
 
     try {
-        const response = await fetch(`${API_BASE}/cases/${caseId}/hearings`, {
+        const response = await apiFetch(`${API_BASE}/cases/${caseId}/hearings`, {
             method: "POST",
             headers: getAuthHeaders(),
             body: JSON.stringify({
@@ -986,7 +1136,7 @@ function renderUsersAdminTable() {
     tableBody.innerHTML = "";
 
     if (usersData.length === 0) {
-        tableBody.innerHTML = `<tr><td colspan="6" class="text-center py-8" style="color:var(--text-muted)">No active user profiles loaded.</td></tr>`;
+        tableBody.innerHTML = `<tr><td colspan="7" class="text-center py-8" style="color:var(--text-muted)">No active user profiles loaded.</td></tr>`;
         return;
     }
 
@@ -994,11 +1144,13 @@ function renderUsersAdminTable() {
         const row = document.createElement("tr");
         row.innerHTML = `
             <td class="py-3 px-4 font-mono text-heading">${u.user_id}</td>
+            <td class="py-3 px-4 font-mono">${u.username || "—"}</td>
             <td class="py-3 px-4 font-bold text-heading">${u.name}</td>
             <td class="py-3 px-4"><span class="badge badge-low">${u.role}</span></td>
             <td class="py-3 px-4" style="color:var(--text-secondary)">${u.badge}</td>
             <td class="py-3 px-4">${u.division || 'All'}</td>
-            <td class="py-3 px-4 text-right">
+            <td class="py-3 px-4 text-right whitespace-nowrap">
+                ${u.user_id !== currentUserId ? `<button data-case-action="resetPassword" data-record-id="${u.user_id}" title="Issue temporary password" class="btn-secondary text-xs py-1 px-2.5"><i class="fa-solid fa-key"></i></button>` : ""}
                 <button data-case-action="deleteUser" data-record-id="${u.user_id}" class="btn-secondary text-xs text-rose hover:bg-rose-900/20 py-1 px-2.5"><i class="fa-solid fa-trash"></i></button>
             </td>
         `;
@@ -1007,42 +1159,82 @@ function renderUsersAdminTable() {
 }
 
 function openAddUserModal() {
-    const name = prompt("Enter Personnel Full Name:");
-    if (!name) return;
-    const role = prompt("Enter Role (Sheriff / Clerk / DCR / Chief Registrar / Judge):", "Clerk");
-    if (!role) return;
-    const badge = prompt("Enter Badge / Description:", "Data Entry Staff");
-    const court = prompt("Enter Assigned Court:", "FHC Abuja Court 4");
-    const division = prompt("Enter Division:", "Criminal");
-
-    submitAddUser({ name, role, badge: badge || 'Judiciary Staff', court: court || 'FHC Abuja', division: division || 'Criminal' });
+    const overlay = document.getElementById("add-user-overlay");
+    if (overlay) overlay.classList.remove("hidden");
+    document.getElementById("new-user-name")?.focus();
 }
 
-async function submitAddUser(userData) {
-    try {
-        const response = await fetch(`${API_BASE}/users`, {
-            method: "POST",
-            headers: getAuthHeaders(),
-            body: JSON.stringify(userData)
-        });
+function closeAddUserModal() {
+    document.getElementById("add-user-overlay")?.classList.add("hidden");
+    document.getElementById("add-user-error")?.classList.add("hidden");
+}
 
+async function submitAddUserForm(event) {
+    event.preventDefault();
+    const userData = {
+        name: document.getElementById("new-user-name").value.trim(),
+        username: document.getElementById("new-user-username").value.trim(),
+        initial_password: document.getElementById("new-user-password").value,
+        role: document.getElementById("new-user-role").value,
+        badge: document.getElementById("new-user-badge").value.trim(),
+        court: document.getElementById("new-user-court").value.trim(),
+        division: document.getElementById("new-user-division").value.trim()
+    };
+    const button = document.getElementById("btn-add-user-submit");
+    button.disabled = true;
+    try {
+        const response = await apiFetch(`${API_BASE}/users`, {
+            method: "POST", headers: getAuthHeaders(), body: JSON.stringify(userData)
+        });
+        const result = await response.json().catch(() => ({}));
         if (!response.ok) {
-            const err = await response.json();
-            alert(`Failed adding user: ${err.detail || 'Permission denied'}`);
+            const error = document.getElementById("add-user-error");
+            error.textContent = result.detail || "Account creation failed.";
+            error.classList.remove("hidden");
             return;
         }
-
+        document.getElementById("form-add-user").reset();
+        closeAddUserModal();
         await loadUsersData();
-        alert(`User ${userData.name} registered under 5-Level Hierarchy.`);
+        showToast(`Account ${result.username} created. Deliver the temporary password securely; a change is required at first sign-in.`, "success");
     } catch (error) {
+        const errorEl = document.getElementById("add-user-error");
+        errorEl.textContent = "Connection error while creating account.";
+        errorEl.classList.remove("hidden");
         logger(`Error adding user: ${error}`);
+    } finally {
+        button.disabled = false;
+    }
+}
+
+async function resetUserPassword(userId) {
+    const temporaryPassword = prompt("Set a one-time temporary password (12–72 characters). Deliver it through an approved channel:");
+    if (!temporaryPassword) return;
+    if (temporaryPassword.length < 12 || new TextEncoder().encode(temporaryPassword).length > 72) {
+        alert("Temporary password must be 12–72 UTF-8 bytes.");
+        return;
+    }
+    if (!confirm(`Reset the password for ${userId} and revoke their current sessions?`)) return;
+    try {
+        const response = await apiFetch(`${API_BASE}/users/${userId}/reset-password`, {
+            method: "POST", headers: getAuthHeaders(),
+            body: JSON.stringify({ temporary_password: temporaryPassword })
+        });
+        const result = await response.json().catch(() => ({}));
+        if (!response.ok) {
+            alert(`Password reset failed: ${result.detail || "Permission denied"}`);
+            return;
+        }
+        showToast(`Temporary credential set for ${userId}. The user must change it at next sign-in.`, "success");
+    } catch (error) {
+        logger(`Error resetting password: ${error}`);
     }
 }
 
 async function deleteUserAccount(userId) {
     if (!confirm(`Delete user account ${userId}?`)) return;
     try {
-        const response = await fetch(`${API_BASE}/users/${userId}`, {
+        const response = await apiFetch(`${API_BASE}/users/${userId}`, {
             method: "DELETE",
             headers: getAuthHeaders()
         });
@@ -1061,7 +1253,7 @@ async function deleteUserAccount(userId) {
 
 async function exportNJCReport() {
     try {
-        const response = await fetch(`${API_BASE}/export/njc`, {
+        const response = await apiFetch(`${API_BASE}/export/njc`, {
             headers: getAuthHeaders()
         });
 
@@ -1224,7 +1416,7 @@ async function generateWritForm() {
     // Call enforcement endpoint to register execution action
     try {
         const action = `${writType} Issued for ${extraDetails}`;
-        const response = await fetch(`${API_BASE}/cases/${caseId}/execution`, {
+        const response = await apiFetch(`${API_BASE}/cases/${caseId}/execution`, {
             method: "POST",
             headers: getAuthHeaders(),
             body: JSON.stringify({ action, sheriff_id: sheriffId })
@@ -1449,7 +1641,7 @@ async function triggerCronCompliance() {
     cronIcon.classList.add("animate-spin");
 
     try {
-        const response = await fetch(`${API_BASE}/cron`, { method: "POST", headers: getAuthHeaders() });
+        const response = await apiFetch(`${API_BASE}/cron`, { method: "POST", headers: getAuthHeaders() });
         if (!response.ok) throw new Error("Cron sweep endpoint failed");
 
         const result = await response.json();
@@ -1482,7 +1674,7 @@ async function handleReportMissing(e) {
     }
 
     try {
-        const response = await fetch(`${API_BASE}/cases/${caseId}/report-missing`, {
+        const response = await apiFetch(`${API_BASE}/cases/${caseId}/report-missing`, {
             method: "POST",
             headers: getAuthHeaders(),
             body: JSON.stringify({ last_known_location: location, notes: notes })
@@ -1519,7 +1711,7 @@ async function submitReassignCase(e) {
     const reason = document.getElementById("reassign-reason").value;
 
     try {
-        const response = await fetch(`${API_BASE}/cases/${caseId}/reassign`, {
+        const response = await apiFetch(`${API_BASE}/cases/${caseId}/reassign`, {
             method: "POST",
             headers: getAuthHeaders(),
             body: JSON.stringify({ new_division: division || null, new_court: court || null, reason: reason })
@@ -1555,7 +1747,7 @@ async function submitAssignJudge(e) {
     const reason = document.getElementById("assign-judge-reason").value;
 
     try {
-        const response = await fetch(`${API_BASE}/cases/${caseId}/assign-judge`, {
+        const response = await apiFetch(`${API_BASE}/cases/${caseId}/assign-judge`, {
             method: "POST",
             headers: getAuthHeaders(),
             body: JSON.stringify({ judge_id: judgeId, reason: reason })
@@ -1583,7 +1775,7 @@ async function handleUploadDocument(e) {
     const filename = document.getElementById("upload-filename").value;
 
     try {
-        const response = await fetch(`${API_BASE}/cases/${caseId}/documents`, {
+        const response = await apiFetch(`${API_BASE}/cases/${caseId}/documents`, {
             method: "POST",
             headers: getAuthHeaders(),
             body: JSON.stringify({ document_type: docType, title: title, filename: filename, notes: "" })
@@ -1605,7 +1797,7 @@ async function handleUploadDocument(e) {
 // DCR Weekly Report
 async function generateDCRWeeklyReport() {
     try {
-        const response = await fetch(`${API_BASE}/export/dcr-weekly`, {
+        const response = await apiFetch(`${API_BASE}/export/dcr-weekly`, {
             headers: getAuthHeaders()
         });
 
@@ -1625,7 +1817,7 @@ async function generateDCRWeeklyReport() {
 
 async function fetchJudgeAlerts() {
     try {
-        const response = await fetch(`${API_BASE}/judge/alerts`, { headers: getAuthHeaders() });
+        const response = await apiFetch(`${API_BASE}/judge/alerts`, { headers: getAuthHeaders() });
         if (response.ok) {
             const data = await response.json();
             const alertCount = document.getElementById("judge-alert-count");
@@ -1649,7 +1841,7 @@ let aiRiskData = [];
 
 async function loadAIRiskData() {
     try {
-        const response = await fetch(`${API_BASE}/predict/batch`, {
+        const response = await apiFetch(`${API_BASE}/predict/batch`, {
             headers: getAuthHeaders()
         });
         if (!response.ok) throw new Error('Batch predict failed');

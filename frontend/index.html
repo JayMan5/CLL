@@ -1024,6 +1024,7 @@
                                 <thead>
                                     <tr class="text-xs font-semibold uppercase">
                                         <th class="py-3 px-4">User ID</th>
+                                        <th class="py-3 px-4">Username</th>
                                         <th class="py-3 px-4">Full Name</th>
                                         <th class="py-3 px-4">Role & Level</th>
                                         <th class="py-3 px-4">Responsibilities</th>
@@ -1038,6 +1039,30 @@
                         </div>
                     </div>
                 </section>
+
+                <!-- Chief Registrar account provisioning dialog -->
+                <div id="add-user-overlay" class="fixed inset-0 z-[90] hidden flex items-center justify-center p-4 bg-black/70" role="dialog" aria-modal="true" aria-labelledby="add-user-title">
+                    <div class="glass-panel w-full max-w-xl rounded-2xl p-6 space-y-5">
+                        <div>
+                            <h2 id="add-user-title" class="font-heading font-bold text-xl text-heading">Create staff account</h2>
+                            <p class="text-xs text-body mt-1">A temporary password is required. The new user must change it at first sign-in; deliver it only through an approved channel.</p>
+                        </div>
+                        <form id="form-add-user" class="grid grid-cols-1 sm:grid-cols-2 gap-4" onsubmit="submitAddUserForm(event)">
+                            <label class="text-xs stat-label">Full name<input id="new-user-name" class="th-input w-full mt-1 p-2 rounded-lg" required minlength="2" maxlength="120"></label>
+                            <label class="text-xs stat-label">Username<input id="new-user-username" class="th-input w-full mt-1 p-2 rounded-lg" required minlength="3" maxlength="32" pattern="[A-Za-z0-9][A-Za-z0-9._-]*" autocomplete="off"></label>
+                            <label class="text-xs stat-label">Role<select id="new-user-role" class="th-input w-full mt-1 p-2 rounded-lg" required><option>Sheriff</option><option selected>Clerk</option><option>DCR</option><option>Chief Registrar</option><option>Judge</option></select></label>
+                            <label class="text-xs stat-label">Badge / responsibility<input id="new-user-badge" class="th-input w-full mt-1 p-2 rounded-lg" required minlength="2" maxlength="120" value="Registry Staff"></label>
+                            <label class="text-xs stat-label">Assigned court<input id="new-user-court" class="th-input w-full mt-1 p-2 rounded-lg" required minlength="2" maxlength="120" value="FHC Abuja Court 4"></label>
+                            <label class="text-xs stat-label">Assigned division<input id="new-user-division" class="th-input w-full mt-1 p-2 rounded-lg" required minlength="2" maxlength="120" value="Criminal"></label>
+                            <label class="text-xs stat-label sm:col-span-2">Temporary password (12+ characters, max 72 UTF-8 bytes)<input id="new-user-password" class="th-input w-full mt-1 p-2 rounded-lg" type="password" required minlength="12" maxlength="72" autocomplete="new-password"></label>
+                            <div id="add-user-error" class="hidden text-xs text-rose sm:col-span-2" role="alert"></div>
+                            <div class="sm:col-span-2 flex justify-end gap-3">
+                                <button type="button" onclick="closeAddUserModal()" class="btn-secondary px-4 py-2">Cancel</button>
+                                <button type="submit" id="btn-add-user-submit" class="btn-primary px-4 py-2">Create account</button>
+                            </div>
+                        </form>
+                    </div>
+                </div>
 
                 <!-- ================== TAB 5: WHATSAPP LOG CONSOLE ================== -->
                 <section id="tab-whatsapp" class="hidden space-y-8 max-w-4xl mx-auto">
@@ -1356,6 +1381,26 @@
                 </button>
             </form>
 
+        </div>
+    </div>
+
+    <!-- Forced first-login password change; no dismiss action until the change succeeds. -->
+    <div id="password-change-overlay" class="fixed inset-0 z-[110] hidden flex items-center justify-center p-4 bg-black/80" role="dialog" aria-modal="true" aria-labelledby="password-change-title">
+        <div class="glass-panel w-full max-w-md rounded-2xl p-6 space-y-5">
+            <div>
+                <h2 id="password-change-title" class="font-heading font-bold text-xl text-heading">Set a new password</h2>
+                <p class="text-xs text-body mt-2">Your account requires a password change before you can access CourtLOG. Use at least 12 characters.</p>
+            </div>
+            <form id="form-password-change" class="space-y-4" onsubmit="submitPasswordChange(event)">
+                <label class="text-xs stat-label block">Current / temporary password<input id="password-current" class="th-input w-full mt-1 p-2 rounded-lg" type="password" required maxlength="72" autocomplete="current-password"></label>
+                <label class="text-xs stat-label block">New password<input id="password-new" class="th-input w-full mt-1 p-2 rounded-lg" type="password" required minlength="12" maxlength="72" autocomplete="new-password"></label>
+                <label class="text-xs stat-label block">Confirm new password<input id="password-confirm" class="th-input w-full mt-1 p-2 rounded-lg" type="password" required minlength="12" maxlength="72" autocomplete="new-password"></label>
+                <div id="password-change-error" class="hidden text-xs text-rose" role="alert"></div>
+                <div class="flex gap-3">
+                    <button type="button" onclick="handleLogout()" class="btn-secondary flex-1 py-2.5">Sign out</button>
+                    <button id="btn-password-change-submit" type="submit" class="btn-primary flex-1 py-2.5">Change password</button>
+                </div>
+            </form>
         </div>
     </div>
 
