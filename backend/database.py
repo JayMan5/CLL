@@ -152,7 +152,7 @@ class SQLiteDatabase(BaseDatabase):
             db_path = os.path.join(
                 os.path.dirname(__file__), "..", "data", "courtlog.db"
             )
-        self.db_path = os.path.abspath(db_path)
+        self.db_path = os.path.abspath(os.getenv("COURTLOG_DB_PATH", db_path))
         self._lock = threading.Lock()
 
         os.makedirs(os.path.dirname(self.db_path), exist_ok=True)

@@ -1417,7 +1417,7 @@ async function triggerCronCompliance() {
     cronIcon.classList.add("animate-spin");
 
     try {
-        const response = await fetch(`${API_BASE}/cron`, { method: "POST" });
+        const response = await fetch(`${API_BASE}/cron`, { method: "POST", headers: getAuthHeaders() });
         if (!response.ok) throw new Error("Cron sweep endpoint failed");
 
         const result = await response.json();

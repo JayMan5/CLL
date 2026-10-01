@@ -24,7 +24,7 @@ app = FastAPI(title="COURTLOG 2.0 API", description="Court File Tracking & Delay
 # Enable CORS for frontend integration
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=[origin.strip() for origin in os.getenv("CORS_ORIGINS", "").split(",") if origin.strip()],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -32,6 +32,38 @@ app.add_middleware(
 
 # Global variables
 db = get_db_client()
+
+def can_access_case(case: Dict[str, Any], auth: Dict[str, str]) -> bool:
+    """Fail closed; use the current stored profile, never client-supplied scope."""
+    user = db.get_user(auth["user_id"])
+    if not user or user.get("disabled"):
+        return False
+    role = user.get("role")
+    if role == "Chief Registrar":
+        return True
+    if role == "Judge":
+        return case.get("assigned_judge_id") == user["user_id"]
+    if role == "DCR":
+        return bool(user.get("division")) and case.get("assigned_division") == user["division"]
+    if role == "Clerk":
+        return bool(user.get("court")) and case.get("court") == user["court"]
+    if role == "Sheriff":
+        scans = case.get("scan_events", [])
+        missing = case.get("file_missing_report") or {}
+        return (case.get("assigned_sheriff_id") == user["user_id"]
+                or bool(scans and scans[-1].get("staff_id") == user["user_id"])
+                or missing.get("reported_by") == user["user_id"])
+    return False
+
+
+def authorize_case(case: Dict[str, Any], auth: Dict[str, str]) -> None:
+    if not can_access_case(case, auth):
+        raise HTTPException(status_code=403, detail="Case is outside your assigned scope")
+
+
+def scoped_cases(auth: Dict[str, str]) -> List[Dict[str, Any]]:
+    return [case for case in db.list_cases() if can_access_case(case, auth)]
+
 
 # In-memory storage for the simulated WhatsApp broadcasts log
 whatsapp_logs = []
@@ -167,9 +199,12 @@ def refresh_token_endpoint(body: Dict[str, str] = Body(...)):
     if payload.get("type") != "refresh":
         raise HTTPException(status_code=400, detail="Not a refresh token")
     
+    user = db.get_user(payload.get("sub", ""))
+    if not user or user.get("disabled"):
+        raise HTTPException(status_code=401, detail="Account is no longer active")
     new_token_data = {
         "sub": payload["sub"],
-        "role": payload["role"],
+        "role": user["role"],
         "username": payload.get("username", ""),
     }
     new_access_token = create_access_token(new_token_data)
@@ -358,9 +393,11 @@ def run_model_inference(case_data: Dict[str, Any]) -> Dict[str, Any]:
 # ----------------- USER MANAGEMENT ENDPOINTS -----------------
 
 @app.get("/api/users", response_model=List[Dict[str, Any]])
-def list_users():
+def list_users(auth: Dict[str, str] = Depends(get_current_user)):
     """Lists all user accounts across the 5-level access hierarchy."""
-    return db.list_users()
+    if auth["role"] != "Chief Registrar":
+        raise HTTPException(status_code=403, detail="User management requires Chief Registrar authority")
+    return [{k: v for k, v in user.items() if k != "password"} for user in db.list_users()]
 
 @app.post("/api/users", status_code=201)
 def create_user(req: UserCreateRequest, auth: Dict[str, str] = Depends(get_current_user)):
@@ -387,6 +424,11 @@ def delete_user(user_id: str, auth: Dict[str, str] = Depends(get_current_user)):
         raise HTTPException(status_code=403, detail="Permission Denied: User management requires Chief Registrar authority.")
     if not db.get_user(user_id):
         raise HTTPException(status_code=404, detail="User not found")
+    if user_id == auth["user_id"]:
+        raise HTTPException(status_code=409, detail="Cannot delete your own account")
+    target = db.get_user(user_id)
+    if target.get("role") == "Chief Registrar" and sum(u.get("role") == "Chief Registrar" and not u.get("disabled") for u in db.list_users()) <= 1:
+        raise HTTPException(status_code=409, detail="Cannot delete the last active Chief Registrar")
     db.delete_user(user_id)
     return {"status": "success", "message": f"User {user_id} deleted."}
 
@@ -396,45 +438,7 @@ def delete_user(user_id: str, auth: Dict[str, str] = Depends(get_current_user)):
 @app.get("/api/cases", response_model=List[Dict[str, Any]])
 def get_all_cases(auth: Dict[str, str] = Depends(get_current_user)):
     """Lists cases in the database filtered by role scope per 5-Level Hierarchy."""
-    run_compliance_checks_sync()
-    all_cases = db.list_cases()
-    role = auth["role"]
-    user_id = auth["user_id"]
-
-    # Lookup user profile for court/division scoping
-    user_profile = db.get_user(user_id)
-    user_court = user_profile.get("court", "") if user_profile else ""
-    user_division = user_profile.get("division", "") if user_profile else ""
-
-    if role == "Chief Registrar":
-        # CR sees everything
-        return all_cases
-    elif role == "Judge":
-        # Judge sees ONLY cases assigned to them
-        return [c for c in all_cases if c.get("assigned_judge_id") == user_id]
-    elif role == "DCR":
-        # DCR sees cases in their assigned division only
-        if user_division and user_division != "All Divisions":
-            return [c for c in all_cases if c.get("assigned_division") == user_division]
-        return all_cases
-    elif role == "Clerk":
-        # Clerk sees only cases in their assigned court
-        if user_court and user_court != "All Courts":
-            return [c for c in all_cases if c.get("court") == user_court]
-        return all_cases
-    elif role == "Sheriff":
-        # Sheriff sees only cases where they are the last scanner
-        sheriff_cases = []
-        for c in all_cases:
-            scans = c.get("scan_events", [])
-            if scans and scans[-1].get("staff_id") == user_id:
-                sheriff_cases.append(c)
-            # Also show cases with file missing reports by this sheriff
-            missing = c.get("file_missing_report")
-            if missing and missing.get("reported_by") == user_id and c not in sheriff_cases:
-                sheriff_cases.append(c)
-        return sheriff_cases
-    return all_cases
+    return scoped_cases(auth)
 
 
 @app.post("/api/cases", status_code=201)
@@ -443,6 +447,11 @@ def create_case(req: CaseCreateRequest, auth: Dict[str, str] = Depends(get_curre
     if auth["role"] not in ["Clerk", "Chief Registrar"]:
         raise HTTPException(status_code=403, detail="Permission Denied: Case creation is restricted to Court Clerks and Chief Registrar.")
         
+    if auth["role"] == "Clerk":
+        profile = db.get_user(auth["user_id"])
+        if req.court != profile.get("court"):
+            raise HTTPException(status_code=403, detail="Clerks may register cases only in their assigned court")
+
     if db.get_case(req.case_id):
         raise HTTPException(status_code=400, detail="Case ID already exists")
         
@@ -498,11 +507,12 @@ def record_scan_event(req: ScanRequest, auth: Dict[str, str] = Depends(get_curre
     case = db.get_case(req.case_id)
     if not case:
         raise HTTPException(status_code=404, detail="Case file not found")
+    authorize_case(case, auth)
         
     scan_event = {
         "location": req.location,
         "timestamp": format_date(get_current_time()),
-        "staff_id": req.staff_id
+        "staff_id": auth["user_id"]
     }
     
     # Append the event and clear custody alert
@@ -545,6 +555,7 @@ def log_hearing_outcome(case_id: str, req: HearingRequest, background_tasks: Bac
     case = db.get_case(case_id)
     if not case:
         raise HTTPException(status_code=404, detail="Case file not found")
+    authorize_case(case, auth)
         
     current_adj_count = case.get("adjournment_count", 0)
     
@@ -620,6 +631,7 @@ def override_dcr_adjournment(case_id: str, req: DCROverrideRequest, auth: Dict[s
     case = db.get_case(case_id)
     if not case:
         raise HTTPException(status_code=404, detail="Case file not found")
+    authorize_case(case, auth)
         
     updates = {
         "dcr_approval_required": False,
@@ -644,6 +656,7 @@ def report_file_missing(case_id: str, req: FileMissingRequest, auth: Dict[str, s
     case = db.get_case(case_id)
     if not case:
         raise HTTPException(status_code=404, detail="Case file not found")
+    authorize_case(case, auth)
 
     missing_report = {
         "reported_by": auth["user_id"],
@@ -674,6 +687,7 @@ def assign_judge_to_case(case_id: str, req: AssignJudgeRequest, auth: Dict[str, 
     case = db.get_case(case_id)
     if not case:
         raise HTTPException(status_code=404, detail="Case file not found")
+    authorize_case(case, auth)
 
     # Verify the judge exists
     judge = db.get_user(req.judge_id)
@@ -700,6 +714,7 @@ def reassign_case(case_id: str, req: ReassignRequest, auth: Dict[str, str] = Dep
     case = db.get_case(case_id)
     if not case:
         raise HTTPException(status_code=404, detail="Case file not found")
+    authorize_case(case, auth)
 
     updates = {}
     if req.new_division:
@@ -774,6 +789,7 @@ def upload_document(case_id: str, req: DocumentUploadRequest, auth: Dict[str, st
     case = db.get_case(case_id)
     if not case:
         raise HTTPException(status_code=404, detail="Case file not found")
+    authorize_case(case, auth)
 
     # Ensure documents directory exists
     docs_dir = os.path.join(DATA_DIR, "documents", case_id)
@@ -806,6 +822,7 @@ def get_case_alerts(case_id: str, auth: Dict[str, str] = Depends(get_current_use
     case = db.get_case(case_id)
     if not case:
         raise HTTPException(status_code=404, detail="Case file not found")
+    authorize_case(case, auth)
 
     alerts = []
 
@@ -855,11 +872,12 @@ def get_case_alerts(case_id: str, auth: Dict[str, str] = Depends(get_current_use
 
 
 @app.get("/api/cases/{case_id:path}", response_model=Dict[str, Any])
-def get_case(case_id: str):
+def get_case(case_id: str, auth: Dict[str, str] = Depends(get_current_user)):
     """Retrieves a single case document by ID."""
     case = db.get_case(case_id)
     if not case:
         raise HTTPException(status_code=404, detail="Case file not found")
+    authorize_case(case, auth)
     return case
 
 
@@ -936,7 +954,7 @@ def export_njc_report(auth: Dict[str, str] = Depends(get_current_user)):
     if auth["role"] not in ["Chief Registrar", "DCR"]:
         raise HTTPException(status_code=403, detail="Permission Denied: NJC Export requires Chief Registrar or DCR authority.")
         
-    cases = db.list_cases()
+    cases = scoped_cases(auth)
     total_cases = len(cases)
     stalled_cases = [c for c in cases if c.get("risk_flag")]
     delays_count = len(stalled_cases)
@@ -960,7 +978,7 @@ def export_njc_report(auth: Dict[str, str] = Depends(get_current_user)):
 
 
 @app.post("/api/cases/{case_id:path}/predict", response_model=Dict[str, Any])
-def predict_case_risk(case_id: str):
+def predict_case_risk(case_id: str, auth: Dict[str, str] = Depends(get_current_user)):
     """
     Module 3: Run delay-risk prediction on-demand for a case.
     Returns and saves updated delay_risk_score and risk_flag.
@@ -968,6 +986,7 @@ def predict_case_risk(case_id: str):
     case = db.get_case(case_id)
     if not case:
         raise HTTPException(status_code=404, detail="Case file not found")
+    authorize_case(case, auth)
         
     filing_dt = parse_date(case["filing_date"])
     case["days_since_filing"] = max(0, (get_current_time() - filing_dt).days)
@@ -993,7 +1012,7 @@ def batch_predict_all_cases(auth: Dict[str, str] = Depends(get_current_user)):
     Re-runs the ML model on all active (non-executed) cases and returns
     them sorted by risk score descending. Also persists updated scores.
     """
-    all_cases = db.list_cases()
+    all_cases = scoped_cases(auth)
     results = []
     for case in all_cases:
         if case.get("judgment_status") == "Executed":
@@ -1034,11 +1053,12 @@ def add_execution_action(case_id: str, req: ExecutionRequest, auth: Dict[str, st
     case = db.get_case(case_id)
     if not case:
         raise HTTPException(status_code=404, detail="Case file not found")
+    authorize_case(case, auth)
         
     action_event = {
         "action": req.action,
         "date": format_date(get_current_time()),
-        "sheriff_id": req.sheriff_id
+        "sheriff_id": auth["user_id"]
     }
     
     updates = {
@@ -1058,11 +1078,13 @@ def add_execution_action(case_id: str, req: ExecutionRequest, auth: Dict[str, st
     return db.get_case(case_id)
 
 @app.post("/api/cron", response_model=Dict[str, Any])
-def run_cron_compliance_sweep():
+def run_cron_compliance_sweep(auth: Dict[str, str] = Depends(get_current_user)):
     """
     Simulated daily background sweep endpoint.
     Recalculates custody flags, days_since_filing, and enforcement alerts.
     """
+    if auth["role"] != "Chief Registrar":
+        raise HTTPException(status_code=403, detail="Compliance sweep requires Chief Registrar authority")
     run_compliance_checks_sync()
     cases = db.list_cases()
     
@@ -1082,11 +1104,17 @@ def run_cron_compliance_sweep():
 # ----------------- SIMULATED WHATSAPP INGESTION -----------------
 
 @app.post("/api/whatsapp/webhook-simulator")
-def whatsapp_webhook_simulator(payload: Dict[str, Any] = Body(...)):
+def whatsapp_webhook_simulator(payload: Dict[str, Any] = Body(...), x_simulator_secret: Optional[str] = Header(None)):
     """
     Simulates receiving the WhatsApp webhook request.
     Stores payloads in-memory so the dashboard can pull and display the live broadcast logs.
     """
+    import secrets
+    secret = os.getenv("SIMULATOR_SECRET", "")
+    if os.getenv("DEMO_MODE", "false").lower() != "true":
+        raise HTTPException(status_code=404, detail="Simulator disabled")
+    if not secret or not secrets.compare_digest(x_simulator_secret or "", secret):
+        raise HTTPException(status_code=401, detail="Invalid simulator credentials")
     event = {
         "received_at": format_date(get_current_time()),
         "payload": payload
@@ -1096,12 +1124,14 @@ def whatsapp_webhook_simulator(payload: Dict[str, Any] = Body(...)):
     if len(whatsapp_logs) > 30:
         whatsapp_logs.pop()
     
-    logger.info(f"Simulated WhatsApp Webhook received broadcast request: {payload}")
+    logger.info("Simulated WhatsApp event accepted")
     return {"status": "accepted", "message_id": f"msg_{int(datetime.now().timestamp())}"}
 
 @app.get("/api/whatsapp/logs")
-def get_whatsapp_broadcast_logs():
+def get_whatsapp_broadcast_logs(auth: Dict[str, str] = Depends(get_current_user)):
     """Returns the history of sent simulated WhatsApp notifications."""
+    if auth["role"] != "Chief Registrar":
+        raise HTTPException(status_code=403, detail="Broadcast logs require Chief Registrar authority")
     return whatsapp_logs
 
 # ----------------- SERVE STATIC FRONTEND FILES -----------------

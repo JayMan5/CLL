@@ -49,12 +49,13 @@ def send_adjournment_broadcast(case_id: str, next_date: str, reason_code: str, g
     
     headers = {
         "Authorization": f"Bearer {WHATSAPP_TOKEN}",
+        "X-Simulator-Secret": os.getenv("SIMULATOR_SECRET", ""),
         "Content-Type": "application/json"
     }
     
     logger.info(f"Triggering WhatsApp broadcast for case {case_id}")
     logger.info(f"Target Webhook: {WHATSAPP_WEBHOOK_URL}")
-    logger.info(f"Payload: {payload}")
+    logger.info("Broadcast payload prepared")
     
     response_data = {
         "status": "simulated",

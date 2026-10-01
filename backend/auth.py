@@ -148,4 +148,8 @@ def get_current_user(token: Optional[str] = Depends(oauth2_scheme)) -> Dict[str,
             headers={"WWW-Authenticate": "Bearer"},
         )
 
-    return {"user_id": user_id, "role": role}
+    from backend import main
+    user = main.db.get_user(user_id)
+    if not user or user.get("disabled"):
+        raise HTTPException(status_code=401, detail="Account is no longer active")
+    return {"user_id": user_id, "role": user["role"]}
