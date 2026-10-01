@@ -1,0 +1,62 @@
+{
+  "usr_dev_01": {
+    "user_id": "usr_dev_01",
+    "name": "Developer Account (Dev)",
+    "username": "dev",
+    "password": "$2b$12$lIP9/A.V6JwP9Y56WlOWreAfn.VmTG0YYU24iN4FNhk1tkOnZA0a2",
+    "role": "Chief Registrar",
+    "badge": "Level 4: Master Developer",
+    "court": "All Courts",
+    "division": "All Divisions"
+  },
+  "usr_sheriff_01": {
+    "user_id": "usr_sheriff_01",
+    "name": "Level 1: Sheriff",
+    "username": "sheriff",
+    "password": "$2b$12$0uU.01GLEwY6et5ZjhxKb.Or8NkP5/tdXPxqvHmlc0AfYCt3Y6gC2",
+    "role": "Sheriff",
+    "badge": "Physical File Custodian",
+    "court": "FHC Abuja Court 4",
+    "division": "Criminal"
+  },
+  "usr_clerk_01": {
+    "user_id": "usr_clerk_01",
+    "name": "Level 2: Clerk",
+    "username": "clerk",
+    "password": "$2b$12$iuqbl5fVNzwszOpL9toOx.iKWOtX5cysEuNYfklfofyRxEW2ZjXES",
+    "role": "Clerk",
+    "badge": "Data Entry & Event Logger",
+    "court": "FHC Abuja Court 4",
+    "division": "Criminal"
+  },
+  "usr_dcr_01": {
+    "user_id": "usr_dcr_01",
+    "name": "Level 3: Deputy Chief Registrar (DCR)",
+    "username": "dcr",
+    "password": "$2b$12$9jxIkxyyl.32zBrmhrcWtefT54oW/Ax2TbHhKX9FpZRU.6BqJ6jaK",
+    "role": "DCR",
+    "badge": "Division Supervisor",
+    "court": "FHC Abuja",
+    "division": "Criminal"
+  },
+  "usr_cr_01": {
+    "user_id": "usr_cr_01",
+    "name": "Level 4: Chief Registrar (CR)",
+    "username": "cr",
+    "password": "$2b$12$a7x6ZIAR0bDjmMwKxKRlUen6X/VIKKA2EJrV3NfYNBvk.lUfr14Ai",
+    "role": "Chief Registrar",
+    "badge": "Court Administrator & Compliance Officer",
+    "court": "All Courts",
+    "division": "All Divisions"
+  },
+  "usr_judge_01": {
+    "user_id": "usr_judge_01",
+    "name": "Level 5: Judge",
+    "username": "judge",
+    "password": "$2b$12$xNLYMtd8agsVVuDwDnYdoOtGcIstTwVLfY7NJvq8pcuoXAo0zK2xu",
+    "role": "Judge",
+    "badge": "Decision Maker & Accountability Owner",
+    "court": "FHC Abuja Court 4",
+    "division": "Criminal"
+  }
+}

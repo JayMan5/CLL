@@ -1,0 +1,19 @@
+# Python
+venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+
+# Environment Variables
+.env
+
+# Credentials
+firebase_creds.json
+*.pem
+
+# Machine Learning models
+*.joblib
+
+# IDE
+.vscode/
+.idea/

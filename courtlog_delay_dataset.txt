@@ -1,0 +1,67 @@
+Case Ref	Title	Court	Case Type	Year Filed	Year Decided	Years to Conclusion	Risk Level	Reform Era	Source
+SC.310/2008	Compagnie Generale de (Nig) Ltd Geophysique v Alhaji Musa	SC	Civil ƒ?? Contract	2008	2017	9	High	pre-ACJA	NigeriaLII [2017] NGSC 7
+SC.163/2006	CITEC International Estates Ltd v Edicomisa International Inc	SC	Civil ƒ?? Company/Incorporation	2006	2017	11	High	pre-ACJA	NigeriaLII [2017] NGSC 10
+SC.123/2006	Customary Court of Appeal (Edo State) v Chief Aguele	SC	Customary Law	2006	2017	11	High	pre-ACJA	NigeriaLII [2017] NGSC 11
+SC.594/2014	Mathias Garuba Idoko v The State	SC	Criminal ƒ?? Homicide	2014	2017	3	Low	pre-ACJA	NigeriaLII [2017] NGSC 12
+SC.331/2016	Wayo v Nduul and Others	SC	Civil ƒ?? Legal Professional Conduct	2016	2017	1	Low	pre-ACJA	NigeriaLII [2017] NGSC 3
+SC.301/2012	Babatunde Adelani v The State	SC	Criminal ƒ?? Theft	2012	2017	5	Medium	pre-ACJA	NigeriaLII [2017] NGSC 13
+SC.758/2016	Engr. Maihaja v Alhaji Ibrahim Gaidam	SC	Civil ƒ?? Forged Document	2016	2017	1	Low	pre-ACJA	NigeriaLII [2017] NGSC 14
+SC.532/2015	Hon. Bayo Adegbo v Hon. Godwin Osiyi	SC	Election Petition	2015	2017	2	Low	pre-ACJA	NigeriaLII [2017] NGSC 16
+SC.792/2015	Hon. Mailantarki v Hon. Yaya Baychi Tongo	SC	Election Petition	2015	2017	2	Low	pre-ACJA	NigeriaLII [2017] NGSC 15
+SC.334/2012	Kingsley Omoregie v The State	SC	Criminal ƒ?? Murder	2012	2017	5	Medium	pre-ACJA	NigeriaLII [2017] NGSC 17
+SC.532/2015	Lase v State	SC	Criminal ƒ?? Death Penalty	2015	2017	2	Low	pre-ACJA	NigeriaLII [2017] NGSC 2
+SC.9/2011	CBN and Another v Aribo	SC	Civil ƒ?? Banking/Contract Breach	2011	2017	6	Medium	pre-ACJA	NigeriaLII [2017] NGSC 1
+SC.350/2007	Dr Harry Ezim v O.C. Menakaya	SC	Civil ƒ?? Service of Process	2007	2017	10	High	pre-ACJA	NigeriaLII [2017] NGSC 18
+SC.364/2007	Dr Samuel Isitor v Mrs Margaret Fakorade	SC	Civil ƒ?? Personal	2007	2017	10	High	pre-ACJA	NigeriaLII [2017] NGSC 19
+SC.242/2013	Emeka Oko v The State	SC	Criminal ƒ?? Robbery	2013	2017	4	Medium	pre-ACJA	NigeriaLII [2017] NGSC 20
+SC.258/2015	Eteng Otu Ujang v The State	SC	Criminal	2015	2017	2	Low	pre-ACJA	NigeriaLII [2017] NGSC 21
+SC.694/2014	Guaranty Trust Bank Plc v Innoson Nigeria Ltd	SC	Civil ƒ?? Banking/Garnishee	2014	2017	3	Low	pre-ACJA	NigeriaLII [2017] NGSC 22
+SC.56/2014	Kehinde Gbadamosi v The State	SC	Criminal	2014	2017	3	Low	pre-ACJA	NigeriaLII [2017] NGSC 24
+SC.592/2014	Olarewaju Akogwu v The State	SC	Criminal	2014	2017	3	Low	pre-ACJA	NigeriaLII [2017] NGSC 23
+SC.209/2007	Prof C.C. Nweke v Nnamdi Azikiwe University Awka	SC	Civil ƒ?? Employment	2007	2017	10	High	pre-ACJA	NigeriaLII [2017] NGSC 25
+SC.652/2013	Musa Ibrahim v The State	SC	Criminal	2013	2017	4	Medium	pre-ACJA	NigeriaLII [2017] NGSC 26
+SC.243/2007	Godpower Orlu v Chief Godwin Onyeka	SC	Civil ƒ?? Land	2007	2017	10	High	pre-ACJA	NigeriaLII [2017] NGSC 8
+Suit No 165/1986	Michael Kolawole v Pezzanni Alberto	SC	Civil ƒ?? Service of Process	1986	2017	31	High	pre-ACJA	NigeriaLII [2017] NGSC 4
+SC.404/2013	Williams & Another v Adold/Stamm International Nigeria Ltd	SC	Civil ƒ?? Contract	2013	2017	4	Medium	pre-ACJA	NigeriaLII [2017] NGSC 9
+SC.57/2014	Adewole v State	SC	Criminal	2014	2016	2	Low	pre-ACJA	NigeriaLII [2016] NGSC 90
+CA/PH/420/2005	Chevron Nigeria Ltd v Nwuche and Others	CA	Civil ƒ?? Mining Law/Oil and Gas	2005	2016	11	High	pre-ACJA	NigeriaLII [2016] NGCA 99
+CA/C/259/2013	M.N.I. Enori Esq v Hon. Egwu and Another	CA	Civil ƒ?? Costs	2013	2016	3	Low	pre-ACJA	NigeriaLII [2016] NGCA 102
+SC.235/2012	Chief Vincent Duru (alias Otokoto) v State	SC	Criminal ƒ?? Murder	2012	2016	4	Medium	pre-ACJA	NigeriaLII [2016] NGSC 88
+SC/67/2016	Senator Umaru Dahiru v All Progressive Congress	SC	Election Petition	2016	2016	0	Low	pre-ACJA	NigeriaLII [2016] NGSC 89
+SC.687/2016	African Democratic Congress v Bello	SC	Election Petition	2016	2016	0	Low	pre-ACJA	NigeriaLII [2016] NGSC 82
+SC.648/2016	Hon. Faleke v INEC & Another	SC	Election Petition	2016	2016	0	Low	pre-ACJA	NigeriaLII [2016] NGSC 83
+CA/YL/124/2015	Nyavo v Zading	CA	Civil ƒ?? Jurisdiction	2015	2016	1	Low	pre-ACJA	NigeriaLII [2016] NGCA 8
+S.C.135/2003	Arewa Paper Converters Ltd v NIDC (Nig Universal Bank Ltd)	SC	Civil ƒ?? Banking	2003	2016	13	High	pre-ACJA	NigeriaLII [2016] NGSC 103
+S.C.188/2005	Benjamin Oyakhire v The State	SC	Criminal	2005	2016	11	High	pre-ACJA	NigeriaLII [2016] NGSC 104
+S.C.409/2001	Chief N.T. Okoko v Mark Dakolo	SC	Civil ƒ?? Land	2001	2016	15	High	pre-ACJA	NigeriaLII [2016] NGSC 105
+CA/L/08/2012	Allcomp Computers Ltd v Union Bank of Nigeria Plc	CA	Civil ƒ?? Banking/Summary Judgment	2012	2016	4	Medium	pre-ACJA	NigeriaLII [2016] NGCA 95
+CA/L/104/2014	First City Monument Bank Plc v Dickson	CA	Civil ƒ?? Banking	2014	2016	2	Low	pre-ACJA	NigeriaLII [2016] NGCA 94
+CA/A/248/2013	Comptroller Gusau v Comptroller General of Customs	CA	Civil ƒ?? Public Officer/Retirement	2013	2016	3	Low	pre-ACJA	NigeriaLII [2016] NGCA 100
+CA/L/243C/2015	Capt. Akanni v Nigerian Army	CA	Criminal ƒ?? Military	2015	2016	1	Low	pre-ACJA	NigeriaLII [2016] NGCA 1
+CA/C/197/2011	Etim and Others v Etta and Others	CA	Civil ƒ?? Joinder/Abuse of Process	2011	2016	5	Medium	pre-ACJA	NigeriaLII [2016] NGCA 104
+SC.673/2013	Adegbite v Amosun	SC	Civil ƒ?? Locus Standi	2013	2016	3	Low	pre-ACJA	NigeriaLII [2016] NGSC 5
+SC.650A/2013	AG Kwara State and Another v Adeyemo and Others	SC	Civil ƒ?? Human Rights/Cultural Life	2013	2016	3	Low	pre-ACJA	NigeriaLII [2016] NGSC 4
+FHC/ABJ/CS/978/15	LEDAP GTE & Ltd v Federal Ministry of Education & Another	FHC	Civil ƒ?? Administrative/Government	2015	2018	3	Low	pre-ACJA	NigeriaLII [2018] NGFCHC 1
+CA/L/890/07	Biosola Nigeria Ltd and Another v Mainstreet Bank Ltd	CA	Civil ƒ?? Transfer of Shares/Mortgage	2007	2016	9	High	pre-ACJA	NigeriaLII [2016] NGCA 97
+CA/L/935C/2015	Steven v Federal Republic of Nigeria	CA	Criminal	2015	2016	1	Low	pre-ACJA	NigeriaLII [2016] NGCA 124
+FHC/L/CS/932/2018	Adigun v EFCC & Ors	FHC	Criminal ƒ?? Forfeiture/Money Laundering	2018	2020	2	Low	ACJA-era	LawPavilion LPELR-52302(CA)
+LPELR-55072(CA)/2019	Akinyemi Idowu Jegede v Federal Republic of Nigeria	CA	Criminal ƒ?? Fraud/False Pretence	2019	2021	2	Low	ACJA-era	LawPavilion LPELR-55072(CA)
+FHC/L/138C/2025	FRN v Bank & Managing Director (N19bn Fraud)	FHC	Criminal ƒ?? Money Laundering/Conspiracy	2025		Pending	Pending	ACJA-era	AllAfrica/Premium Times March 2025 ƒ?? pending
+FHC/KD/CR/Shema/2013	Shema v FRN (Kaduna ƒ?? fraud/money laundering)	FHC	Criminal ƒ?? Fraud/Money Laundering	2013	2023	10	High	ACJA-era	LawPavilion LPELR-61438(CA)
+YAKUBU/FRN/FCT/2012	Yakubu v FRN (Police Pension Fund fraud)	FHC	Criminal ƒ?? Corruption/Pension Fraud	2012	2022	10	High	ACJA-era	LawPavilion LPELR-57749(SC)
+CA/A/MARHABA/2020	Marhaba Event Place Ltd & Ors v EFCC & Ors	CA	Civil ƒ?? Order of Forfeiture	2020	2024	4	Medium	ACJA-era	LawPavilion LPELR-62094(CA)
+LPELR-62158(CA)/2011	Idi v A-G Kano State & Anor (21 years without trial)	CA	Criminal ƒ?? Fundamental Rights/Unlawful Detention	2011	2024	13	High	ACJA-era	LawPavilion LPELR-62158(CA)
+LPELR-49601(CA)/2018	Igbe v Ilom & Ors (Cross-River land dispute)	CA	Civil ƒ?? Land	2018	2020	2	Low	ACJA-era	LawPavilion LPELR-49601(CA)
+LPELR-60810(CA)/2021	MTN v Ayinu (FCT land trespass)	CA	Civil ƒ?? Land/Trespass	2021	2023	2	Low	ACJA-era	LawPavilion LPELR-60810(CA)
+LPELR-62158(CA)/FHC	IDI v A-G Kano ƒ?? FHC Kano judgment April 2013	FHC	Civil ƒ?? Fundamental Rights	2011	2013	2	Low	pre-ACJA	LawPavilion LPELR-62158 (FHC stage)
+FHC/NNAMDI_KANU/2015	FRN v Nnamdi Kanu (IPOB terrorism charges)	FHC	Criminal ƒ?? Terrorism/Treasonable Felony	2015	2025	10	High	ACJA-era	AllAfrica / Premium Times Nov 2025
+FHC/ABJ/RIVERS/2024	Supreme Court: CBN/AGF restraining order (Rivers funds)	SC	Civil ƒ?? Constitutional/Government	2024	2025	1	Low	ACJA-era	AllAfrica Feb 2025
+SC.844/2015	Auwalu Abdullahi v Federal Republic of Nigeria	SC	Criminal	2015	2017	2	Low	pre-ACJA	NigeriaLII [2017] NGSC 6
+SC.373/2015	Ambassador Malami v Ohikhuare & Others	SC	Civil ƒ?? Fresh Issues on Appeal	2015	2017	2	Low	pre-ACJA	NigeriaLII [2017] NGSC 5
+LPELR-62933(CA)/2022	EFCC v Govt of Zamfara State & Ors	CA	Civil ƒ?? Government/Constitutional	2022	2024	2	Low	ACJA-era	LawPavilion LPELR-62933(CA)
+LPELR-62967(CA)/2023	Okorie & Anor v INEC & Ors	CA	Election Petition	2023	2024	1	Low	ACJA-era	LawPavilion LPELR-62967(CA)
+LPELR-62816(CA)/2023	Olaniyan v Olaniyan	CA	Civil ƒ?? Family Law/Matrimonial	2023	2024	1	Low	ACJA-era	LawPavilion LPELR-62816(CA)
+LPELR-62854(CA)/2023	Samuel v FRN	CA	Criminal	2023	2024	1	Low	ACJA-era	LawPavilion LPELR-62854(CA)
+LPELR-62724(CA)/2023	Gidado v Lawan	CA	Civil ƒ?? Land Law	2023	2024	1	Low	ACJA-era	LawPavilion LPELR-62724(CA)
+LPELR-61695(CA)/2023	Muhammad v Suleiman	CA	Civil Procedure ƒ?? Service of Process	2023	2024	1	Low	ACJA-era	LawPavilion LPELR-61695(CA)
+LPELR-61759(CA)/2023	EFCC v B.T. Motors & Technical Services Ltd	CA	Civil ƒ?? FHC Jurisdiction/EFCC	2023	2024	1	Low	ACJA-era	LawPavilion LPELR-61759(CA)

@@ -1,0 +1,282 @@
+{
+  "CR-104-2025": {
+    "case_id": "CR-104-2025",
+    "case_type": "Criminal",
+    "court": "FHC Abuja Court 4",
+    "assigned_division": "Criminal",
+    "assigned_judge_id": "usr_judge_01",
+    "filing_date": "2025-02-15T09:00:00Z",
+    "adjournment_count": 4,
+    "days_since_filing": 518,
+    "judgment_status": "Pending",
+    "delay_risk_score": 0.85,
+    "risk_flag": true,
+    "dcr_approval_required": true,
+    "dcr_override_reason": null,
+    "adjournment_blocked": true,
+    "party_contact": {
+      "counsel_phone": "+2348031234567",
+      "litigant_phone": "+2348098765432"
+    },
+    "scan_events": [
+      {
+        "location": "Registry Desk A",
+        "timestamp": "2025-02-15T09:30:00Z",
+        "staff_id": "ST-002"
+      },
+      {
+        "location": "Court Clerk Office 4",
+        "timestamp": "2025-05-10T11:00:00Z",
+        "staff_id": "ST-044"
+      },
+      {
+        "location": "Judge Chambers 4",
+        "timestamp": "2026-07-02T14:20:00Z",
+        "staff_id": "ST-012"
+      }
+    ],
+    "hearing_log": [
+      {
+        "date": "2025-03-20T10:00:00Z",
+        "outcome": "Adjourned",
+        "reason_code": "No Service",
+        "next_date": "2025-05-10T10:00:00Z"
+      },
+      {
+        "date": "2025-05-10T10:00:00Z",
+        "outcome": "Adjourned",
+        "reason_code": "Counsel Absent",
+        "next_date": "2025-10-15T10:00:00Z"
+      },
+      {
+        "date": "2025-10-15T10:00:00Z",
+        "outcome": "Heard",
+        "reason_code": "None",
+        "next_date": "2026-02-20T10:00:00Z"
+      },
+      {
+        "date": "2026-02-20T10:00:00Z",
+        "outcome": "Adjourned",
+        "reason_code": "Witness Unavailable",
+        "next_date": "2026-07-28T10:00:00Z"
+      }
+    ],
+    "execution_log": [],
+    "documents": [],
+    "file_missing_report": null,
+    "red_flag_notified_at": "2026-07-18T22:13:47Z",
+    "auto_escalated": false,
+    "custody_alert": true,
+    "enforcement_non_compliant": false
+  },
+  "LD-554-2024": {
+    "case_id": "LD-554-2024",
+    "case_type": "Land Dispute",
+    "court": "Lagos High Court 2",
+    "assigned_division": "Civil",
+    "assigned_judge_id": "usr_judge_02",
+    "filing_date": "2024-05-10T08:30:00Z",
+    "adjournment_count": 5,
+    "days_since_filing": 799,
+    "judgment_status": "Pending",
+    "delay_risk_score": 0.92,
+    "risk_flag": true,
+    "dcr_approval_required": true,
+    "dcr_override_reason": null,
+    "adjournment_blocked": true,
+    "party_contact": {
+      "counsel_phone": "+2348055556666",
+      "litigant_phone": "+2348166667777"
+    },
+    "scan_events": [
+      {
+        "location": "Registry Desk C",
+        "timestamp": "2024-05-10T09:00:00Z",
+        "staff_id": "ST-005"
+      },
+      {
+        "location": "Courtroom 2 File Rack",
+        "timestamp": "2026-07-15T12:00:00Z",
+        "staff_id": "ST-081"
+      }
+    ],
+    "hearing_log": [
+      {
+        "date": "2024-07-12T09:00:00Z",
+        "outcome": "Adjourned",
+        "reason_code": "Counsel Absent",
+        "next_date": "2024-11-20T09:00:00Z"
+      },
+      {
+        "date": "2024-11-20T09:00:00Z",
+        "outcome": "Adjourned",
+        "reason_code": "No Service",
+        "next_date": "2025-03-05T09:00:00Z"
+      }
+    ],
+    "execution_log": [],
+    "documents": [],
+    "file_missing_report": null,
+    "red_flag_notified_at": "2026-07-18T22:13:47Z",
+    "auto_escalated": false,
+    "custody_alert": false,
+    "enforcement_non_compliant": false
+  },
+  "CV-302-2025": {
+    "case_id": "CV-302-2025",
+    "case_type": "Civil Debt",
+    "court": "FHC Abuja Court 2",
+    "assigned_division": "Civil",
+    "assigned_judge_id": "usr_judge_01",
+    "filing_date": "2025-08-01T11:00:00Z",
+    "adjournment_count": 1,
+    "days_since_filing": 351,
+    "judgment_status": "Delivered",
+    "delay_risk_score": 0.829,
+    "risk_flag": true,
+    "dcr_approval_required": false,
+    "dcr_override_reason": null,
+    "adjournment_blocked": false,
+    "party_contact": {
+      "counsel_phone": "+2347032223333",
+      "litigant_phone": "+2348024445555"
+    },
+    "scan_events": [
+      {
+        "location": "Registry Desk B",
+        "timestamp": "2025-08-01T11:30:00Z",
+        "staff_id": "ST-003"
+      },
+      {
+        "location": "Enforcement Unit",
+        "timestamp": "2026-02-10T10:00:00Z",
+        "staff_id": "ST-090"
+      },
+      {
+        "location": "Registry Desk A",
+        "timestamp": "2026-07-18T22:13:47Z",
+        "staff_id": "ST-809"
+      }
+    ],
+    "hearing_log": [
+      {
+        "date": "2025-10-10T10:00:00Z",
+        "outcome": "Heard",
+        "reason_code": "None",
+        "next_date": "2026-02-10T09:00:00Z"
+      }
+    ],
+    "execution_log": [
+      {
+        "action": "Judgment Delivered",
+        "date": "2026-02-10T09:00:00Z",
+        "sheriff_id": "SH-001"
+      }
+    ],
+    "documents": [],
+    "file_missing_report": null,
+    "red_flag_notified_at": "2026-07-18T22:13:47Z",
+    "auto_escalated": false,
+    "custody_alert": false,
+    "enforcement_non_compliant": true
+  },
+  "FM-121-2026": {
+    "case_id": "FM-121-2026",
+    "case_type": "Family",
+    "court": "Kano High Court 5",
+    "assigned_division": "Probate",
+    "assigned_judge_id": "usr_judge_03",
+    "filing_date": "2026-01-10T09:30:00Z",
+    "adjournment_count": 0,
+    "days_since_filing": 189,
+    "judgment_status": "Pending",
+    "delay_risk_score": 0.15,
+    "risk_flag": false,
+    "dcr_approval_required": false,
+    "dcr_override_reason": null,
+    "adjournment_blocked": false,
+    "party_contact": {
+      "counsel_phone": "+2348028889999",
+      "litigant_phone": "+2347091112222"
+    },
+    "scan_events": [
+      {
+        "location": "Registry Desk D",
+        "timestamp": "2026-01-10T10:00:00Z",
+        "staff_id": "ST-010"
+      }
+    ],
+    "hearing_log": [],
+    "execution_log": [],
+    "documents": [],
+    "file_missing_report": null,
+    "red_flag_notified_at": null,
+    "auto_escalated": false,
+    "custody_alert": true,
+    "enforcement_non_compliant": false
+  },
+  "AD-009-2025": {
+    "case_id": "AD-009-2025",
+    "case_type": "Admiralty",
+    "court": "FHC Lagos Court 1",
+    "assigned_division": "Admiralty",
+    "assigned_judge_id": "usr_judge_01",
+    "filing_date": "2025-06-01T10:00:00Z",
+    "adjournment_count": 2,
+    "days_since_filing": 412,
+    "judgment_status": "Delivered",
+    "delay_risk_score": 0.45,
+    "risk_flag": false,
+    "dcr_approval_required": false,
+    "dcr_override_reason": null,
+    "adjournment_blocked": false,
+    "party_contact": {
+      "counsel_phone": "+2348123459999",
+      "litigant_phone": "+2348033451111"
+    },
+    "scan_events": [
+      {
+        "location": "Registry Desk A",
+        "timestamp": "2025-06-01T10:30:00Z",
+        "staff_id": "ST-002"
+      },
+      {
+        "location": "Courtroom 1 File Rack",
+        "timestamp": "2026-06-20T11:00:00Z",
+        "staff_id": "ST-011"
+      }
+    ],
+    "hearing_log": [
+      {
+        "date": "2025-08-10T10:00:00Z",
+        "outcome": "Adjourned",
+        "reason_code": "Witness Unavailable",
+        "next_date": "2025-11-12T10:00:00Z"
+      },
+      {
+        "date": "2025-11-12T10:00:00Z",
+        "outcome": "Heard",
+        "reason_code": "None",
+        "next_date": "2026-06-20T10:00:00Z"
+      }
+    ],
+    "execution_log": [
+      {
+        "action": "Judgment Delivered",
+        "date": "2026-06-20T10:00:00Z",
+        "sheriff_id": "ST-011"
+      },
+      {
+        "action": "Writ of Fi Fa Filed",
+        "date": "2026-06-25T14:00:00Z",
+        "sheriff_id": "SH-015"
+      }
+    ],
+    "documents": [],
+    "file_missing_report": null,
+    "red_flag_notified_at": null,
+    "auto_escalated": false,
+    "custody_alert": false,
+    "enforcement_non_compliant": false
+  }
+}

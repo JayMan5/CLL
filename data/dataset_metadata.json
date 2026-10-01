@@ -1,0 +1,56 @@
+{
+  "total_records": 3000,
+  "risk_distribution": {
+    "High": 2828,
+    "Moderate": 124,
+    "Low": 48
+  },
+  "case_type_distribution": {
+    "Criminal": 877,
+    "Civil": 750,
+    "Admiralty": 88,
+    "Land/Property": 472,
+    "Commercial": 309,
+    "Family/Probate": 281,
+    "Constitutional/Fundamental Rights": 160,
+    "Election Petition": 63
+  },
+  "zone_distribution": {
+    "South-West": 1401,
+    "South-East": 425,
+    "FCT": 138,
+    "South-South": 613,
+    "North-West": 184,
+    "North-Central": 178,
+    "North-East": 61
+  },
+  "avg_days_since_filing": 830.0,
+  "avg_adjournment_count": 14.0,
+  "features": [
+    "case_type",
+    "court",
+    "zone",
+    "days_since_filing",
+    "total_hearings",
+    "adjournment_count",
+    "primary_adj_reason",
+    "num_parties",
+    "has_senior_counsel",
+    "days_since_last_hearing",
+    "is_stalled"
+  ],
+  "target": "delay_risk",
+  "target_classes": [
+    "Low",
+    "Moderate",
+    "High"
+  ],
+  "data_sources": [
+    "Mendeley SCN Appeal Cases (Ngige et al., 2023) -- zone/offense distributions",
+    "World Bank Doing Business -- avg 447 days contract enforcement",
+    "Citizens' Gavel Pace of Justice -- state-level duration benchmarks",
+    "ACJA 2015 -- 5-adjournment limit, adjournment reason codes",
+    "NJC JPEC -- quarterly performance thresholds"
+  ],
+  "note": "This dataset uses real Nigerian court distributions calibrated with synthetic delay features. Suitable for model prototyping but should be validated against real court registry data before production deployment."
+}

@@ -1,0 +1,1369 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>COURTLOG 2.0 - Court File Tracking & Adjournment Compliance</title>
+    <meta name="description"
+        content="A lightweight, low-overhead GovTech file tracking and predictive delay-risk compliance registry dashboard for Nigerian courts.">
+    <!-- Google Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link
+        href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&family=Plus+Jakarta+Sans:wght@300;400;500;600;700&display=swap"
+        rel="stylesheet">
+    <!-- Tailwind CSS CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Chart.js for beautiful visuals -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <!-- FontAwesome for professional iconography -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    fontFamily: {
+                        sans: ['Outfit', 'sans-serif'],
+                        heading: ['Plus Jakarta Sans', 'sans-serif'],
+                    },
+                    transitionTimingFunction: {
+                        'spring': 'cubic-bezier(0.175, 0.885, 0.32, 1.275)',
+                        'smooth': 'cubic-bezier(0.25, 1, 0.5, 1)'
+                    },
+                    scale: {
+                        '98': '0.98'
+                    }
+                }
+            }
+        }
+    </script>
+    <link rel="stylesheet" href="/static/index.css">
+</head>
+
+<body class="font-sans antialiased">
+
+    <!-- Shell Container -->
+    <div class="flex min-h-screen">
+
+        <!-- Sidebar Navigation -->
+        <aside class="sidebar w-64 flex flex-col justify-between shrink-0 sticky top-0 h-screen z-20">
+            <div>
+                <!-- Brand Logo & Header -->
+                <div class="p-6 border-b border-white/10">
+                    <div class="flex items-center gap-3">
+                        <div class="w-10 h-10 rounded-xl bg-emerald-500/20 flex items-center justify-center shadow-lg">
+                            <i class="fa-solid fa-scale-balanced text-emerald-400 text-lg"></i>
+                        </div>
+                        <div>
+                            <h1
+                                class="font-heading font-bold text-lg text-heading tracking-tight flex items-center gap-1.5">
+                                COURTLOG
+                            </h1>
+                            <p class="text-[10px] text-heading opacity-60 font-medium uppercase tracking-wider">Delay
+                                Compliance</p>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Nav Items -->
+                <nav class="p-4 space-y-1.5" id="sidebar-nav-container">
+                    <button onclick="switchTab('tab-overview')"
+                        class="nav-item active w-full flex items-center gap-3 px-4 py-3 rounded-xl text-left font-medium">
+                        <i class="fa-solid fa-chart-pie text-emerald-400 text-lg"></i>
+                        <span>Dashboard Overview</span>
+                    </button>
+                    <button id="nav-qr-scan" onclick="switchTab('tab-qr-scan')"
+                        class="nav-item w-full flex items-center gap-3 px-4 py-3 rounded-xl text-left font-medium">
+                        <i class="fa-solid fa-qrcode text-lg"></i>
+                        <span>QR Chain of Custody</span>
+                    </button>
+                    <button id="nav-courtrooms" onclick="switchTab('tab-courtrooms')"
+                        class="nav-item w-full flex items-center gap-3 px-4 py-3 rounded-xl text-left font-medium">
+                        <i class="fa-solid fa-gavel text-lg"></i>
+                        <span>Clerk Call-Over Logger</span>
+                    </button>
+                    <button id="nav-dcr-console" onclick="switchTab('tab-dcr-console')"
+                        class="nav-item w-full flex items-center gap-3 px-4 py-3 rounded-xl text-left font-medium">
+                        <i class="fa-solid fa-user-shield text-lg text-amber-400"></i>
+                        <span>DCR Division Hub</span>
+                    </button>
+                    <button id="nav-judge-docket" onclick="switchTab('tab-judge-docket')"
+                        class="nav-item w-full flex items-center gap-3 px-4 py-3 rounded-xl text-left font-medium">
+                        <i class="fa-solid fa-balance-scale text-lg text-purple-400"></i>
+                        <span>Judge's Docket</span>
+                    </button>
+                    <button id="nav-ai-risk" onclick="switchTab('tab-ai-risk')"
+                        class="nav-item w-full flex items-center gap-3 px-4 py-3 rounded-xl text-left font-medium">
+                        <i class="fa-solid fa-brain text-lg text-rose-400"></i>
+                        <span>AI Risk Intelligence</span>
+                    </button>
+                    <button id="nav-execution" onclick="switchTab('tab-execution')"
+                        class="nav-item w-full flex items-center gap-3 px-4 py-3 rounded-xl text-left font-medium">
+                        <i class="fa-solid fa-file-contract text-lg"></i>
+                        <span>Execution & Writs</span>
+                    </button>
+                    <button id="nav-user-admin" onclick="switchTab('tab-user-admin')"
+                        class="nav-item w-full flex items-center gap-3 px-4 py-3 rounded-xl text-left font-medium">
+                        <i class="fa-solid fa-users-gear text-lg text-sky-400"></i>
+                        <span>User Management</span>
+                    </button>
+                    <button onclick="switchTab('tab-whatsapp')"
+                        class="nav-item w-full flex items-center gap-3 px-4 py-3 rounded-xl text-left font-medium">
+                        <i class="fa-brands fa-whatsapp text-lg"></i>
+                        <span>WhatsApp Activity</span>
+                    </button>
+                </nav>
+            </div>
+
+            <!-- User Info (Moved to Header) -->
+        </aside>
+
+        <!-- Main Dashboard Viewport -->
+        <main class="flex-1 flex flex-col min-w-0">
+
+            <!-- Top Navbar Header -->
+            <header
+                class="glass-panel min-h-[5rem] py-4 flex flex-wrap items-center justify-between px-8 sticky top-0 z-10 gap-4">
+                <!-- Page Info / Search -->
+                <div class="flex items-center gap-6">
+                    <h2 id="view-title" class="font-heading font-bold text-xl text-heading">Registry Performance Hub
+                    </h2>
+
+                    <!-- Search Input -->
+                    <div class="relative w-48 xl:w-64 hidden lg:block">
+                        <span class="absolute inset-y-0 left-0 flex items-center pl-3 pointer-events-none">
+                            <i class="fa-solid fa-magnifying-glass text-muted-th text-sm"
+                                style="color:var(--text-muted)"></i>
+                        </span>
+                        <input type="text" id="global-search" oninput="filterCases()"
+                            class="th-input w-full pl-10 pr-4 py-1.5" placeholder="Search Case ID, Court, Type...">
+                    </div>
+                </div>
+
+                <!-- Simulation Time, Role Switcher & System Status -->
+                <div class="flex items-center gap-4">
+                    <!-- Interactive 5-Level Role Switcher -->
+                    <div class="glass-panel px-3 py-1.5 rounded-xl flex items-center gap-3 text-xs"
+                        style="border-color: var(--accent); border-width: 1px;">
+                        <i class="fa-solid fa-id-badge text-emerald-400 text-sm"></i>
+                        <div>
+                            <label class="text-[9px] uppercase tracking-wider font-bold block"
+                                style="color:var(--text-muted)">Active Access Level</label>
+                            <select id="role-switcher-select" onchange="changeActiveRole(this.value)"
+                                class="bg-transparent text-xs font-bold text-heading focus:outline-none cursor-pointer">
+                                <option value="usr_sheriff_01" style="background:#18181b">Level 1: Sheriff (Physical
+                                    File Custodian)</option>
+                                <option value="usr_clerk_01" selected style="background:#18181b">Level 2: Clerk (Data
+                                    Entry & Event Logger)</option>
+                                <option value="usr_dcr_01" style="background:#18181b">Level 3: Deputy Chief Registrar
+                                    (Division Supervisor)</option>
+                                <option value="usr_cr_01" style="background:#18181b">Level 4: Chief Registrar (Master
+                                    Admin)</option>
+                                <option value="usr_judge_01" style="background:#18181b">Level 5: Judge (Decision Maker)
+                                </option>
+                            </select>
+                        </div>
+                    </div>
+
+                    <!-- NJC 1-Click Export Button -->
+                    <button id="btn-njc-export" onclick="exportNJCReport()"
+                        class="btn-primary flex items-center gap-1.5 py-1.5 text-xs shadow-lg">
+                        <i class="fa-solid fa-file-export text-sm"></i> NJC Export
+                    </button>
+
+                    <!-- Simulation Time -->
+                    <div class="glass-panel px-4 py-2 rounded-xl items-center gap-3 text-sm hidden xl:flex">
+                        <i class="fa-regular fa-clock text-accent"></i>
+                        <div>
+                            <p class="text-[10px] uppercase tracking-wider font-semibold"
+                                style="color:var(--text-muted)">Registry Clock</p>
+                            <p id="simulation-clock" class="text-xs font-mono font-bold text-heading">July 18, 2026</p>
+                        </div>
+                    </div>
+
+                    <!-- User Profile Dropdown -->
+                    <div class="relative group cursor-pointer z-50">
+                        <div class="flex items-center gap-3 glass-panel px-3 py-1.5 rounded-xl border"
+                            style="border-color: var(--border-subtle);">
+                            <div id="active-user-initials"
+                                class="w-8 h-8 rounded-full bg-emerald-500/30 text-emerald-500 flex items-center justify-center text-xs font-bold border border-emerald-400/40">
+                                L2
+                            </div>
+                            <div class="hidden sm:block">
+                                <h4 id="sidebar-user-name" class="text-xs font-semibold text-heading">Level 2: Clerk
+                                </h4>
+                                <p id="sidebar-user-role" class="text-[10px] text-emerald-500 font-medium">Data Entry &
+                                    Event Logger</p>
+                            </div>
+                            <i class="fa-solid fa-chevron-down text-xs" style="color:var(--text-muted)"></i>
+                        </div>
+
+                        <!-- Dropdown Menu -->
+                        <div class="absolute right-0 top-full pt-2 w-48 hidden group-hover:block">
+                            <div class="glass-panel rounded-xl border shadow-xl overflow-hidden"
+                                style="border-color: var(--border-subtle);">
+                                <button id="theme-toggle-btn" onclick="toggleTheme()"
+                                    class="w-full text-left px-4 py-3 text-sm flex items-center gap-2 text-heading hover:bg-black/10">
+                                    <i id="theme-icon" class="fa-solid fa-moon text-accent"></i> Toggle Theme
+                                </button>
+                                <div class="h-px w-full" style="background-color: var(--border-color);"></div>
+                                <button onclick="handleLogout()"
+                                    class="w-full text-left px-4 py-3 text-sm text-rose flex items-center gap-2 hover:bg-rose-500/10">
+                                    <i class="fa-solid fa-right-from-bracket"></i> Log Out
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Sync/Cron Button -->
+                    <button onclick="triggerCronCompliance()" class="theme-toggle relative group"
+                        title="Run Background Compliance Job">
+                        <i class="fa-solid fa-arrows-spin text-sm" id="cron-icon"></i>
+                        <span
+                            class="absolute right-0 top-12 hidden group-hover:block text-xs py-1 px-2 rounded whitespace-nowrap z-30 glass-panel"
+                            style="color:var(--text-secondary)">Run Compliance Sweep</span>
+                    </button>
+                </div>
+            </header>
+
+            <!-- Scrollable Page Wrapper -->
+            <div class="flex-1 overflow-y-auto p-8 custom-scrollbar">
+
+                <!-- ================== TAB 1: OVERVIEW ================== -->
+                <section id="tab-overview" class="space-y-8">
+
+                    <!-- Alert Dashboard Bar -->
+                    <div id="quick-alert-bar" class="hidden grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <!-- Alert Box 1: Custody Alerts -->
+                        <div class="alert-box alert-rose">
+                            <div class="w-10 h-10 rounded-lg flex items-center justify-center shrink-0"
+                                style="background:var(--rose-soft)">
+                                <i class="fa-solid fa-triangle-exclamation text-lg text-rose"></i>
+                            </div>
+                            <div>
+                                <h4 class="font-semibold text-heading text-sm">Critical QR Custody Alerts Detect</h4>
+                                <p class="text-xs text-body"><span id="alert-count-custody"
+                                        class="font-bold text-rose">0</span> physical case files have not been checked
+                                    in for over 7 days.</p>
+                            </div>
+                            <button onclick="filterByAlert('custody')"
+                                class="ml-auto text-xs font-semibold text-rose hover:underline whitespace-nowrap">View
+                                Files</button>
+                        </div>
+
+                        <!-- Alert Box 2: Enforcement Alerts -->
+                        <div class="alert-box alert-amber">
+                            <div class="w-10 h-10 rounded-lg flex items-center justify-center shrink-0"
+                                style="background:var(--amber-soft)">
+                                <i class="fa-solid fa-scale-unbalanced text-lg text-amber-th"></i>
+                            </div>
+                            <div>
+                                <h4 class="font-semibold text-heading text-sm">Enforcement Non-Compliances</h4>
+                                <p class="text-xs text-body"><span id="alert-count-enforcement"
+                                        class="font-bold text-amber-th">0</span> delivered judgments show zero execution
+                                    logs for 90+ days.</p>
+                            </div>
+                            <button onclick="filterByAlert('enforcement')"
+                                class="ml-auto text-xs font-semibold text-amber-th hover:underline whitespace-nowrap">Investigate</button>
+                        </div>
+                    </div>
+
+                    <!-- Metrics Stats Grid -->
+                    <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
+                        <!-- Stat Card 1 -->
+                        <div class="stat-card stat-card-green flex items-center justify-between">
+                            <div>
+                                <p class="stat-label">Total Tracked Files</p>
+                                <h3 id="stat-total-cases" class="stat-number mt-2">0</h3>
+                                <p class="text-xs mt-1.5 text-emerald-th"><i class="fa-solid fa-circle-check"></i> <span
+                                        class="font-mono">100%</span> QR cataloged</p>
+                            </div>
+                            <div class="w-12 h-12 rounded-xl flex items-center justify-center"
+                                style="background:var(--accent-soft); color:var(--accent)">
+                                <i class="fa-solid fa-folder-open text-xl"></i>
+                            </div>
+                        </div>
+
+                        <!-- Stat Card 2 -->
+                        <div class="stat-card stat-card-rose flex items-center justify-between">
+                            <div>
+                                <p class="stat-label">High Risk Delay</p>
+                                <h3 id="stat-high-risk" class="stat-number text-rose mt-2">0</h3>
+                                <p class="text-xs mt-1.5 text-body">Model score <span class="font-bold text-rose">&gt;
+                                        0.70</span></p>
+                            </div>
+                            <div class="w-12 h-12 rounded-xl flex items-center justify-center"
+                                style="background:var(--rose-soft); color:var(--rose)">
+                                <i class="fa-solid fa-hourglass-half text-xl"></i>
+                            </div>
+                        </div>
+
+                        <!-- Stat Card 3 -->
+                        <div class="stat-card stat-card-rose flex items-center justify-between">
+                            <div>
+                                <p class="stat-label">Custody Alerts</p>
+                                <h3 id="stat-custody-alerts" class="stat-number text-rose mt-2">0</h3>
+                                <p class="text-xs mt-1.5 text-body">Idle in registry <span
+                                        class="font-bold text-rose">&gt; 7 days</span></p>
+                            </div>
+                            <div class="w-12 h-12 rounded-xl flex items-center justify-center"
+                                style="background:var(--rose-soft); color:var(--rose)">
+                                <i class="fa-solid fa-box-archive text-xl"></i>
+                            </div>
+                        </div>
+
+                        <!-- Stat Card 4 -->
+                        <div class="stat-card stat-card-amber flex items-center justify-between">
+                            <div>
+                                <p class="stat-label">Enforcement Overdue</p>
+                                <h3 id="stat-enforcement-alerts" class="stat-number text-amber-th mt-2">0</h3>
+                                <p class="text-xs mt-1.5 text-body">No sheriff activity <span
+                                        class="font-bold text-amber-th">&gt; 90 days</span></p>
+                            </div>
+                            <div class="w-12 h-12 rounded-xl flex items-center justify-center"
+                                style="background:var(--amber-soft); color:var(--amber)">
+                                <i class="fa-solid fa-triangle-exclamation text-xl"></i>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Double Column Charts & Add Case Section -->
+                    <div class="grid grid-cols-1 lg:grid-cols-3 gap-8">
+                        <!-- Chart Column -->
+                        <div class="glass-panel rounded-2xl p-6 lg:col-span-2 accent-stripe">
+                            <div class="flex items-center justify-between mb-4">
+                                <h3 class="font-heading font-bold text-base text-heading">Delay Risk Probability
+                                    Distributions</h3>
+                                <span class="text-xs px-2 py-1 rounded-lg badge-low">Logistic Regression
+                                    Analytics</span>
+                            </div>
+                            <div class="h-64">
+                                <canvas id="chart-delay-distribution"></canvas>
+                            </div>
+                        </div>
+
+                        <!-- New Case Catalog Form -->
+                        <div class="glass-panel rounded-2xl p-6 flex flex-col justify-between">
+                            <div>
+                                <h3 class="font-heading font-bold text-base text-heading mb-2">Initialize Physical QR
+                                    File</h3>
+                                <p class="text-xs text-body mb-4">Pre-register physical file and generate matching QR
+                                    code metadata block.</p>
+
+                                <form id="form-create-case" onsubmit="handleCreateCase(event)" class="space-y-3">
+                                    <div>
+                                        <label class="stat-label block mb-1">SUIT NO / Case ID</label>
+                                        <input type="text" id="new-case-id" required class="th-input w-full"
+                                            placeholder="e.g. FHC/ABJ/CR/200/2026">
+                                    </div>
+                                    <div class="grid grid-cols-2 gap-3">
+                                        <div>
+                                            <label class="stat-label block mb-1">Case Type</label>
+                                            <select id="new-case-type" required class="th-input w-full">
+                                                <option value="Land Dispute">Land Dispute</option>
+                                                <option value="Criminal">Criminal</option>
+                                                <option value="Civil Debt" selected>Civil Debt</option>
+                                                <option value="Family">Family</option>
+                                                <option value="Admiralty">Admiralty</option>
+                                                <option value="Intellectual Property">Intellectual Property</option>
+                                            </select>
+                                        </div>
+                                        <div>
+                                            <label class="stat-label block mb-1">Courtroom</label>
+                                            <select id="new-case-court" required class="th-input w-full">
+                                                <option value="FHC Abuja Court 4">FHC Abuja Court 4</option>
+                                                <option value="Lagos High Court 2" selected>Lagos High Court 2</option>
+                                                <option value="FHC Abuja Court 2">FHC Abuja Court 2</option>
+                                                <option value="Kano High Court 5">Kano High Court 5</option>
+                                                <option value="FHC Lagos Court 1">FHC Lagos Court 1</option>
+                                            </select>
+                                        </div>
+                                    </div>
+                                    <div class="grid grid-cols-2 gap-3">
+                                        <div>
+                                            <label class="stat-label block mb-1">Counsel Phone</label>
+                                            <input type="text" id="new-case-counsel" required class="th-input w-full"
+                                                placeholder="+234...">
+                                        </div>
+                                        <div>
+                                            <label class="stat-label block mb-1">Litigant Phone</label>
+                                            <input type="text" id="new-case-litigant" required class="th-input w-full"
+                                                placeholder="+234...">
+                                        </div>
+                                    </div>
+
+                                    <button type="submit" class="btn-primary w-full mt-2">
+                                        <i class="fa-solid fa-plus-circle"></i> Create & Seed QR Code
+                                    </button>
+                                </form>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Heatmap Analytics Case Table -->
+                    <div class="glass-panel rounded-2xl p-6 accent-stripe">
+                        <div class="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 mb-6">
+                            <div>
+                                <h3 class="font-heading font-bold text-base text-heading">Delay-Risk Analytics Heatmap &
+                                    File Directory</h3>
+                                <p class="text-xs text-body">Real-time status updates and ML predictive risk profiling
+                                    of active court files.</p>
+                            </div>
+
+                            <!-- Table Filter Controls -->
+                            <div class="flex flex-wrap items-center gap-3">
+                                <select id="filter-status" onchange="filterCases()" class="th-input">
+                                    <option value="ALL">All Statuses</option>
+                                    <option value="Pending">Pending</option>
+                                    <option value="Delivered">Delivered</option>
+                                    <option value="Executed">Executed</option>
+                                    <option value="ALERTS">Active Alerts</option>
+                                </select>
+                                <select id="filter-risk" onchange="filterCases()" class="th-input">
+                                    <option value="ALL">All Risk Levels</option>
+                                    <option value="HIGH">High Risk (&gt;0.70)</option>
+                                    <option value="MED">Moderate (0.40 - 0.70)</option>
+                                    <option value="LOW">Low Risk (&lt;0.40)</option>
+                                </select>
+                                <button onclick="resetFilters()" class="text-xs hover:underline"
+                                    style="color:var(--text-muted)">Reset</button>
+                            </div>
+                        </div>
+
+                        <!-- Table Scroll -->
+                        <div class="overflow-x-auto custom-scrollbar">
+                            <table class="w-full text-left border-collapse table-premium">
+                                <thead>
+                                    <tr class="text-[11px] uppercase font-bold tracking-wider">
+                                        <th class="py-3 px-4">Suit / QR Code</th>
+                                        <th class="py-3 px-4">Case Type</th>
+                                        <th class="py-3 px-4">Location / Court</th>
+                                        <th class="py-3 px-4">Adjournments</th>
+                                        <th class="py-3 px-4 text-center">Filing Age</th>
+                                        <th class="py-3 px-4 text-center">Delay Probability</th>
+                                        <th class="py-3 px-4 text-center">Registry Alerts</th>
+                                        <th class="py-3 px-4 text-right">Actions</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="cases-table-body" class="text-xs" style="color:var(--text-secondary)">
+                                    <!-- Dynamic rows from app.js -->
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+
+
+                    <!-- Document Upload -->
+                    <div class="space-y-4 pt-6" style="border-top:1px solid var(--border-color)">
+                        <h4 class="font-heading font-bold text-sm text-heading flex items-center gap-2">
+                            <i class="fa-solid fa-file-arrow-up text-accent"></i> Upload Case Document
+                        </h4>
+                        <form id="form-upload-doc" onsubmit="handleUploadDocument(event)" class="space-y-3">
+                            <div class="grid grid-cols-2 gap-3">
+                                <div>
+                                    <label class="stat-label block mb-1">Case ID</label>
+                                    <input type="text" id="upload-case-id" required class="th-input w-full py-2"
+                                        placeholder="e.g. CR-104-2025">
+                                </div>
+                                <div>
+                                    <label class="stat-label block mb-1">Document Type</label>
+                                    <select id="upload-doc-type" class="th-input w-full py-2">
+                                        <option>Ruling</option>
+                                        <option>Motion</option>
+                                        <option>Exhibit</option>
+                                        <option>Affidavit</option>
+                                    </select>
+                                </div>
+                            </div>
+                            <div class="grid grid-cols-2 gap-3">
+                                <div>
+                                    <label class="stat-label block mb-1">Document Title</label>
+                                    <input type="text" id="upload-title" required class="th-input w-full py-2"
+                                        placeholder="e.g. Motion for Bail">
+                                </div>
+                                <div>
+                                    <label class="stat-label block mb-1">Filename</label>
+                                    <input type="text" id="upload-filename" required class="th-input w-full py-2"
+                                        placeholder="e.g. bail_motion.pdf">
+                                </div>
+                            </div>
+                            <button type="submit" class="btn-primary w-full mt-3">
+                                <i class="fa-solid fa-cloud-arrow-up"></i> Upload Document
+                            </button>
+                        </form>
+                    </div>
+                </section>
+
+                <!-- ================== TAB 2: QR CUSTODY SCAN ================== -->
+                <section id="tab-qr-scan" class="hidden space-y-8 max-w-4xl mx-auto">
+                    <div class="glass-panel rounded-2xl p-8 space-y-6">
+                        <div class="text-center max-w-lg mx-auto space-y-2">
+                            <div class="w-14 h-14 rounded-full flex items-center justify-center mx-auto text-xl shadow-lg"
+                                style="background:var(--accent-soft); color:var(--accent)">
+                                <i class="fa-solid fa-qrcode"></i>
+                            </div>
+                            <h3 class="font-heading font-bold text-lg text-heading">Registry QR Chain of Custody Scanner
+                            </h3>
+                            <p class="text-xs text-body">Scan barcodes or physical folder QR labels at checkpoint logs
+                                to document custody hand-offs across court registries and rooms.</p>
+                        </div>
+
+                        <!-- Main QR Scanner Mock Interface -->
+                        <div class="grid grid-cols-1 md:grid-cols-2 gap-8 pt-6"
+                            style="border-top:1px solid var(--border-color)">
+                            <!-- Left: Scan Form Simulator -->
+                            <div class="space-y-4">
+                                <h4 class="text-sm font-semibold text-heading"><i
+                                        class="fa-solid fa-keyboard text-accent mr-2"></i> Simulated Scanner Input</h4>
+                                <form id="form-qr-scan" onsubmit="handleScanSubmit(event)" class="space-y-3">
+                                    <div>
+                                        <label class="stat-label block mb-1">Select Case File to Check-In</label>
+                                        <select id="scan-case-id" class="th-input w-full py-2">
+                                            <!-- Dynamic option cases from JS -->
+                                        </select>
+                                    </div>
+                                    <div class="grid grid-cols-2 gap-3">
+                                        <div>
+                                            <label class="stat-label block mb-1">Checkpoint Location</label>
+                                            <select id="scan-location" class="th-input w-full py-2">
+                                                <option value="Registry Desk A">Registry Desk A</option>
+                                                <option value="Registry Desk B">Registry Desk B</option>
+                                                <option value="Court Clerk Office 4">Court Clerk Office 4</option>
+                                                <option value="Courtroom 2 File Rack">Courtroom 2 File Rack</option>
+                                                <option value="Judge Chambers 4">Judge Chambers 4</option>
+                                                <option value="Enforcement Unit">Enforcement Unit (Sheriff)</option>
+                                            </select>
+                                        </div>
+                                        <div>
+                                            <label class="stat-label block mb-1">Scanning Clerk ID</label>
+                                            <input type="text" id="scan-staff-id" required class="th-input w-full py-2"
+                                                value="ST-809" placeholder="ST-###">
+                                        </div>
+                                    </div>
+                                    <button type="submit" class="btn-primary w-full mt-3">
+                                        <i class="fa-solid fa-barcode"></i> Register Checkpoint Log
+                                    </button>
+                                </form>
+                            </div>
+
+
+                            <!-- Report Missing File -->
+                            <div class="space-y-4 pt-6" style="border-top:1px solid var(--border-color)">
+                                <h4 class="text-sm font-semibold text-rose"><i
+                                        class="fa-solid fa-triangle-exclamation mr-2"></i> Report File Missing</h4>
+                                <form id="form-report-missing" onsubmit="handleReportMissing(event)" class="space-y-3">
+                                    <div>
+                                        <label class="stat-label block mb-1">Missing Case ID</label>
+                                        <select id="missing-case-id" class="th-input w-full py-2 border-rose-500/50">
+                                            <!-- Dynamic option cases from JS -->
+                                        </select>
+                                    </div>
+                                    <div class="grid grid-cols-2 gap-3">
+                                        <div>
+                                            <label class="stat-label block mb-1">Last Known Location</label>
+                                            <input type="text" id="missing-location" required
+                                                class="th-input w-full py-2" placeholder="e.g. Registry B">
+                                        </div>
+                                        <div>
+                                            <label class="stat-label block mb-1">Notes</label>
+                                            <input type="text" id="missing-notes" class="th-input w-full py-2"
+                                                placeholder="Optional notes">
+                                        </div>
+                                    </div>
+                                    <button type="submit" class="btn-primary w-full mt-3 bg-rose-600 hover:bg-rose-700">
+                                        <i class="fa-solid fa-flag"></i> Flag Case as Missing
+                                    </button>
+                                </form>
+                            </div>
+                            <!-- Right: Scanner Screen -->
+                            <div class="qr-area flex flex-col items-center justify-center p-6 relative">
+                                <div class="w-36 h-36 border-4 rounded-xl flex items-center justify-center relative p-3 bg-white group hover:scale-105 transition duration-200"
+                                    style="border-color:var(--accent)">
+                                    <img id="qr-display-img"
+                                        src="https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=CR/104/2025&color=0f172a"
+                                        alt="Scan QR Code" class="w-full h-full object-cover">
+                                    <div class="absolute inset-0 border-2 opacity-20 animate-pulse pointer-events-none"
+                                        style="border-color:var(--accent)"></div>
+                                </div>
+                                <span class="text-[10px] font-mono mt-4 uppercase tracking-wider"
+                                    style="color:var(--text-muted)">QR Code: <span id="qr-display-suit"
+                                        class="text-heading font-bold">CR/104/2025</span></span>
+
+                                <div class="qr-history w-full mt-6 text-[11px] font-mono space-y-1"
+                                    style="color:var(--text-muted)">
+                                    <p class="text-heading font-bold uppercase"><i
+                                            class="fa-solid fa-timeline text-accent mr-1.5"></i> Chain of Custody
+                                        History</p>
+                                    <div id="case-scan-history"
+                                        class="space-y-1 max-h-32 overflow-y-auto custom-scrollbar pt-2">
+                                        <!-- Scans updated in app.js -->
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </section>
+
+                <!-- ================== TAB 3: COURTROOM LOGGING ================== -->
+                <section id="tab-courtrooms" class="hidden space-y-8 max-w-4xl mx-auto">
+                    <div class="glass-panel rounded-2xl p-8 space-y-6">
+                        <div class="text-center max-w-lg mx-auto space-y-2">
+                            <div class="w-14 h-14 rounded-full flex items-center justify-center mx-auto text-xl shadow-lg"
+                                style="background:var(--accent-soft); color:var(--accent)">
+                                <i class="fa-solid fa-gavel"></i>
+                            </div>
+                            <h3 class="font-heading font-bold text-lg text-heading">Court Clerk Call-Over Adjournment
+                                Engine</h3>
+                            <p class="text-xs text-body">Log daily trial and hearing outcomes. Logging an adjournment
+                                auto-increments the case's counter, updates the calendar, and triggers a real-time
+                                WhatsApp Business template notification.</p>
+                        </div>
+
+                        <!-- Core Hearing Logging Form -->
+                        <form id="form-hearing-log" onsubmit="handleHearingSubmit(event)" class="space-y-4 pt-6"
+                            style="border-top:1px solid var(--border-color)">
+                            <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                                <!-- Suit Number Select -->
+                                <div>
+                                    <label class="stat-label block mb-1">Court Suit File ID</label>
+                                    <select id="hearing-case-id" class="th-input w-full py-2"
+                                        onchange="updateHearingLogDetails()">
+                                        <!-- Dynamic option cases from JS -->
+                                    </select>
+                                </div>
+
+                                <!-- Outcome Options -->
+                                <div>
+                                    <label class="stat-label block mb-1.5">Hearing Outcome</label>
+                                    <div class="grid grid-cols-2 gap-3">
+                                        <button type="button" id="outcome-heard" onclick="selectOutcome('Heard')"
+                                            class="outcome-btn">
+                                            <i class="fa-solid fa-check text-emerald-th"></i> Matter Heard
+                                        </button>
+                                        <button type="button" id="outcome-adjourned"
+                                            onclick="selectOutcome('Adjourned')" class="outcome-btn selected">
+                                            <i class="fa-solid fa-calendar-times text-rose"></i> Adjourned
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- Adjourned Options Panel -->
+                            <div id="adjournment-panel" class="grid grid-cols-1 md:grid-cols-2 gap-6 pt-3">
+                                <div>
+                                    <label class="stat-label block mb-1">Reason for Adjournment</label>
+                                    <select id="hearing-reason" class="th-input w-full py-2">
+                                        <option value="Counsel Absent">Counsel Absent</option>
+                                        <option value="No Service">No Service (Summons/Writ)</option>
+                                        <option value="Witness Unavailable">Witness Unavailable</option>
+                                        <option value="Judge Indisposed">Judge Indisposed</option>
+                                        <option value="Documents/Pleadings Missing">Pleadings/Documents Missing</option>
+                                        <option value="Court Vacation">Court Vacation</option>
+                                        <option value="Settlement Out of Court Talk">Settlement Conversations</option>
+                                    </select>
+                                </div>
+                                <div>
+                                    <label class="stat-label block mb-1">New Hearing Calendar Date</label>
+                                    <input type="date" id="hearing-next-date" class="th-input w-full py-2">
+                                </div>
+                            </div>
+
+                            <!-- Matter Heard Special Options -->
+                            <div id="heard-panel" class="hidden grid grid-cols-1 md:grid-cols-2 gap-6 pt-3">
+                                <div>
+                                    <label class="stat-label block mb-1">Select Heard Action / Code</label>
+                                    <select id="heard-reason" class="th-input w-full py-2">
+                                        <option value="Trial Commenced">Trial Commenced</option>
+                                        <option value="Trial Continued">Trial Continued</option>
+                                        <option value="Plea Taken">Plea Taken</option>
+                                        <option value="Argument on Motions Heard">Argument on Motions Heard</option>
+                                        <option value="Judgment Delivered">Judgment Delivered (Triggers Enforcement
+                                            Clock)</option>
+                                    </select>
+                                </div>
+                                <div>
+                                    <label class="stat-label block mb-1">Next Mention / Hearing Date (Optional)</label>
+                                    <input type="date" id="hearing-heard-next-date" class="th-input w-full py-2">
+                                </div>
+                            </div>
+
+                            <div class="wa-preview space-y-2">
+                                <p class="text-xs font-semibold text-heading flex items-center gap-2"><i
+                                        class="fa-brands fa-whatsapp text-emerald-th text-sm"></i> Real-time Registry
+                                    Group Broadcast Preview</p>
+                                <div class="wa-payload">
+                                    <span style="color:var(--text-muted)">[WhatsApp Payload] &quot;</span>SUIT NO: <span
+                                        id="preview-suit-id">CR/104/2025</span> adjourned to <span
+                                        id="preview-next-date">2026-07-28</span>. Reason: <span
+                                        id="preview-reason">Counsel Absent</span>. File routing back to Registry.<span
+                                        style="color:var(--text-muted)">&quot;</span>
+                                </div>
+                            </div>
+
+                            <button type="submit" class="btn-primary w-full">
+                                <i class="fa-solid fa-floppy-disk"></i> Log Hearing Outcome & Send Notification
+                            </button>
+                        </form>
+                    </div>
+                </section>
+
+                <!-- ================== TAB 4: ENFORCEMENT & WRITS ================== -->
+                <section id="tab-execution" class="hidden space-y-8">
+                    <!-- Stat and Overview -->
+                    <div class="glass-panel rounded-2xl p-6 space-y-4">
+                        <div>
+                            <h3 class="font-heading font-bold text-base text-heading">Post-Judgment Enforcement &
+                                Sheriff Dispatch</h3>
+                            <p class="text-xs text-body">Monitor cases where judgment has been
+                                <strong>Delivered</strong>. Registries must initiate enforcement writs within 90 days.
+                                Delayed actions automatically trigger the "Enforcement Non-Compliant" warning flag.</p>
+                        </div>
+                    </div>
+
+                    <div class="grid grid-cols-1 lg:grid-cols-3 gap-8">
+                        <!-- Judgments List Table -->
+                        <div class="glass-panel rounded-2xl p-6 lg:col-span-2 accent-stripe">
+                            <h3 class="font-heading font-bold text-sm text-heading mb-4"><i
+                                    class="fa-solid fa-list-check text-accent mr-2"></i> Delivered Judgments Catalog
+                            </h3>
+
+                            <div class="overflow-x-auto custom-scrollbar">
+                                <table class="w-full text-left table-premium">
+                                    <thead>
+                                        <tr class="text-[10px] uppercase font-bold tracking-wider">
+                                            <th class="py-2.5 px-3">Case ID</th>
+                                            <th class="py-2.5 px-3">Type</th>
+                                            <th class="py-2.5 px-3">Delivery Date</th>
+                                            <th class="py-2.5 px-3 text-center">Elapsed Days</th>
+                                            <th class="py-2.5 px-3 text-center">Status</th>
+                                            <th class="py-2.5 px-3 text-right">Actions</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="judgments-table-body" class="text-xs"
+                                        style="color:var(--text-secondary)">
+                                        <!-- Dynamic content -->
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+
+                        <!-- Enforcement Form Generator Console -->
+                        <div class="glass-panel rounded-2xl p-6 space-y-4">
+                            <h3 class="font-heading font-bold text-sm text-heading"><i
+                                    class="fa-solid fa-gears text-accent mr-2"></i> Enforcement Writ Compiler</h3>
+                            <p class="text-[11px] text-body">Generate templates for writs based on registry data. Forms
+                                compile dynamically using case attributes.</p>
+
+                            <div class="space-y-3 text-xs">
+                                <div>
+                                    <label class="stat-label block mb-1">Target Case ID</label>
+                                    <input type="text" id="writ-case-id" readonly class="th-input w-full"
+                                        style="opacity:0.6" placeholder="Select case from table...">
+                                </div>
+                                <div>
+                                    <label class="stat-label block mb-1">Writ Type</label>
+                                    <select id="writ-type" class="th-input w-full">
+                                        <option value="Writ of Fi Fa">Writ of Fieri Facias (Fi Fa) - Attachment of
+                                            Property</option>
+                                        <option value="Garnishee Order">Garnishee Order Nisi - Bank Attachment</option>
+                                        <option value="Writ of Possession">Writ of Possession - Land/Property Recovery
+                                        </option>
+                                        <option value="Writ of Delivery">Writ of Delivery - Specific Chattel Retrieval
+                                        </option>
+                                    </select>
+                                </div>
+                                <div>
+                                    <label class="stat-label block mb-1">Enforcing Deputy Sheriff ID</label>
+                                    <input type="text" id="writ-sheriff-id" class="th-input w-full" value="SH-045">
+                                </div>
+                                <div>
+                                    <label class="stat-label block mb-1">Assigned Judgement Debtor Bank
+                                        (Garnishee)</label>
+                                    <input type="text" id="writ-extra-details" class="th-input w-full"
+                                        placeholder="e.g. First Bank of Nigeria" value="First Bank of Nigeria PLC">
+                                </div>
+
+                                <button id="btn-generate-writ" disabled onclick="generateWritForm()"
+                                    class="btn-secondary w-full cursor-not-allowed" style="opacity:0.5">
+                                    <i class="fa-solid fa-file-pdf"></i> Compile & Lodge Writ
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </section>
+
+                <!-- ================== TAB: DCR DIVISION HUB ================== -->
+                <section id="tab-dcr-console" class="hidden space-y-8">
+                    <div class="glass-panel rounded-2xl p-6 space-y-6">
+                        <div class="flex items-center justify-between pb-4"
+                            style="border-bottom:1px solid var(--border-color)">
+                            <div>
+                                <h3 class="font-heading font-bold text-lg text-heading flex items-center gap-2">
+                                    <i class="fa-solid fa-user-shield text-amber-400"></i> Deputy Chief Registrar (DCR)
+                                    Division Hub
+                                </h3>
+                                <p class="text-xs text-body">First escalation supervisor control room. Reviews 5th
+                                    adjournment exceptions, sanctions delayed data entry, and resolves yellow compliance
+                                    alerts.</p>
+                            </div>
+                            <span class="badge badge-mod font-mono text-xs px-3 py-1 rounded-full">
+                                Division: Criminal & Civil
+                            </span>
+                        </div>
+
+                        <!-- 5th Adjournment Block & Approval Queue -->
+                        <div class="space-y-4">
+
+                            <div class="flex items-center gap-3">
+                                <button onclick="openReassignModal()" class="btn-secondary text-xs"><i
+                                        class="fa-solid fa-exchange-alt mr-1"></i> Reassign Case</button>
+                                <button onclick="generateDCRWeeklyReport()" class="btn-secondary text-xs"><i
+                                        class="fa-solid fa-file-invoice mr-1"></i> Weekly Report</button>
+                            </div>
+
+                            <h4 class="font-heading font-bold text-sm text-heading flex items-center gap-2">
+                                <i class="fa-solid fa-triangle-exclamation text-rose"></i> 5th Adjournment DCR Approval
+                                Queue (ACJA Sec 396)
+                            </h4>
+                            <p class="text-xs text-body">The system hard-blocks any 5th adjournment logged by clerks.
+                                The DCR must review and upload an exceptional reason to unblock the case.</p>
+
+                            <div class="overflow-x-auto rounded-xl border border-color">
+                                <table class="w-full text-left table-premium">
+                                    <thead>
+                                        <tr class="text-xs font-semibold uppercase">
+                                            <th class="py-3 px-4">Case ID</th>
+                                            <th class="py-3 px-4">Division / Type</th>
+                                            <th class="py-3 px-4">Court</th>
+                                            <th class="py-3 px-4 text-center">Adj. Count</th>
+                                            <th class="py-3 px-4 text-center">Status</th>
+                                            <th class="py-3 px-4 text-right">DCR Action</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="dcr-approval-table-body" class="text-xs">
+                                        <!-- Dynamic DCR Queue -->
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </div>
+                </section>
+
+                <!-- ================== TAB: JUDGE DOCKET ================== -->
+                <section id="tab-judge-docket" class="hidden space-y-8">
+                    <div class="glass-panel rounded-2xl p-6 space-y-6">
+                        <div class="flex items-center justify-between pb-4"
+                            style="border-bottom:1px solid var(--border-color)">
+                            <div>
+                                <h3 class="font-heading font-bold text-lg text-heading flex items-center gap-2">
+                                    <i class="fa-solid fa-balance-scale text-purple-400"></i> My Assigned Docket &
+                                    Decision Console
+                                </h3>
+                                <p class="text-xs text-body">Judicial view showing active cases assigned to presiding
+                                    Judge, 24-hour compliance alerts, and 1-click judgment delivery.</p>
+                            </div>
+                            <span class="badge badge-low font-mono text-xs px-3 py-1 rounded-full">
+                                Presiding: FHC Abuja Court 4
+                            </span>
+                        </div>
+
+                        <!-- 24-Hour ACJA Alert Banner -->
+                        <div class="alert-box alert-amber flex items-center justify-between">
+                            <div class="flex items-center gap-3">
+                                <i class="fa-solid fa-bell text-xl text-amber-th animate-bounce"></i>
+                                <div>
+                                    <h4 class="font-bold text-sm text-heading">ACJA Sec 396 Compliance Alert (24-Hour
+                                        Warning)</h4>
+                                    <p class="text-xs text-body">You have <span id="judge-alert-count"
+                                            class="font-bold text-rose">1</span> active case nearing maximum statutory
+                                        adjournment limits. Delivering ruling clears the timer.</p>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Judge's Assigned Cases Table -->
+                        <div class="overflow-x-auto rounded-xl border border-color">
+                            <table class="w-full text-left table-premium">
+                                <thead>
+                                    <tr class="text-xs font-semibold uppercase">
+                                        <th class="py-3 px-4">Case ID</th>
+                                        <th class="py-3 px-4">Case Type</th>
+                                        <th class="py-3 px-4 text-center">Adjournments</th>
+                                        <th class="py-3 px-4 text-center">Days Elapsed</th>
+                                        <th class="py-3 px-4 text-center">Risk Score</th>
+                                        <th class="py-3 px-4 text-right">Judicial Ruling</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="judge-docket-table-body" class="text-xs">
+                                    <!-- Dynamic Judge Docket -->
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </section>
+
+                <!-- ================== TAB: AI RISK INTELLIGENCE ================== -->
+                <section id="tab-ai-risk" class="hidden space-y-8">
+                    <!-- Summary Cards -->
+                    <div class="grid grid-cols-1 md:grid-cols-4 gap-4">
+                        <div class="glass-panel rounded-2xl p-5 text-center">
+                            <div class="text-3xl font-bold text-heading" id="ai-total-cases">—</div>
+                            <div class="text-xs text-body mt-1 uppercase tracking-wide">Cases Analyzed</div>
+                        </div>
+                        <div class="glass-panel rounded-2xl p-5 text-center" style="border-left:3px solid #ef4444;">
+                            <div class="text-3xl font-bold text-red-400" id="ai-high-count">—</div>
+                            <div class="text-xs text-body mt-1 uppercase tracking-wide">High Risk</div>
+                        </div>
+                        <div class="glass-panel rounded-2xl p-5 text-center" style="border-left:3px solid #f59e0b;">
+                            <div class="text-3xl font-bold text-amber-400" id="ai-medium-count">—</div>
+                            <div class="text-xs text-body mt-1 uppercase tracking-wide">Medium Risk</div>
+                        </div>
+                        <div class="glass-panel rounded-2xl p-5 text-center" style="border-left:3px solid #22c55e;">
+                            <div class="text-3xl font-bold text-emerald-400" id="ai-low-count">—</div>
+                            <div class="text-xs text-body mt-1 uppercase tracking-wide">Low Risk</div>
+                        </div>
+                    </div>
+
+                    <!-- Risk Distribution Bar -->
+                    <div class="glass-panel rounded-2xl p-6">
+                        <h3 class="font-heading font-bold text-heading flex items-center gap-2 mb-4">
+                            <i class="fa-solid fa-chart-bar text-rose-400"></i> Risk Distribution
+                        </h3>
+                        <div id="ai-risk-bar" style="display:flex;height:28px;border-radius:14px;overflow:hidden;background:rgba(255,255,255,0.05);">
+                            <!-- Filled dynamically by JS -->
+                        </div>
+                        <div class="flex justify-between text-xs text-body mt-2">
+                            <span><span style="color:#ef4444;">●</span> High (&gt;70%)</span>
+                            <span><span style="color:#f59e0b;">●</span> Medium (40–70%)</span>
+                            <span><span style="color:#22c55e;">●</span> Low (&lt;40%)</span>
+                        </div>
+                    </div>
+
+                    <!-- Model Info -->
+                    <div class="glass-panel rounded-2xl p-6">
+                        <div class="flex items-center justify-between pb-4" style="border-bottom:1px solid var(--border-color)">
+                            <h3 class="font-heading font-bold text-lg text-heading flex items-center gap-2">
+                                <i class="fa-solid fa-brain text-rose-400"></i> Delay-Risk Prediction Model
+                            </h3>
+                            <button onclick="loadAIRiskData()" class="action-btn flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold"
+                                style="background:linear-gradient(135deg,#ec4899,#f43f5e);color:white;">
+                                <i class="fa-solid fa-rotate"></i> Re-Run All Predictions
+                            </button>
+                        </div>
+                        <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mt-4 text-sm">
+                            <div>
+                                <div class="text-xs text-body uppercase tracking-wide">Algorithm</div>
+                                <div class="text-heading font-semibold mt-1">Logistic Regression</div>
+                            </div>
+                            <div>
+                                <div class="text-xs text-body uppercase tracking-wide">Features</div>
+                                <div class="text-heading font-semibold mt-1">Case Type, Court, Adjournments, Days Elapsed</div>
+                            </div>
+                            <div>
+                                <div class="text-xs text-body uppercase tracking-wide">Training Data</div>
+                                <div class="text-heading font-semibold mt-1">3,000+ Nigerian Court Records</div>
+                            </div>
+                            <div>
+                                <div class="text-xs text-body uppercase tracking-wide">Threshold</div>
+                                <div class="text-heading font-semibold mt-1">70% → High Risk Flag</div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Case Risk Table -->
+                    <div class="glass-panel rounded-2xl p-6">
+                        <h3 class="font-heading font-bold text-heading flex items-center gap-2 mb-4">
+                            <i class="fa-solid fa-ranking-star text-amber-400"></i> All Cases — Ranked by Delay Risk
+                        </h3>
+                        <div class="table-wrapper overflow-x-auto">
+                            <table class="data-table">
+                                <thead>
+                                    <tr>
+                                        <th class="text-left">Risk</th>
+                                        <th class="text-left">Suit No.</th>
+                                        <th class="text-left">Case Type</th>
+                                        <th class="text-left">Court</th>
+                                        <th class="text-center">Adjournments</th>
+                                        <th class="text-center">Days Elapsed</th>
+                                        <th class="text-center">Risk Score</th>
+                                        <th class="text-left">Status</th>
+                                        <th class="text-center">Explainability</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="ai-risk-table-body">
+                                    <!-- Dynamic AI Risk Rows -->
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </section>
+
+                <!-- ================== TAB: USER MANAGEMENT ================== -->
+                <section id="tab-user-admin" class="hidden space-y-8">
+                    <div class="glass-panel rounded-2xl p-6 space-y-6">
+                        <div class="flex items-center justify-between pb-4"
+                            style="border-bottom:1px solid var(--border-color)">
+                            <div>
+                                <h3 class="font-heading font-bold text-lg text-heading flex items-center gap-2">
+                                    <i class="fa-solid fa-users-gear text-sky-400"></i> Chief Registrar User
+                                    Administration & Permission Matrix
+                                </h3>
+                                <p class="text-xs text-body">Manage judiciary personnel accounts, assign judges/clerks,
+                                    and enforce the 5-Level Access Hierarchy across courts.</p>
+                            </div>
+                            <button onclick="openAddUserModal()" class="btn-primary flex items-center gap-2 text-xs">
+                                <i class="fa-solid fa-user-plus"></i> Add User Account
+                            </button>
+                        </div>
+
+                        <!-- Active Users Table -->
+                        <div class="overflow-x-auto rounded-xl border border-color">
+                            <table class="w-full text-left table-premium">
+                                <thead>
+                                    <tr class="text-xs font-semibold uppercase">
+                                        <th class="py-3 px-4">User ID</th>
+                                        <th class="py-3 px-4">Full Name</th>
+                                        <th class="py-3 px-4">Role & Level</th>
+                                        <th class="py-3 px-4">Responsibilities</th>
+                                        <th class="py-3 px-4">Assigned Division</th>
+                                        <th class="py-3 px-4 text-right">Actions</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="users-admin-table-body" class="text-xs">
+                                    <!-- Dynamic Users Table -->
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </section>
+
+                <!-- ================== TAB 5: WHATSAPP LOG CONSOLE ================== -->
+                <section id="tab-whatsapp" class="hidden space-y-8 max-w-4xl mx-auto">
+                    <div class="glass-panel rounded-2xl p-8 space-y-6">
+                        <div class="flex items-center justify-between pb-4"
+                            style="border-bottom:1px solid var(--border-color)">
+                            <div>
+                                <h3 class="font-heading font-bold text-lg text-heading">WhatsApp Business Webhook
+                                    Broadcasts</h3>
+                                <p class="text-xs text-body">View real-time logging payloads fired by the adjournment
+                                    compliance engine to Meta Cloud APIs.</p>
+                            </div>
+                            <span class="badge badge-low font-mono flex items-center gap-1.5 px-3 py-1 rounded-full">
+                                <span class="w-2 h-2 rounded-full bg-emerald-500 animate-ping"></span> Live Webhook
+                                Simulator Active
+                            </span>
+                        </div>
+
+                        <!-- List of Webhook Payloads -->
+                        <div class="space-y-4">
+                            <div class="flex items-center justify-between text-xs font-semibold px-2"
+                                style="color:var(--text-muted)">
+                                <span>Payload Timestamp</span>
+                                <span>API Destination Endpoint</span>
+                            </div>
+
+                            <div id="whatsapp-logs-container"
+                                class="space-y-4 max-h-[500px] overflow-y-auto custom-scrollbar pr-2">
+                                <div class="text-center py-12 text-xs" style="color:var(--text-muted)">
+                                    <i class="fa-solid fa-circle-nodes text-3xl mb-3 block"
+                                        style="color:var(--border-color)"></i>
+                                    No simulated WhatsApp requests have been broadcasted yet. Adjourn a case to trigger
+                                    webhooks.
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </section>
+
+            </div>
+
+        </main>
+    </div>
+
+    <!-- ================== MODAL: DCR 5TH ADJOURNMENT OVERRIDE ================== -->
+    <div id="dcr-override-modal" class="hidden fixed inset-0 z-50 flex items-center justify-center p-4"
+        style="background:rgba(0,0,0,0.6); backdrop-filter:blur(4px)">
+        <div class="glass-panel w-full max-w-lg rounded-2xl shadow-2xl p-6 relative border-amber-500/50">
+            <div class="flex items-center justify-between pb-4 mb-4 border-b border-color">
+                <h3 class="font-heading font-bold text-lg text-heading flex items-center gap-2">
+                    <i class="fa-solid fa-shield-halved text-amber-400"></i> DCR 5th Adjournment Approval Console
+                </h3>
+                <button onclick="closeDCROverrideModal()" class="text-body hover:text-heading"><i
+                        class="fa-solid fa-xmark text-lg"></i></button>
+            </div>
+
+            <div class="space-y-4 text-xs">
+                <p class="text-body">The system has hard-blocked the 5th adjournment for case <span
+                        id="override-modal-case-id" class="font-bold text-emerald-400">CR-104-2025</span> under
+                    ACJA/ACJL Section 396.</p>
+
+                <div>
+                    <label class="stat-label block mb-1 font-semibold">Deputy Chief Registrar Exceptional Reason</label>
+                    <textarea id="dcr-override-reason-input" rows="4" class="th-input w-full p-2.5 rounded-lg text-xs"
+                        placeholder="e.g. Lead prosecutor engaged in emergency Supreme Court appeal. Approved for final 14-day extension."></textarea>
+                </div>
+            </div>
+
+            <div class="flex items-center justify-end gap-3 pt-4 mt-4 border-t border-color">
+                <button onclick="closeDCROverrideModal()" class="btn-secondary">Cancel</button>
+                <button onclick="submitDCROverride()" class="btn-primary bg-amber-600 hover:bg-amber-700">
+                    <i class="fa-solid fa-check-double"></i> Upload & Approve Exception
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- ================== MODAL: NJC COMPLIANCE EXPORT ================== -->
+    <div id="njc-modal" class="hidden fixed inset-0 z-50 flex items-center justify-center p-4"
+        style="background:rgba(0,0,0,0.6); backdrop-filter:blur(4px)">
+        <div class="glass-panel w-full max-w-2xl rounded-2xl shadow-2xl p-6 relative border-emerald-500/50">
+            <div class="flex items-center justify-between pb-4 mb-4 border-b border-color">
+                <h3 class="font-heading font-bold text-lg text-heading flex items-center gap-2">
+                    <i class="fa-solid fa-file-export text-emerald-400"></i> NJC Delay Compliance Monthly Export
+                </h3>
+                <button onclick="closeNJCModal()" class="text-body hover:text-heading"><i
+                        class="fa-solid fa-xmark text-lg"></i></button>
+            </div>
+
+            <div class="space-y-4 text-xs">
+                <div class="p-4 rounded-xl bg-input border border-color font-mono text-[11px] max-h-80 overflow-y-auto custom-scrollbar whitespace-pre-wrap text-emerald-300"
+                    id="njc-report-json-view">
+                    <!-- Report payload rendered here -->
+                </div>
+            </div>
+
+            <div class="flex items-center justify-end gap-3 pt-4 mt-4 border-t border-color">
+                <button onclick="closeNJCModal()" class="btn-secondary">Close</button>
+                <button onclick="downloadNJCFile()" class="btn-primary">
+                    <i class="fa-solid fa-download"></i> Download Official NJC Report (.JSON)
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- ================== MODAL: WRIT DOCUMENT PREVIEW ================== -->
+    <div id="writ-modal" class="hidden fixed inset-0 z-50 flex items-center justify-center p-4"
+        style="background:rgba(0,0,0,0.6); backdrop-filter:blur(4px)">
+        <div class="glass-panel w-full max-w-2xl rounded-2xl shadow-2xl p-8 relative max-h-[90vh] overflow-y-auto custom-scrollbar flex flex-col justify-between"
+            style="border-color:var(--accent)">
+            <div>
+                <!-- Print-Only Branding Header -->
+                <div class="hidden print-header items-end justify-between border-b-[3px] border-black pb-3 mb-6">
+                    <div>
+                        <h2 class="font-heading font-extrabold text-2xl tracking-widest text-black m-0 leading-none">
+                            COURTLOG</h2>
+                        <p class="text-[10px] font-bold uppercase tracking-widest text-black mt-1">Official Registry
+                            Document</p>
+                    </div>
+                    <div class="text-right">
+                        <p class="text-xs font-mono font-bold text-black" id="print-date-time"></p>
+                    </div>
+                </div>
+
+                <!-- Header -->
+                <div class="flex items-center justify-between pb-4 mb-6"
+                    style="border-bottom:1px solid var(--border-color)">
+                    <div>
+                        <h3 class="font-heading font-bold text-lg text-heading" id="modal-writ-title">Writ of Fieri
+                            Facias (Fi Fa)</h3>
+                        <p class="text-xs text-body">Compiled Form - Nigerian Judiciary High Court Registry Office</p>
+                    </div>
+                    <button onclick="closeWritModal()" class="text-body hover:text-heading"><i
+                            class="fa-solid fa-xmark text-lg"></i></button>
+                </div>
+
+                <!-- Document Body -->
+                <div id="modal-writ-content"
+                    class="writ-document text-xs leading-relaxed max-h-[50vh] overflow-y-auto custom-scrollbar shadow-inner select-text">
+                    <!-- Compiled PDF Content injected dynamically -->
+                </div>
+            </div>
+
+            <!-- Footer Buttons -->
+            <div class="flex items-center justify-end gap-3 pt-4 mt-6" style="border-top:1px solid var(--border-color)">
+                <button onclick="closeWritModal()" class="btn-secondary">
+                    Dismiss
+                </button>
+                <button onclick="printWrit()" class="btn-primary shadow-lg">
+                    <i class="fa-solid fa-print"></i> Execute & Print Writ
+                </button>
+            </div>
+        </div>
+    </div>
+
+
+    <!-- ================== MODAL: REASSIGN CASE ================== -->
+    <div id="reassign-modal" class="hidden fixed inset-0 z-50 flex items-center justify-center p-4"
+        style="background:rgba(0,0,0,0.6); backdrop-filter:blur(4px)">
+        <div class="glass-panel w-full max-w-lg rounded-2xl shadow-2xl p-6 relative border-accent/50">
+            <div class="flex items-center justify-between pb-4 mb-4 border-b border-color">
+                <h3 class="font-heading font-bold text-lg text-heading flex items-center gap-2">
+                    <i class="fa-solid fa-exchange-alt text-accent"></i> Reassign Case
+                </h3>
+                <button onclick="closeReassignModal()" class="text-body hover:text-heading"><i
+                        class="fa-solid fa-xmark text-lg"></i></button>
+            </div>
+
+            <form onsubmit="submitReassignCase(event)" class="space-y-4 text-xs">
+                <div>
+                    <label class="stat-label block mb-1 font-semibold">Case ID</label>
+                    <input type="text" id="reassign-case-id" required class="th-input w-full p-2.5 rounded-lg text-xs"
+                        placeholder="e.g. CR-104-2025">
+                </div>
+                <div>
+                    <label class="stat-label block mb-1 font-semibold">New Division</label>
+                    <select id="reassign-division" class="th-input w-full p-2.5 rounded-lg text-xs">
+                        <option value="">-- No Change --</option>
+                        <option value="Criminal">Criminal</option>
+                        <option value="Civil">Civil</option>
+                        <option value="Commercial">Commercial</option>
+                        <option value="Family">Family</option>
+                    </select>
+                </div>
+                <div>
+                    <label class="stat-label block mb-1 font-semibold">New Court</label>
+                    <select id="reassign-court" class="th-input w-full p-2.5 rounded-lg text-xs">
+                        <option value="">-- No Change --</option>
+                        <option value="FHC Abuja Court 1">FHC Abuja Court 1</option>
+                        <option value="FHC Abuja Court 2">FHC Abuja Court 2</option>
+                        <option value="FHC Abuja Court 3">FHC Abuja Court 3</option>
+                        <option value="FHC Abuja Court 4">FHC Abuja Court 4</option>
+                    </select>
+                </div>
+                <div>
+                    <label class="stat-label block mb-1 font-semibold">Reason</label>
+                    <input type="text" id="reassign-reason" required class="th-input w-full p-2.5 rounded-lg text-xs"
+                        placeholder="e.g. Judge reassigned">
+                </div>
+                <div class="flex items-center justify-end gap-3 pt-4 mt-4 border-t border-color">
+                    <button type="button" onclick="closeReassignModal()" class="btn-secondary">Cancel</button>
+                    <button type="submit" class="btn-primary">
+                        <i class="fa-solid fa-check"></i> Reassign Case
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- ================== MODAL: ASSIGN JUDGE ================== -->
+    <div id="assign-judge-modal" class="hidden fixed inset-0 z-50 flex items-center justify-center p-4"
+        style="background:rgba(0,0,0,0.6); backdrop-filter:blur(4px)">
+        <div class="glass-panel w-full max-w-lg rounded-2xl shadow-2xl p-6 relative border-purple-500/50">
+            <div class="flex items-center justify-between pb-4 mb-4 border-b border-color">
+                <h3 class="font-heading font-bold text-lg text-heading flex items-center gap-2">
+                    <i class="fa-solid fa-gavel text-purple-400"></i> Assign Judge (Balloting)
+                </h3>
+                <button onclick="closeAssignJudgeModal()" class="text-body hover:text-heading"><i
+                        class="fa-solid fa-xmark text-lg"></i></button>
+            </div>
+
+            <form onsubmit="submitAssignJudge(event)" class="space-y-4 text-xs">
+                <div>
+                    <label class="stat-label block mb-1 font-semibold">Case ID</label>
+                    <input type="text" id="assign-judge-case-id" required
+                        class="th-input w-full p-2.5 rounded-lg text-xs" placeholder="e.g. CR-104-2025">
+                </div>
+                <div>
+                    <label class="stat-label block mb-1 font-semibold">Judge ID</label>
+                    <input type="text" id="assign-judge-id" required class="th-input w-full p-2.5 rounded-lg text-xs"
+                        placeholder="e.g. usr_judge_01">
+                </div>
+                <div>
+                    <label class="stat-label block mb-1 font-semibold">Reason</label>
+                    <input type="text" id="assign-judge-reason" class="th-input w-full p-2.5 rounded-lg text-xs"
+                        placeholder="e.g. Automated Balloting" value="Automated Balloting">
+                </div>
+                <div class="flex items-center justify-end gap-3 pt-4 mt-4 border-t border-color">
+                    <button type="button" onclick="closeAssignJudgeModal()" class="btn-secondary">Cancel</button>
+                    <button type="submit" class="btn-primary">
+                        <i class="fa-solid fa-check"></i> Assign Judge
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- ================== FULLSCREEN LOGIN OVERLAY ================== -->
+    <div id="login-overlay" class="fixed inset-0 z-[100] flex items-center justify-center p-4 overflow-hidden"
+        style="background: var(--bg-login); backdrop-filter: blur(12px);">
+
+        <!-- Floating Background Elements -->
+        <div class="absolute inset-0 z-0 pointer-events-none opacity-[0.35]" aria-hidden="true">
+            <i
+                class="fa-solid fa-gavel text-emerald-500 text-6xl absolute top-[15%] left-[20%] animate-float-slow transform rotate-12"></i>
+            <i
+                class="fa-solid fa-scale-balanced text-emerald-400 text-8xl absolute top-[60%] left-[10%] animate-float-medium transform -rotate-12"></i>
+            <i
+                class="fa-solid fa-file-contract text-emerald-300 text-7xl absolute top-[25%] right-[15%] animate-float-fast transform rotate-6"></i>
+            <i
+                class="fa-solid fa-user-shield text-emerald-600 text-5xl absolute top-[70%] right-[25%] animate-float-slow transform -rotate-6"></i>
+        </div>
+
+        <div
+            class="w-full max-w-md glass-panel p-8 rounded-3xl shadow-2xl space-y-6 relative border border-emerald-500/30 z-10">
+
+            <!-- Branding Header -->
+            <div class="text-center space-y-2">
+                <div
+                    class="w-16 h-16 rounded-2xl bg-emerald-500/20 border border-emerald-400/40 flex items-center justify-center mx-auto shadow-lg shadow-emerald-500/10">
+                    <i class="fa-solid fa-scale-balanced text-emerald-400 text-3xl"></i>
+                </div>
+                <h1
+                    class="font-heading font-extrabold text-2xl text-heading tracking-tight flex items-center justify-center gap-2">
+                    COURTLOG
+                </h1>
+                <p class="text-xs text-emerald-400/80 font-medium">Judiciary Delay Compliance & Case Management System
+                </p>
+            </div>
+
+            <!-- Login Form -->
+            <form id="form-login" action="javascript:void(0);" onsubmit="handleLoginSubmit(event); return false;"
+                class="space-y-4">
+                <div id="login-error-msg"
+                    class="hidden p-3 rounded-xl bg-rose-950/60 border border-rose-500/40 text-rose-300 text-xs flex items-center gap-2">
+                    <i class="fa-solid fa-circle-exclamation text-rose-400 text-base"></i>
+                    <span id="login-error-text">Invalid username or password.</span>
+                </div>
+
+                <div>
+                    <label class="stat-label block mb-1 text-xs font-semibold">Username / User ID</label>
+                    <div class="relative">
+                        <span class="absolute inset-y-0 left-0 flex items-center pl-3 text-muted-th">
+                            <i class="fa-solid fa-user text-xs"></i>
+                        </span>
+                        <input type="text" id="login-username" required
+                            class="th-input w-full pl-9 py-2.5 rounded-xl text-xs" placeholder="e.g. cr" value="cr">
+                    </div>
+                </div>
+
+                <div>
+                    <label class="stat-label block mb-1 text-xs font-semibold">Password</label>
+                    <div class="relative">
+                        <span class="absolute inset-y-0 left-0 flex items-center pl-3 text-muted-th">
+                            <i class="fa-solid fa-lock text-xs"></i>
+                        </span>
+                        <input type="password" id="login-password" required
+                            class="th-input w-full pl-9 py-2.5 rounded-xl text-xs" placeholder="Enter password"
+                            value="12345">
+                    </div>
+                </div>
+
+                <button type="submit" id="btn-login-submit"
+                    class="btn-primary w-full py-3 text-sm font-bold shadow-xl shadow-emerald-600/20 flex items-center justify-center gap-2">
+                    <i class="fa-solid fa-right-to-bracket"></i> Sign In to Portal
+                </button>
+            </form>
+
+        </div>
+    </div>
+
+    <!-- Toast Notifications -->
+    <div id="toast-container"></div>
+
+    <!-- Client app code file integration -->
+    <script src="/static/app.js"></script>
+</body>
+
+</html>
