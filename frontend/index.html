@@ -693,7 +693,7 @@
                             </div>
                             <h3 class="font-heading font-bold text-lg text-heading">Court Clerk Call-Over Adjournment
                                 Engine</h3>
-                            <p class="text-xs text-body">Record hearing outcomes and a next date. A saved adjournment updates the case-level count; any WhatsApp payload is a demo simulation only and no real notice is sent.</p>
+                            <p class="text-xs text-body">Record the hearing outcome and next date. If Cloud API delivery is enabled, an approved generic template goes one-to-one only to contacts with explicit active opt-in; it contains no case ID, date, or reason. Demo/disabled modes make no external request.</p>
                         </div>
 
                         <!-- Core Hearing Logging Form -->
@@ -703,8 +703,7 @@
                                 <!-- Suit Number Select -->
                                 <div>
                                     <label class="stat-label block mb-1">Court Suit File ID</label>
-                                    <select id="hearing-case-id" class="th-input w-full py-2"
-                                        onchange="updateHearingLogDetails()">
+                                    <select id="hearing-case-id" class="th-input w-full py-2">
                                         <!-- Dynamic option cases from JS -->
                                     </select>
                                 </div>
@@ -765,14 +764,8 @@
 
                             <div class="wa-preview space-y-2">
                                 <p class="text-xs font-semibold text-heading flex items-center gap-2"><i
-                                        class="fa-brands fa-whatsapp text-emerald-th text-sm"></i> Demo-only Payload Preview</p>
-                                <div class="wa-payload">
-                                    <span style="color:var(--text-muted)">[WhatsApp Payload] &quot;</span>SUIT NO: <span
-                                        id="preview-suit-id">DEMO/CR/104/2025</span> adjourned to <span
-                                        id="preview-next-date">2026-10-22</span>. Reason: <span
-                                        id="preview-reason">Counsel Absent</span>. File routing back to Registry.<span
-                                        style="color:var(--text-muted)">&quot;</span>
-                                </div>
+                                        class="fa-brands fa-whatsapp text-emerald-th text-sm"></i> Notification safeguards</p>
+                                <div class="wa-payload">The approved template is generic. Suit number, hearing date, reason, and case content are not sent to WhatsApp. Contacts without an active recorded opt-in are suppressed.</div>
                             </div>
 
                             <button type="submit" class="btn-primary w-full">
@@ -1131,36 +1124,85 @@
                     </div>
                 </div>
 
-                <!-- ================== TAB 5: WHATSAPP LOG CONSOLE ================== -->
-                <section id="tab-whatsapp" class="hidden space-y-8 max-w-4xl mx-auto">
-                    <div class="glass-panel rounded-2xl p-8 space-y-6">
-                        <div class="flex items-center justify-between pb-4"
+                <!-- ================== TAB 5: WHATSAPP NOTIFICATIONS ================== -->
+                <section id="tab-whatsapp" class="hidden space-y-6 max-w-4xl mx-auto">
+                    <div class="glass-panel rounded-2xl p-6 space-y-5">
+                        <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3 pb-4"
                             style="border-bottom:1px solid var(--border-color)">
                             <div>
-                                <h3 class="font-heading font-bold text-lg text-heading">WhatsApp Notification Simulation</h3>
-                                <p class="text-xs text-body">Demo-only simulated payload history. This build does not send messages through Meta or WhatsApp.</p>
+                                <h3 class="font-heading font-bold text-lg text-heading">WhatsApp Notifications</h3>
+                                <p class="text-xs text-body">One-to-one approved templates only. Case numbers, hearing dates, reasons, and case details are not placed in the message.</p>
                             </div>
-                            <span id="whatsapp-mode-status" class="badge badge-low font-mono flex items-center gap-1.5 px-3 py-1 rounded-full">
-                                Simulator disabled in this environment
+                            <span id="whatsapp-mode-status" class="badge badge-low font-mono px-3 py-1 rounded-full" role="status" aria-live="polite">
+                                Checking server configuration…
                             </span>
                         </div>
+                        <p id="whatsapp-config-detail" class="text-xs text-body" role="status" aria-live="polite"></p>
+                        <p class="text-xs text-body">A contact phone number is not consent. This screen records an opt-in that was already obtained and documented; never mark a number opted in without the recipient's permission. Demo/disabled modes do not contact WhatsApp.</p>
 
-                        <!-- List of Webhook Payloads -->
-                        <div class="space-y-4">
-                            <div class="flex items-center justify-between text-xs font-semibold px-2"
-                                style="color:var(--text-muted)">
-                                <span>Payload Timestamp</span>
-                                <span>API Destination Endpoint</span>
+                        <form id="form-whatsapp-preference" onsubmit="handleWhatsAppPreferenceSubmit(event)"
+                            class="grid grid-cols-1 md:grid-cols-2 gap-4 pt-4" style="border-top:1px solid var(--border-color)">
+                            <div class="md:col-span-2">
+                                <h4 class="font-semibold text-heading text-sm">Record consent preference</h4>
+                                <p class="text-[11px] text-body mt-1">Numbers are stored as keyed hashes in the consent table; the form clears the entered number after recording.</p>
                             </div>
+                            <div>
+                                <label class="stat-label block mb-1" for="whatsapp-preference-phone">Phone number</label>
+                                <input id="whatsapp-preference-phone" type="tel" autocomplete="off" class="th-input w-full py-2" placeholder="+2348031234567" required>
+                            </div>
+                            <div>
+                                <label class="stat-label block mb-1" for="whatsapp-preference-choice">Preference</label>
+                                <select id="whatsapp-preference-choice" class="th-input w-full py-2" required>
+                                    <option value="opted_in">Opted in (permission already obtained)</option>
+                                    <option value="opted_out">Opted out / do not message</option>
+                                </select>
+                            </div>
+                            <div>
+                                <label class="stat-label block mb-1" for="whatsapp-consent-source">Consent/source</label>
+                                <input id="whatsapp-consent-source" class="th-input w-full py-2" maxlength="120" placeholder="e.g. signed consent form" required>
+                            </div>
+                            <div>
+                                <label class="stat-label block mb-1" for="whatsapp-consent-reference">Evidence reference (required for opt-in)</label>
+                                <input id="whatsapp-consent-reference" class="th-input w-full py-2" maxlength="200" placeholder="Internal reference; do not enter message content">
+                            </div>
+                            <div class="md:col-span-2 flex items-center justify-between gap-3">
+                                <span id="whatsapp-preference-status" class="text-xs text-body" role="status" aria-live="polite"></span>
+                                <button type="submit" class="btn-primary text-xs py-2 px-4"><i class="fa-solid fa-shield-halved mr-1"></i> Save preference</button>
+                            </div>
+                        </form>
 
-                            <div id="whatsapp-logs-container"
-                                class="space-y-4 max-h-[500px] overflow-y-auto custom-scrollbar pr-2">
-                                <div class="text-center py-12 text-xs" style="color:var(--text-muted)">
-                                    <i class="fa-solid fa-circle-nodes text-3xl mb-3 block"
-                                        style="color:var(--border-color)"></i>
-                                    No simulated WhatsApp requests have been broadcasted yet. Adjourn a case to trigger
-                                    webhooks.
-                                </div>
+                        <form id="form-whatsapp-test" onsubmit="handleWhatsAppTestSubmit(event)"
+                            class="grid grid-cols-1 md:grid-cols-3 gap-4 pt-4" style="border-top:1px solid var(--border-color)">
+                            <div class="md:col-span-3">
+                                <h4 class="font-semibold text-heading text-sm">Send a controlled test template</h4>
+                                <p class="text-[11px] text-body mt-1">Only active opt-in contacts can receive it. Select a fictional/test case contact or a number you control; no free-form message text is accepted.</p>
+                            </div>
+                            <div class="md:col-span-2">
+                                <label class="stat-label block mb-1" for="whatsapp-test-case">Case</label>
+                                <select id="whatsapp-test-case" class="th-input w-full py-2" required>
+                                    <option value="">Select a case</option>
+                                </select>
+                            </div>
+                            <div>
+                                <label class="stat-label block mb-1" for="whatsapp-test-party">Contact</label>
+                                <select id="whatsapp-test-party" class="th-input w-full py-2" required>
+                                    <option value="counsel">Counsel</option>
+                                    <option value="litigant">Litigant</option>
+                                </select>
+                            </div>
+                            <div class="md:col-span-3 flex items-center justify-between gap-3">
+                                <span id="whatsapp-test-status" class="text-xs text-body" role="status" aria-live="polite"></span>
+                                <button type="submit" class="btn-secondary text-xs py-2 px-4"><i class="fa-brands fa-whatsapp mr-1"></i> Send approved template</button>
+                            </div>
+                        </form>
+
+                        <div class="space-y-3 pt-4" style="border-top:1px solid var(--border-color)">
+                            <div class="flex items-center justify-between text-xs font-semibold px-1" style="color:var(--text-muted)">
+                                <span>Delivery/activity log</span>
+                                <button type="button" onclick="loadWhatsAppLogs()" class="hover:underline">Refresh</button>
+                            </div>
+                            <div id="whatsapp-logs-container" class="space-y-3 max-h-[500px] overflow-y-auto custom-scrollbar pr-2">
+                                <div class="text-center py-10 text-xs" style="color:var(--text-muted)">No WhatsApp activity has been recorded.</div>
                             </div>
                         </div>
                     </div>

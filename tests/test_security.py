@@ -4,6 +4,8 @@ import tempfile
 import json
 import sqlite3
 import secrets
+import hashlib
+import hmac
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from concurrent.futures import ThreadPoolExecutor
@@ -21,7 +23,12 @@ import pytest
 from backend import main
 from backend.auth import create_access_token, create_refresh_token, REFRESH_TOKEN_EXPIRE_DAYS
 from backend.database import SQLiteDatabase, get_password_hash, verify_password
-from backend.whatsapp import send_adjournment_broadcast
+from backend.whatsapp import (
+    hash_phone as hash_whatsapp_phone,
+    mask_phone as mask_whatsapp_phone,
+    normalize_whatsapp_phone,
+    send_adjournment_broadcast,
+)
 
 # TestClient uses HTTP; production configuration remains secure by default.
 main.COOKIE_SECURE = False
@@ -447,13 +454,15 @@ def test_live_bootstrap_is_env_driven_and_demo_accounts_are_disabled(tmp_path, m
     provisioned_db.conn.close()
 
 
-def test_live_mode_does_not_send_whatsapp_simulation_or_expose_logs():
+def test_live_mode_does_not_send_whatsapp_without_database_or_configuration():
     assert client.get('/api/config').json() == {'demo_mode':False}
     with patch('backend.whatsapp.requests.post') as send:
         result = send_adjournment_broadcast('SEC/NO-SEND', '2026-10-02', 'Test only')
         send.assert_not_called()
     assert result['status'] == 'disabled'
-    assert client.get('/api/whatsapp/logs', headers=headers('usr_cr_01')).status_code == 404
+    assert client.get('/api/whatsapp/logs', headers=headers('usr_cr_01')).status_code == 200
+    assert client.get('/api/whatsapp/logs', headers=headers('usr_clerk_01')).status_code == 403
+    assert client.get('/api/whatsapp/status', headers=headers('usr_clerk_01')).status_code == 403
 
 
 def test_demo_simulator_requires_configured_secret(monkeypatch):
@@ -464,8 +473,224 @@ def test_demo_simulator_requires_configured_secret(monkeypatch):
     assert denied.status_code == 401
     accepted = client.post('/api/whatsapp/webhook-simulator', headers={'X-Simulator-Secret':'demo-secret-123'}, json={'simulated_text':'TEST'})
     assert accepted.status_code == 200
-    assert client.get('/api/whatsapp/logs', headers=headers('usr_cr_01')).status_code == 200
+    logs = client.get('/api/whatsapp/logs', headers=headers('usr_cr_01'))
+    assert logs.status_code == 200
+    assert logs.json()[0]['status'] == 'simulated_webhook'
+    assert 'payload' not in logs.json()[0]
     main.whatsapp_logs.clear()
+
+
+def configure_whatsapp_cloud(monkeypatch, *, demo=False, enabled=True):
+    values = {
+        'DEMO_MODE': 'true' if demo else 'false',
+        'WHATSAPP_ENABLED': 'true' if enabled else 'false',
+        'WHATSAPP_ACCESS_TOKEN': 'fake-test-token-not-a-secret',
+        'WHATSAPP_PHONE_NUMBER_ID': '123456789012345',
+        'WHATSAPP_API_VERSION': 'v26.0',
+        'WHATSAPP_TEMPLATE_NAME': 'courtlog_schedule_notice',
+        'WHATSAPP_TEMPLATE_LANGUAGE': 'en',
+        'WHATSAPP_APP_SECRET': 'fake-meta-app-secret-for-tests',
+        'WHATSAPP_WEBHOOK_VERIFY_TOKEN': 'test-webhook-verify-token',
+        'WHATSAPP_CONSENT_HASH_KEY': 'test-consent-hash-key-' + ('x' * 48),
+        'WHATSAPP_CONSENT_NOTICE_VERSION': 'courtlog-test-v1',
+    }
+    for key, value in values.items():
+        monkeypatch.setenv(key, value)
+
+
+@pytest.mark.parametrize(('phone', 'expected'), [
+    ('+2348031234567', '+2348031234567'),
+    ('0803 123 4567', '+2348031234567'),
+    ('2348031234567', '+2348031234567'),
+    ('00 44 20 7946 0123', '+442079460123'),
+])
+def test_whatsapp_phone_normalizer_accepts_valid_e164_forms(phone, expected):
+    assert normalize_whatsapp_phone(phone) == expected
+
+
+@pytest.mark.parametrize('phone', [
+    '+234803abc567',
+    'call 08031234567',
+    '+2348031234567/99',
+    '+2348031234567 ext 2',
+    '   ',
+])
+def test_whatsapp_phone_normalizer_rejects_letters_and_unsupported_characters(phone):
+    with pytest.raises(ValueError):
+        normalize_whatsapp_phone(phone)
+
+
+def record_opt_in(phone, *, evidence='CONSENT-TEST-01'):
+    response = client.post('/api/whatsapp/preferences', headers=headers('usr_cr_01'), json={
+        'phone': phone,
+        'status': 'opted_in',
+        'consent_source': 'test recipient written permission',
+        'evidence_reference': evidence,
+    })
+    assert response.status_code == 200, response.text
+    return response.json()
+
+
+def test_whatsapp_preferences_require_consent_and_do_not_return_raw_phone(monkeypatch):
+    configure_whatsapp_cloud(monkeypatch, enabled=False)
+    phone = '+2348031234567'
+    response = client.post('/api/whatsapp/preferences', headers=headers('usr_cr_01'), json={
+        'phone': phone, 'status': 'opted_in', 'consent_source': 'signed form',
+        'evidence_reference': 'FICTIONAL-CONSENT-01',
+    })
+    assert response.status_code == 200, response.text
+    assert phone not in response.text
+    assert response.json()['recipient'] == mask_whatsapp_phone(phone)
+    preference = main.db.get_whatsapp_preference(hash_whatsapp_phone(phone))
+    assert preference['status'] == 'opted_in'
+    assert preference['evidence_reference'] == 'FICTIONAL-CONSENT-01'
+
+    missing_evidence = client.post('/api/whatsapp/preferences', headers=headers('usr_cr_01'), json={
+        'phone': phone, 'status': 'opted_in', 'consent_source': 'signed form',
+    })
+    assert missing_evidence.status_code == 422
+    forbidden = client.post('/api/whatsapp/preferences', headers=headers('usr_clerk_01'), json={
+        'phone': phone, 'status': 'opted_out', 'consent_source': 'recipient request',
+    })
+    assert forbidden.status_code == 403
+
+    opted_out = client.post('/api/whatsapp/preferences', headers=headers('usr_cr_01'), json={
+        'phone': phone, 'status': 'opted_out', 'consent_source': 'recipient request',
+    })
+    assert opted_out.status_code == 200
+    assert main.db.get_whatsapp_preference(hash_whatsapp_phone(phone))['status'] == 'opted_out'
+    assert phone not in json.dumps(main.db.list_audit_events(50))
+
+
+def test_whatsapp_adjournment_sends_only_generic_template_to_opted_in_party_once(monkeypatch):
+    configure_whatsapp_cloud(monkeypatch)
+    case_id = 'SEC/WA-CLOUD-ONE'
+    phone_counsel = '+2348031234567'
+    phone_litigant = '+2348037654321'
+    case = fixture_case(case_id)
+    case['party_contact'] = {'counsel_phone': phone_counsel, 'litigant_phone': phone_litigant}
+    main.db.save_case(case_id, case)
+    record_opt_in(phone_counsel, evidence='FICTIONAL-CONSENT-COUNSEL')
+
+    class FakeMetaResponse:
+        status_code = 200
+        def json(self):
+            return {'messages': [{'id': 'wamid.COURTLOG-TEST-001'}]}
+
+    with patch('backend.whatsapp.requests.post', return_value=FakeMetaResponse()) as send:
+        response = client.post(
+            f'/api/cases/{case_id}/hearings', headers=headers('usr_clerk_01'),
+            json={'outcome':'Adjourned', 'reason_code':'Counsel Absent', 'next_date':'2026-10-20'},
+        )
+        assert response.status_code == 200, response.text
+        assert send.call_count == 1
+        request = send.call_args.kwargs
+        assert request['timeout'] == (5, 20)
+        assert request['allow_redirects'] is False
+        payload = request['json']
+        assert payload['messaging_product'] == 'whatsapp'
+        assert payload['to'] == phone_counsel
+        assert payload['type'] == 'template'
+        assert payload['template'] == {'name':'courtlog_schedule_notice', 'language':{'code':'en'}}
+        serialized_payload = json.dumps(payload)
+        for private_value in (case_id, '2026-10-20', 'Counsel Absent', phone_litigant):
+            assert private_value not in serialized_payload
+
+        event_id = response.json()['hearing_log'][-1]['event_id']
+        # The same hearing event is deduplicated, and the non-consenting litigant stays suppressed.
+        send_adjournment_broadcast(
+            case_id, '2026-10-20', 'Counsel Absent', event_id=event_id, database=main.db,
+        )
+        assert send.call_count == 1
+
+    messages = {message['recipient_role']: message for message in main.db.list_whatsapp_messages(100)
+                if message['case_id'] == case_id and message['trigger_type'] == 'adjournment'}
+    assert messages['counsel']['status'] == 'accepted'
+    assert messages['counsel']['provider_message_id'] == 'wamid.COURTLOG-TEST-001'
+    assert messages['litigant']['status'] == 'suppressed_no_consent'
+    assert phone_counsel not in json.dumps(messages)
+    assert phone_litigant not in json.dumps(messages)
+    raw_rows = main.db.conn.execute(
+        'SELECT recipient_hash, recipient_masked FROM whatsapp_messages WHERE case_id = ?', (case_id,)
+    ).fetchall()
+    assert all(phone_counsel not in str(row) and phone_litigant not in str(row) for row in raw_rows)
+
+
+def test_whatsapp_signed_webhook_updates_status_and_honours_stop(monkeypatch):
+    configure_whatsapp_cloud(monkeypatch)
+    case_id = 'SEC/WA-WEBHOOK'
+    phone = '+2348030009876'
+    case = fixture_case(case_id)
+    case['party_contact'] = {'counsel_phone': phone, 'litigant_phone': '+2348030009877'}
+    main.db.save_case(case_id, case)
+    record_opt_in(phone, evidence='FICTIONAL-WEBHOOK-CONSENT')
+
+    class FakeMetaResponse:
+        status_code = 200
+        def json(self):
+            return {'messages': [{'id': 'wamid.COURTLOG-WEBHOOK'}]}
+
+    with patch('backend.whatsapp.requests.post', return_value=FakeMetaResponse()) as send:
+        queued = client.post('/api/whatsapp/test-send', headers=headers('usr_cr_01'), json={
+            'case_id': case_id, 'recipient_role': 'counsel',
+        })
+        assert queued.status_code == 202, queued.text
+        assert phone not in queued.text
+        assert send.call_count == 1
+
+    verify = client.get('/api/whatsapp/webhook', params={
+        'hub.mode':'subscribe', 'hub.verify_token':'test-webhook-verify-token', 'hub.challenge':'challenge-42',
+    })
+    assert verify.status_code == 200
+    assert verify.text == 'challenge-42'
+
+    payload = {'entry':[{'changes':[{'value':{
+        'statuses':[{'id':'wamid.COURTLOG-WEBHOOK', 'status':'delivered'}],
+        'messages':[{'from':'2348030009876', 'type':'text', 'text':{'body':'STOP'}}],
+    }}]}]}
+    raw = json.dumps(payload, separators=(',', ':')).encode()
+    signature = 'sha256=' + hmac.new(b'fake-meta-app-secret-for-tests', raw, hashlib.sha256).hexdigest()
+    callback = client.post('/api/whatsapp/webhook', content=raw, headers={
+        'Content-Type':'application/json', 'X-Hub-Signature-256':signature,
+    })
+    assert callback.status_code == 200, callback.text
+    assert main.db.get_whatsapp_message(queued.json()['message_id'])['status'] == 'delivered'
+    assert main.db.get_whatsapp_preference(hash_whatsapp_phone(phone))['status'] == 'opted_out'
+
+    # Invalid signatures are rejected, and a delayed earlier status cannot roll back delivery.
+    assert client.post('/api/whatsapp/webhook', content=raw, headers={
+        'Content-Type':'application/json', 'X-Hub-Signature-256':'sha256=bad',
+    }).status_code == 401
+    late_sent = {'entry':[{'changes':[{'value':{'statuses':[
+        {'id':'wamid.COURTLOG-WEBHOOK', 'status':'sent'}
+    ]}}]}]}
+    raw_late = json.dumps(late_sent, separators=(',', ':')).encode()
+    late_signature = 'sha256=' + hmac.new(b'fake-meta-app-secret-for-tests', raw_late, hashlib.sha256).hexdigest()
+    assert client.post('/api/whatsapp/webhook', content=raw_late, headers={
+        'Content-Type':'application/json', 'X-Hub-Signature-256':late_signature,
+    }).status_code == 200
+    assert main.db.get_whatsapp_message(queued.json()['message_id'])['status'] == 'delivered'
+    assert client.post('/api/whatsapp/test-send', headers=headers('usr_cr_01'), json={
+        'case_id': case_id, 'recipient_role': 'counsel',
+    }).status_code == 409
+
+
+def test_demo_mode_never_sends_real_whatsapp_even_with_cloud_credentials(monkeypatch):
+    configure_whatsapp_cloud(monkeypatch, demo=True, enabled=True)
+    case_id = 'SEC/WA-DEMO'
+    phone = '+2348031112222'
+    case = fixture_case(case_id)
+    case['party_contact'] = {'counsel_phone': phone, 'litigant_phone': '+2348031113333'}
+    main.db.save_case(case_id, case)
+    record_opt_in(phone, evidence='FICTIONAL-DEMO-CONSENT')
+    with patch('backend.whatsapp.requests.post') as send:
+        response = client.post('/api/whatsapp/test-send', headers=headers('usr_cr_01'), json={
+            'case_id': case_id, 'recipient_role': 'counsel',
+        })
+        send.assert_not_called()
+    assert response.status_code == 202
+    assert response.json()['status'] == 'simulated'
+    assert client.get('/api/whatsapp/status', headers=headers('usr_cr_01')).json()['mode'] == 'demo_simulation'
 
 
 def test_case_identifiers_are_validated_on_path_routes():

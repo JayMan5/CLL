@@ -1,6 +1,6 @@
 # COURTLOG
 
-COURTLOG is a prototype for court-file custody tracking and registry workflows. It is **not certified for production use**. Some legal/workflow policies, real integrations, deployment controls, and field acceptance checks remain open; see [`COURTLOG_COMPLETION_PLAN.md`](COURTLOG_COMPLETION_PLAN.md) and [`DEVELOPMENT_PROGRESS.md`](DEVELOPMENT_PROGRESS.md).
+COURTLOG is a **competition-team prototype**, not a governmental entity or certified public-sector service. Feature development is authorized and does not wait on government approval; use synthetic/demo data unless written permission authorizes specific real court records. It is **not certified for production use**. Some legal/workflow policies, real integrations, deployment controls, and field acceptance checks remain open; see [`COURTLOG_COMPLETION_PLAN.md`](COURTLOG_COMPLETION_PLAN.md), [`DEVELOPMENT_PROGRESS.md`](DEVELOPMENT_PROGRESS.md), and the [hosting comparison and recommendation](docs/HOSTING_COMPARISON_2026-10-01.md).
 
 ## Safety before running
 
@@ -25,7 +25,7 @@ On Windows, use `.venv\Scripts\python.exe` instead of `.venv/bin/python`.
 ### Start an isolated fictional local demo
 
 1. Copy `.env.example` to `.env` and edit it for a **disposable local demo only**. Set `DEMO_MODE=true`, `COOKIE_SECURE=false` (plain HTTP is only for local development), and use a unique path under `.local/` for `COURTLOG_DB_PATH`, `JWT_PRIVATE_KEY_PATH`, and `JWT_PUBLIC_KEY_PATH`. Use a fresh database file rather than the tracked `data/courtlog.db`.
-2. Set a local-only `SIMULATOR_SECRET` if you want to exercise the explicitly labelled simulator. It does not send real WhatsApp messages.
+2. Set a local-only `SIMULATOR_SECRET` only if you need to exercise the redacted demo webhook. It does not send real WhatsApp messages. The Meta Cloud API remains disabled by default.
 3. Start the API and static frontend:
 
 ```bash
@@ -61,6 +61,20 @@ npm audit --audit-level=high
 
 `npm run build:frontend` writes deployable static bundles and the limited static vendor assets under `frontend/`. The exact package versions are pinned in `package.json` and `package-lock.json`; `npm ci` installs the lockfile versions. The service worker's cache list must be kept in step with changed static assets and its cache name bumped when the shell changes.
 
+## WhatsApp Cloud API setup (optional; disabled by default)
+
+CourtLOG sends only a one-to-one, Meta-approved template to a counsel/litigant contact whose explicit opt-in is currently recorded. The template must be generic and contain no case number, hearing date, or reason; the API payload does not send those fields. Inbound `STOP`, `STOP ALL`, `UNSUBSCRIBE`, `CANCEL`, `END`, `QUIT`, and `REMOVE` messages revoke the number's opt-in. The Chief Registrar console records existing consent evidence—it does not collect a recipient's consent. Do not infer consent from a phone number being present in a case.
+
+Before enabling a real send:
+
+1. Create/configure the Meta WhatsApp Business account, phone number, Cloud API app, and a public HTTPS webhook at `/api/whatsapp/webhook`; subscribe the app to the WhatsApp message/status fields. Meta's webhook challenge/signature is checked by the API.
+2. Create and obtain approval for a generic utility template with no body variables, e.g. `CourtLOG has a schedule update. Sign in to the official portal to review it. Reply STOP to opt out.` Set `WHATSAPP_TEMPLATE_NAME` and its language to match the approved template. The application cannot verify Meta's template approval status.
+3. Store the Cloud API access token, phone-number ID, Meta app secret, webhook verify token, and a stable `WHATSAPP_CONSENT_HASH_KEY` (at least 32 bytes) in the deployment's secret manager. Keep the HMAC key stable and back it up securely: consent lookups stop matching if it changes. Set `WHATSAPP_ENABLED=true` only after the webhook and consent path are ready. Never set these secrets in source control or browser JavaScript.
+4. Use fictional cases and a recipient controlled by the team. Record the recipient's actual opt-in evidence with the Chief Registrar screen, then use its case/party selector to send a generic test template. `DEMO_MODE=true` always prevents real sends, even if WhatsApp variables are present.
+5. Inspect the persistent delivery status and test the signed Meta callback plus opt-out flow. Unknown network outcomes are not automatically retried because the provider may already have accepted the message; verify status before any manual retry.
+
+See [`.env.example`](.env.example) for the server variables. Meta's rules for opt-in, approved templates, business-initiated conversations, categories, and pricing still apply; hosting the integration does not satisfy them. Live delivery has not been exercised without real credentials and an approved test setup.
+
 ## Frontend dependencies and offline behavior
 
 Tailwind CSS, Chart.js, Font Awesome, Outfit, and Plus Jakarta Sans are built/served from local, pinned assets. The app does not need a font, icon, CSS, chart, or QR-generation CDN at runtime. See [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md) and the copied licenses under `frontend/vendor/`.
@@ -72,7 +86,7 @@ The service worker caches the static app shell and `offline.html` only. `/api/` 
 - The hearing endpoint currently applies a **case-level application trigger** when `adjournment_count >= 4` and no override reason exists. It does not implement a validated per-party legal count and must not be presented as an ACJA/ACJL finding. The threshold and workflow remain unchanged pending Law Lead sign-off.
 - A DCR/Chief Registrar acknowledgement records a note but does not approve or unblock the case. More than 24 hours after a pending review is requested, the scheduled workflow sweep records an in-app escalation state; it sends no external notification.
 - Delay-risk scores use a synthetic prototype training set with rule-generated labels, or a deterministic heuristic fallback when a trained artifact is not present. There is no independent validation against real court outcomes; scores are not legal findings or a basis for decisions.
-- WhatsApp is a demo-only simulator; it sends no real recipient notice.
+- WhatsApp now has a configurable Meta Cloud API adapter, a persistent privacy-minimized delivery log, signed webhook/status handling, and explicit opt-in/opt-out checks. It is disabled by default; `DEMO_MODE=true` can never send real messages. Live delivery still requires a Meta account, server-side secrets, a Meta-approved generic template, a public HTTPS webhook, a documented recipient opt-in, and a consented test. No live account/credentials were supplied for this code change, so real delivery remains unverified.
 
 ## Pilot and legal gates
 

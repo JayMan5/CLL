@@ -81,9 +81,7 @@ async function loadAppConfig() {
         demoMode = false; // Fail closed: hide simulator-only UI if config cannot be read.
     }
     const status = document.getElementById("whatsapp-mode-status");
-    if (status) status.textContent = demoMode ? "DEMO SIMULATOR — NOT LIVE DELIVERY" : "Simulator disabled in this environment";
-    const nav = document.getElementById("nav-whatsapp");
-    if (nav) nav.style.display = "none";
+    if (status) status.textContent = demoMode ? "DEMO SIMULATION — NOT LIVE" : "CHECKING SERVER CONFIGURATION";
 }
 
 function getTheme() {
@@ -465,7 +463,7 @@ function updateRoleUI() {
     if (navDCR) navDCR.style.display = (role === "DCR" || role === "Chief Registrar") ? "flex" : "none";
     if (navJudge) navJudge.style.display = (role === "Judge" || role === "Chief Registrar") ? "flex" : "none";
     if (navUserAdmin) navUserAdmin.style.display = (role === "Chief Registrar") ? "flex" : "none";
-    if (navWhatsApp) navWhatsApp.style.display = (demoMode && role === "Chief Registrar") ? "flex" : "none";
+    if (navWhatsApp) navWhatsApp.style.display = (role === "Chief Registrar") ? "flex" : "none";
     if (btnReportExport) btnReportExport.style.display = (role === "Chief Registrar" || role === "DCR") ? "inline-flex" : "none";
 
     const sheriffQrTools = document.getElementById("sheriff-qr-tools");
@@ -487,7 +485,7 @@ function logger(message) {
 
 // Switching Tabs (Single Page App Navigation)
 function switchTab(tabId) {
-    if (tabId === "tab-whatsapp" && (!demoMode || authenticatedUser?.role !== "Chief Registrar")) {
+    if (tabId === "tab-whatsapp" && authenticatedUser?.role !== "Chief Registrar") {
         tabId = "tab-overview";
     }
     if (tabId === "tab-qr-scan" && !["Sheriff", "Clerk", "Chief Registrar"].includes(authenticatedUser?.role)) {
@@ -519,6 +517,10 @@ function switchTab(tabId) {
     if (tabId === "tab-judge-docket" && ["Judge", "Chief Registrar"].includes(authenticatedUser?.role)) {
         fetchJudgeAlerts();
     }
+    if (tabId === "tab-whatsapp" && authenticatedUser?.role === "Chief Registrar") {
+        loadWhatsAppStatus();
+        loadWhatsAppLogs();
+    }
 
     const viewTitles = {
         "tab-overview": "Registry Performance Hub",
@@ -529,7 +531,7 @@ function switchTab(tabId) {
         "tab-ai-risk": "Experimental Delay-Risk Prototype",
         "tab-execution": "Post-Judgment Workflow Prototype",
         "tab-user-admin": "Judiciary User Administration",
-        "tab-whatsapp": "WhatsApp Webhook Simulation Stream"
+        "tab-whatsapp": "WhatsApp Notifications"
     };
     document.getElementById("view-title").textContent = viewTitles[tabId] || "Registry Hub";
 }
@@ -562,7 +564,11 @@ async function loadDashboardData() {
             const alertCount = document.getElementById("judge-alert-count");
             if (alertCount) alertCount.textContent = "0";
         }
-        if (demoMode && authenticatedUser?.role === "Chief Registrar") loadWhatsAppLogs();
+        if (authenticatedUser?.role === "Chief Registrar") {
+            populateWhatsAppTestCases();
+            loadWhatsAppStatus();
+            loadWhatsAppLogs();
+        }
     } catch (error) {
         logger(`Error loading dashboard: ${error}`);
     }
@@ -581,17 +587,115 @@ async function loadUsersData() {
     }
 }
 
+async function loadWhatsAppStatus() {
+    try {
+        const response = await apiFetch(`${API_BASE}/whatsapp/status`, { headers: getAuthHeaders() });
+        if (!response.ok) throw new Error("Unable to read WhatsApp configuration status");
+        const statusData = await response.json();
+        const status = document.getElementById("whatsapp-mode-status");
+        const detail = document.getElementById("whatsapp-config-detail");
+        const labels = {
+            demo_simulation: "DEMO SIMULATION — NOT LIVE",
+            disabled: "DELIVERY DISABLED",
+            misconfigured: "CLOUD API INCOMPLETE",
+            cloud_api: "META API CONFIGURED — UNVERIFIED"
+        };
+        if (status) status.textContent = labels[statusData.mode] || "STATUS UNAVAILABLE";
+        if (detail) {
+            const missing = Array.isArray(statusData.missing) && statusData.missing.length
+                ? ` Missing server settings: ${statusData.missing.join(", ")}.`
+                : "";
+            const template = statusData.template_name ? ` Template: ${statusData.template_name}.` : "";
+            detail.textContent = `${statusData.message || ""}${template}${missing} Signed webhook: ${statusData.webhook_ready ? "configured" : "not configured"}.`;
+        }
+    } catch (error) {
+        const status = document.getElementById("whatsapp-mode-status");
+        const detail = document.getElementById("whatsapp-config-detail");
+        if (status) status.textContent = "STATUS UNAVAILABLE";
+        if (detail) detail.textContent = "WhatsApp configuration status could not be loaded.";
+        logger(`Error loading WhatsApp status: ${error}`);
+    }
+}
+
 async function loadWhatsAppLogs() {
     try {
-        const response = await apiFetch(`${API_BASE}/whatsapp/logs`, {
-            headers: getAuthHeaders()
-        });
+        const response = await apiFetch(`${API_BASE}/whatsapp/logs`, { headers: getAuthHeaders() });
         if (!response.ok) throw new Error("HTTP error loading logs");
-
         whatsappLogs = await response.json();
         renderWhatsAppLogs();
     } catch (error) {
         logger(`Error loading WhatsApp logs: ${error}`);
+    }
+}
+
+function populateWhatsAppTestCases() {
+    const select = document.getElementById("whatsapp-test-case");
+    if (!select) return;
+    const previous = select.value;
+    select.replaceChildren(new Option("Select a case", ""));
+    casesData.forEach(caseRecord => {
+        const option = new Option(String(caseRecord.case_id || ""), String(caseRecord.case_id || ""));
+        select.add(option);
+    });
+    if (previous && Array.from(select.options).some(option => option.value === previous)) {
+        select.value = previous;
+    }
+}
+
+async function handleWhatsAppPreferenceSubmit(event) {
+    event.preventDefault();
+    const phone = document.getElementById("whatsapp-preference-phone").value.trim();
+    const status = document.getElementById("whatsapp-preference-choice").value;
+    const consent_source = document.getElementById("whatsapp-consent-source").value.trim();
+    const evidence_reference = document.getElementById("whatsapp-consent-reference").value.trim();
+    const output = document.getElementById("whatsapp-preference-status");
+    if (status === "opted_in" && !evidence_reference) {
+        if (output) output.textContent = "Add the evidence reference before recording an opt-in.";
+        return;
+    }
+    try {
+        const response = await apiFetch(`${API_BASE}/whatsapp/preferences`, {
+            method: "POST",
+            headers: getAuthHeaders(),
+            body: JSON.stringify({ phone, status, consent_source, evidence_reference: evidence_reference || null })
+        });
+        const body = await response.json().catch(() => ({}));
+        if (!response.ok) throw new Error(body.detail || "Preference could not be saved.");
+        if (output) output.textContent = `${body.status} recorded for ${body.recipient}.`;
+        document.getElementById("whatsapp-preference-phone").value = "";
+        document.getElementById("whatsapp-consent-source").value = "";
+        document.getElementById("whatsapp-consent-reference").value = "";
+        showToast(`WhatsApp preference recorded for ${body.recipient}.`, "success");
+        await loadWhatsAppLogs();
+    } catch (error) {
+        if (output) output.textContent = error.message || "Preference could not be saved.";
+        showToast(error.message || "Preference could not be saved.", "error");
+    }
+}
+
+async function handleWhatsAppTestSubmit(event) {
+    event.preventDefault();
+    const case_id = document.getElementById("whatsapp-test-case").value;
+    const recipient_role = document.getElementById("whatsapp-test-party").value;
+    const output = document.getElementById("whatsapp-test-status");
+    if (!case_id) {
+        if (output) output.textContent = "Select a case contact first.";
+        return;
+    }
+    try {
+        const response = await apiFetch(`${API_BASE}/whatsapp/test-send`, {
+            method: "POST",
+            headers: getAuthHeaders(),
+            body: JSON.stringify({ case_id, recipient_role })
+        });
+        const body = await response.json().catch(() => ({}));
+        if (!response.ok) throw new Error(body.detail || "The test template was not queued.");
+        if (output) output.textContent = `${body.status} to ${body.recipient}; verify the delivery log and Meta callback.`;
+        showToast(`Test template ${body.status} for ${body.recipient}.`, body.status === "simulated" ? "info" : "success");
+        window.setTimeout(loadWhatsAppLogs, 800);
+    } catch (error) {
+        if (output) output.textContent = error.message || "The test template was not sent.";
+        showToast(error.message || "The test template was not sent.", "error");
     }
 }
 
@@ -784,33 +888,39 @@ function renderExecutionTable() {
 function renderWhatsAppLogs() {
     const container = document.getElementById("whatsapp-logs-container");
     if (!container) return;
-
-    if (whatsappLogs.length === 0) {
-        return; // keeps placeholder
+    container.replaceChildren();
+    if (!whatsappLogs.length) {
+        const empty = document.createElement("div");
+        empty.className = "text-center py-10 text-xs";
+        empty.style.color = "var(--text-muted)";
+        empty.textContent = "No WhatsApp activity has been recorded.";
+        container.appendChild(empty);
+        return;
     }
 
-    container.innerHTML = "";
-    whatsappLogs.map(safeRecord).forEach(log => {
-        const payload = log.payload;
-        const msgText = payload.simulated_text || "N/A";
-        const dateFormatted = new Date(log.received_at).toLocaleTimeString();
-
+    whatsappLogs.forEach(log => {
         const card = document.createElement("div");
-        card.className = "glass-panel rounded-xl p-4 space-y-3";
+        card.className = "glass-panel rounded-xl p-4 space-y-2";
+        const timestamp = log.created_at || log.received_at || "";
+        const dateFormatted = timestamp ? new Date(timestamp).toLocaleString() : "Time unavailable";
+        const recipient = log.recipient_masked || "recipient not recorded";
+        const status = log.status || "unknown";
+        const caseId = log.case_id || "No case reference";
+        const role = log.recipient_role || "";
+        const trigger = log.trigger_type || "notification";
+        const template = log.template_name || "";
+        const providerId = log.provider_message_id || "";
+        const error = [log.error_code, log.error_message].filter(Boolean).join(": ");
         card.innerHTML = `
-            <div class="flex items-center justify-between text-xs pb-2" style="border-bottom:1px solid var(--border-color)">
-                <span class="font-mono font-semibold text-accent"><i class="fa-brands fa-whatsapp text-emerald-th mr-1.5"></i> TO: ${payload.to}</span>
-                <span class="font-medium" style="color:var(--text-muted)">${dateFormatted}</span>
+            <div class="flex flex-wrap items-center justify-between gap-2 text-xs pb-2" style="border-bottom:1px solid var(--border-color)">
+                <span class="font-mono font-semibold text-accent"><i class="fa-brands fa-whatsapp text-emerald-th mr-1.5"></i> ${escapeHTML(recipient)}</span>
+                <span class="font-medium" style="color:var(--text-muted)">${escapeHTML(dateFormatted)}</span>
+                <span class="badge badge-low">${escapeHTML(status)}</span>
             </div>
-            
-            <div class="rounded-lg p-2.5 text-xs leading-relaxed font-sans" style="background:var(--bg-body); border-left:2px solid var(--emerald); color:var(--text-secondary)">
-                ${msgText}
-            </div>
-            
-            <details class="text-[10px] font-mono" style="color:var(--text-muted)">
-                <summary class="cursor-pointer hover:underline" style="color:var(--text-secondary)">View Raw API POST JSON Payload</summary>
-                <pre class="mt-2 p-3 rounded-lg overflow-x-auto text-[9px]" style="background:var(--bg-body); border:1px solid var(--border-color); color:var(--emerald)">${JSON.stringify(payload, null, 2)}</pre>
-            </details>
+            <div class="text-xs text-body">${escapeHTML(caseId)}${role ? ` · ${escapeHTML(role)}` : ""} · ${escapeHTML(trigger)}</div>
+            ${template ? `<div class="text-[11px] text-body">Template: ${escapeHTML(template)} · Generic notice only; message content is not stored.</div>` : ""}
+            ${providerId ? `<div class="text-[10px] font-mono text-body">Provider message ID: ${escapeHTML(providerId)}</div>` : ""}
+            ${error ? `<div class="text-[11px] text-rose">${escapeHTML(error)}</div>` : ""}
         `;
         container.appendChild(card);
     });
@@ -867,7 +977,7 @@ function populateDropdowns() {
     }
 
     updateQRDisplay();
-    updateHearingLogDetails();
+    populateWhatsAppTestCases();
     renderFileMissingHistory();
 }
 
@@ -1579,7 +1689,6 @@ function shortcutQRScan(caseId) {
 function shortcutHearingLog(caseId) {
     switchTab("tab-courtrooms");
     document.getElementById("hearing-case-id").value = caseId;
-    updateHearingLogDetails();
 }
 
 // Update selected case reference and locally rendered custody history.
@@ -1704,36 +1813,7 @@ function selectOutcome(outcome) {
         adjournedPanel.classList.add("hidden");
         heardPanel.classList.remove("hidden");
     }
-    updateHearingLogDetails();
 }
-
-function updateHearingLogDetails() {
-    const caseId = document.getElementById("hearing-case-id").value;
-    if (!caseId) return;
-
-    const outcome = currentHearingOutcome;
-    let nextDateVal = "";
-    let reason = "";
-
-    if (outcome === "Adjourned") {
-        nextDateVal = document.getElementById("hearing-next-date").value;
-        reason = document.getElementById("hearing-reason").value;
-    } else {
-        nextDateVal = document.getElementById("hearing-heard-next-date").value;
-        reason = document.getElementById("heard-reason").value;
-    }
-
-    // Inject previews
-    document.getElementById("preview-suit-id").textContent = caseId;
-    document.getElementById("preview-next-date").textContent = nextDateVal || "[next-date]";
-    document.getElementById("preview-reason").textContent = reason;
-}
-
-// Attach change listeners to live preview blocks
-document.getElementById("hearing-reason").addEventListener("change", updateHearingLogDetails);
-document.getElementById("hearing-next-date").addEventListener("input", updateHearingLogDetails);
-document.getElementById("heard-reason").addEventListener("change", updateHearingLogDetails);
-document.getElementById("hearing-heard-next-date").addEventListener("input", updateHearingLogDetails);
 
 // ----------------- ENFORCEMENT & WRITS ENGINE -----------------
 

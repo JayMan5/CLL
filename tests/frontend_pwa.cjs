@@ -40,7 +40,7 @@ for (const localAsset of [
 for (const [, path] of serviceWorker.matchAll(/"(\/static\/[^\"]+)"/g)) {
   assert.ok(fs.existsSync(`frontend${path.replace('/static', '')}`), `cached asset exists: ${path}`);
 }
-assert.match(serviceWorker, /courtlog-shell-v3/, 'asset changes invalidate the earlier static cache');
+assert.match(serviceWorker, /courtlog-shell-v4/, 'asset changes invalidate the earlier static cache');
 assert.match(serviceWorker, /request\.method !== "GET"/);
 assert.match(serviceWorker, /url\.pathname\.startsWith\("\/api\/"\)/, 'API responses are bypassed by the shell cache');
 assert.match(serviceWorker, /does not queue custody scans/i);

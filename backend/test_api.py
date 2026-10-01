@@ -289,7 +289,7 @@ def test_missing_file_state_is_separate_durable_and_resolved_with_reasoned_histo
     assert main.db.get_case(case["case_id"])["file_missing"] is False
 
 
-def test_hearing_route_records_workflow_and_live_mode_sends_no_simulated_webhook():
+def test_hearing_route_records_workflow_and_live_mode_sends_no_whatsapp_without_consent():
     case = add_case("HEARING")
     response = client.post(f"/api/cases/{case['case_id']}/hearings", headers=auth_headers("smoke_clerk"), json={
         "outcome": "Adjourned", "reason_code": "Fictional test reason", "next_date": "2026-10-22",
@@ -299,7 +299,9 @@ def test_hearing_route_records_workflow_and_live_mode_sends_no_simulated_webhook
     assert updated["adjournment_count"] == 1
     assert updated["hearing_log"][-1]["outcome"] == "Adjourned"
     assert updated["hearing_log"][-1]["reason_code"] == "Fictional test reason"
-    assert client.get("/api/whatsapp/logs", headers=auth_headers("smoke_cr")).status_code == 404
+    logs = client.get("/api/whatsapp/logs", headers=auth_headers("smoke_cr"))
+    assert logs.status_code == 200
+    assert not any(item.get("case_id") == case["case_id"] for item in logs.json())
     events = [event for event in main.db.list_audit_events(100) if event["entity_id"] == case["case_id"]]
     assert any(event["action"] == "case.hearing.record" and event["actor_user_id"] == "smoke_clerk" for event in events)
 

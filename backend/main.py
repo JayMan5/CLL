@@ -4,6 +4,7 @@ import logging
 import re
 import secrets
 import hashlib
+import json
 import sqlite3
 import uuid
 from dotenv import load_dotenv
@@ -16,7 +17,17 @@ from pydantic import AfterValidator, BaseModel, Field, field_validator, model_va
 load_dotenv()
 
 from backend.database import get_db_client, parse_date, format_date, verify_password, get_password_hash
-from backend.whatsapp import send_adjournment_broadcast
+from backend.whatsapp import (
+    create_manual_test_message,
+    deliver_whatsapp_message,
+    get_public_status as get_whatsapp_public_status,
+    hash_phone as hash_whatsapp_phone,
+    mask_phone as mask_whatsapp_phone,
+    normalize_whatsapp_phone,
+    send_adjournment_broadcast,
+    verify_webhook_signature,
+    webhook_verification_token,
+)
 from backend.auth import (
     REFRESH_TOKEN_EXPIRE_DAYS, create_access_token,
     create_refresh_token, verify_token, get_current_user,
@@ -358,6 +369,39 @@ class CaseCreateRequest(BaseModel):
     @classmethod
     def normalize_nigerian_phones(cls, value):
         return _normalize_nigerian_phone(value)
+
+
+class WhatsAppPreferenceRequest(BaseModel):
+    phone: str = Field(min_length=8, max_length=32)
+    status: Literal["opted_in", "opted_out"]
+    consent_source: str = Field(min_length=2, max_length=120, pattern=r"\S")
+    evidence_reference: Optional[str] = Field(default=None, max_length=200)
+
+    @field_validator("phone")
+    @classmethod
+    def normalize_phone(cls, value):
+        return normalize_whatsapp_phone(value)
+
+    @field_validator("consent_source", "evidence_reference")
+    @classmethod
+    def trim_preference_fields(cls, value):
+        if value is None:
+            return None
+        value = value.strip()
+        if not value:
+            raise ValueError("Field cannot be blank")
+        return value
+
+    @model_validator(mode="after")
+    def opt_in_requires_evidence(self):
+        if self.status == "opted_in" and not self.evidence_reference:
+            raise ValueError("An evidence_reference is required when recording an opt-in")
+        return self
+
+
+class WhatsAppTestSendRequest(BaseModel):
+    case_id: CaseIdentifier
+    recipient_role: Literal["counsel", "litigant"]
 
 
 class DCROverrideRequest(BaseModel):
@@ -1265,6 +1309,7 @@ def log_hearing_outcome(case_id: CaseIdentifier, req: HearingRequest, background
         next_date_value = format_date(req.next_date)
 
     hearing_event = {
+        "event_id": uuid.uuid4().hex,
         "date": format_date(get_current_time()),
         "outcome": req.outcome,
         "reason_code": req.reason_code if req.outcome == "Adjourned" else "None",
@@ -1283,7 +1328,9 @@ def log_hearing_outcome(case_id: CaseIdentifier, req: HearingRequest, background
             case_id=case_id,
             next_date=next_date_value,
             reason_code=req.reason_code,
-            group_id="registry-group-104"
+            event_id=hearing_event["event_id"],
+            database=db,
+            actor_user_id=auth["user_id"],
         )
     elif req.outcome == "Heard" and req.reason_code in ["Judgment Delivered", "Ruling Delivered"]:
         updates["judgment_status"] = "Delivered"
@@ -2037,39 +2084,252 @@ def run_cron_compliance_sweep(auth: Dict[str, str] = Depends(get_current_user)):
         "stats": stats
     }
 
-# ----------------- SIMULATED WHATSAPP INGESTION -----------------
+# ----------------- WHATSAPP CLOUD API, CONSENT, AND DELIVERY STATUS -----------------
+
+_WHATSAPP_OPT_OUT_WORDS = {"stop", "stop all", "unsubscribe", "cancel", "end", "quit", "remove"}
+
+
+def _require_whatsapp_admin(auth: Dict[str, str]) -> None:
+    if auth["role"] != "Chief Registrar":
+        raise HTTPException(status_code=403, detail="WhatsApp administration requires Chief Registrar authority")
+
+
+@app.get("/api/whatsapp/status")
+def get_whatsapp_status(response: Response, auth: Dict[str, str] = Depends(get_current_user)):
+    _require_whatsapp_admin(auth)
+    response.headers["Cache-Control"] = "no-store"
+    return get_whatsapp_public_status()
+
+
+@app.post("/api/whatsapp/preferences")
+def record_whatsapp_preference(
+    req: WhatsAppPreferenceRequest,
+    response: Response,
+    auth: Dict[str, str] = Depends(get_current_user),
+):
+    """Record an already-obtained, explicit opt-in or an operator-recorded opt-out."""
+    _require_whatsapp_admin(auth)
+    if not get_whatsapp_public_status()["consent_store_ready"]:
+        raise HTTPException(status_code=503, detail="WhatsApp consent storage is not configured")
+    try:
+        phone_hash = hash_whatsapp_phone(req.phone)
+    except ValueError as exc:
+        raise HTTPException(status_code=503, detail="WhatsApp consent storage is not configured") from exc
+
+    recorded_at = format_date(get_current_time())
+    notice_version = os.getenv("WHATSAPP_CONSENT_NOTICE_VERSION", "courtlog-demo-v1").strip()[:80] or "courtlog-demo-v1"
+    preference = db.set_whatsapp_preference(
+        phone_hash=phone_hash,
+        status=req.status,
+        consent_source=req.consent_source,
+        notice_version=notice_version,
+        evidence_reference=req.evidence_reference,
+        recorded_by=auth["user_id"],
+        recorded_at=recorded_at,
+    )
+    _record_audit_event(
+        auth["user_id"], "whatsapp.preference.update", "whatsapp_preference", phone_hash[:24],
+        metadata={
+            "status": req.status,
+            "recipient": mask_whatsapp_phone(req.phone),
+            "source": req.consent_source,
+            "notice_version": notice_version,
+            "evidence_reference": req.evidence_reference,
+        },
+    )
+    response.headers["Cache-Control"] = "no-store"
+    return {
+        "status": preference["status"],
+        "recipient": mask_whatsapp_phone(req.phone),
+        "recorded_at": preference["recorded_at"],
+    }
+
+
+@app.post("/api/whatsapp/test-send", status_code=202)
+def send_whatsapp_test(
+    req: WhatsAppTestSendRequest,
+    background_tasks: BackgroundTasks,
+    response: Response,
+    auth: Dict[str, str] = Depends(get_current_user),
+):
+    """Send the configured generic template to a case contact with active opt-in only."""
+    _require_whatsapp_admin(auth)
+    try:
+        message, inserted = create_manual_test_message(db, req.case_id, req.recipient_role)
+    except PermissionError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except RuntimeError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    except ValueError as exc:
+        detail = str(exc)
+        raise HTTPException(status_code=404 if detail == "Case not found" else 422, detail=detail) from exc
+
+    if inserted and message["status"] == "queued":
+        background_tasks.add_task(deliver_whatsapp_message, db, message["message_id"])
+    _record_audit_event(
+        auth["user_id"], "whatsapp.test_send", "case", req.case_id,
+        metadata={
+            "recipient_role": req.recipient_role,
+            "recipient": message["recipient_masked"],
+            "status": message["status"],
+        },
+    )
+    response.headers["Cache-Control"] = "no-store"
+    return {
+        "message_id": message["message_id"],
+        "status": message["status"],
+        "recipient": message["recipient_masked"],
+        "template_name": message["template_name"],
+    }
+
+
+@app.get("/api/whatsapp/logs")
+def get_whatsapp_broadcast_logs(
+    response: Response,
+    limit: int = Query(default=100, ge=1, le=100),
+    auth: Dict[str, str] = Depends(get_current_user),
+):
+    """Return privacy-minimized persistent delivery records to the Chief Registrar."""
+    _require_whatsapp_admin(auth)
+    response.headers["Cache-Control"] = "no-store"
+    messages = db.list_whatsapp_messages(limit=limit)
+    messages.extend(whatsapp_logs)
+    messages.sort(key=lambda item: item.get("created_at", item.get("received_at", "")), reverse=True)
+    return messages[:limit]
+
+
+@app.get("/api/whatsapp/webhook")
+def verify_whatsapp_webhook(request: Request):
+    """Complete Meta's webhook subscription challenge without exposing the verify token."""
+    if not get_whatsapp_public_status()["webhook_ready"]:
+        raise HTTPException(status_code=404, detail="WhatsApp webhook is not configured")
+    params = request.query_params
+    mode = params.get("hub.mode", "")
+    provided_token = params.get("hub.verify_token", "")
+    challenge = params.get("hub.challenge", "")
+    expected_token = webhook_verification_token()
+    if mode != "subscribe" or not expected_token or not secrets.compare_digest(provided_token, expected_token):
+        raise HTTPException(status_code=403, detail="Webhook verification failed")
+    return Response(content=challenge, media_type="text/plain", headers={"Cache-Control": "no-store"})
+
+
+@app.post("/api/whatsapp/webhook")
+async def receive_whatsapp_webhook(request: Request, x_hub_signature_256: Optional[str] = Header(None)):
+    """Verify Meta callbacks, persist status updates, and honour inbound STOP keywords."""
+    if not get_whatsapp_public_status()["webhook_ready"]:
+        raise HTTPException(status_code=404, detail="WhatsApp webhook is not configured")
+    raw_body = await request.body()
+    if not verify_webhook_signature(raw_body, x_hub_signature_256 or ""):
+        raise HTTPException(status_code=401, detail="Invalid webhook signature")
+    try:
+        payload = json.loads(raw_body)
+    except (ValueError, UnicodeDecodeError) as exc:
+        raise HTTPException(status_code=400, detail="Invalid webhook JSON") from exc
+    if not isinstance(payload, dict):
+        raise HTTPException(status_code=400, detail="Invalid webhook JSON")
+
+    occurred_at = format_date(get_current_time())
+    for entry in payload.get("entry", []) if isinstance(payload.get("entry", []), list) else []:
+        if not isinstance(entry, dict):
+            continue
+        for change in entry.get("changes", []) if isinstance(entry.get("changes", []), list) else []:
+            if not isinstance(change, dict):
+                continue
+            value = change.get("value", {})
+            if not isinstance(value, dict):
+                continue
+
+            statuses = value.get("statuses", [])
+            for item in statuses if isinstance(statuses, list) else []:
+                if not isinstance(item, dict):
+                    continue
+                provider_id = item.get("id")
+                message_status = item.get("status")
+                if not isinstance(provider_id, str) or message_status not in {"sent", "delivered", "read", "failed"}:
+                    continue
+                provider_error = None
+                errors = item.get("errors", [])
+                if isinstance(errors, list) and errors and isinstance(errors[0], dict):
+                    raw_code = errors[0].get("code")
+                    provider_error = str(raw_code)[:80] if raw_code is not None else "provider_failure"
+                db.update_whatsapp_delivery_status(
+                    provider_id,
+                    message_status,
+                    occurred_at,
+                    error_code=provider_error,
+                    error_message="Provider reported message failure." if message_status == "failed" else None,
+                )
+
+            inbound = value.get("messages", [])
+            for item in inbound if isinstance(inbound, list) else []:
+                if not isinstance(item, dict):
+                    continue
+                message_type = item.get("type")
+                text = ""
+                if message_type == "text" and isinstance(item.get("text"), dict):
+                    text = str(item["text"].get("body", ""))
+                elif message_type == "interactive" and isinstance(item.get("interactive"), dict):
+                    interactive = item["interactive"]
+                    reply = interactive.get("button_reply") or interactive.get("list_reply") or {}
+                    if isinstance(reply, dict):
+                        text = str(reply.get("title", "") or reply.get("id", ""))
+                if text.strip().casefold() not in _WHATSAPP_OPT_OUT_WORDS:
+                    continue
+
+                sender = item.get("from")
+                if not isinstance(sender, str):
+                    continue
+                if not get_whatsapp_public_status()["consent_store_ready"]:
+                    raise HTTPException(status_code=503, detail="WhatsApp consent storage is not configured")
+                try:
+                    sender_phone = normalize_whatsapp_phone(sender)
+                    sender_hash = hash_whatsapp_phone(sender_phone)
+                except ValueError as exc:
+                    logger.warning("Ignored an invalid WhatsApp opt-out sender address")
+                    continue
+                previous = db.get_whatsapp_preference(sender_hash)
+                db.set_whatsapp_preference(
+                    phone_hash=sender_hash,
+                    status="opted_out",
+                    consent_source="inbound_opt_out_keyword",
+                    notice_version=os.getenv("WHATSAPP_CONSENT_NOTICE_VERSION", "courtlog-demo-v1")[:80],
+                    evidence_reference=None,
+                    recorded_by=None,
+                    recorded_at=occurred_at,
+                )
+                if not previous or previous.get("status") != "opted_out":
+                    _record_audit_event(
+                        None, "whatsapp.opt_out", "whatsapp_preference", sender_hash[:24],
+                        reason="Inbound WhatsApp opt-out keyword",
+                        metadata={"status": "opted_out", "recipient": mask_whatsapp_phone(sender_phone), "source": "webhook"},
+                    )
+
+    return {"status": "accepted"}
+
 
 @app.post("/api/whatsapp/webhook-simulator")
 def whatsapp_webhook_simulator(payload: Dict[str, Any] = Body(...), x_simulator_secret: Optional[str] = Header(None)):
-    """
-    Simulates receiving the WhatsApp webhook request.
-    Stores payloads in-memory so the dashboard can pull and display the live broadcast logs.
-    """
+    """Accept a redacted simulator event in demo mode; this endpoint never calls Meta."""
     secret = os.getenv("SIMULATOR_SECRET", "")
     if not DEMO_MODE_ENABLED:
         raise HTTPException(status_code=404, detail="Simulator disabled")
     if not secret or not secrets.compare_digest(x_simulator_secret or "", secret):
         raise HTTPException(status_code=401, detail="Invalid simulator credentials")
     event = {
-        "received_at": format_date(get_current_time()),
-        "payload": payload
+        "message_id": f"sim_{uuid.uuid4().hex}",
+        "case_id": None,
+        "recipient_role": None,
+        "recipient_masked": "not recorded",
+        "template_name": "simulator",
+        "trigger_type": "simulator_webhook",
+        "status": "simulated_webhook",
+        "created_at": format_date(get_current_time()),
+        "updated_at": format_date(get_current_time()),
     }
     whatsapp_logs.insert(0, event)
-    # Keep only the last 30 messages
-    if len(whatsapp_logs) > 30:
-        whatsapp_logs.pop()
-    
-    logger.info("Simulated WhatsApp event accepted")
-    return {"status": "accepted", "message_id": f"msg_{int(datetime.now().timestamp())}"}
-
-@app.get("/api/whatsapp/logs")
-def get_whatsapp_broadcast_logs(auth: Dict[str, str] = Depends(get_current_user)):
-    """Returns the demo simulator log only when demo mode is explicitly enabled."""
-    if not DEMO_MODE_ENABLED:
-        raise HTTPException(status_code=404, detail="WhatsApp simulator disabled")
-    if auth["role"] != "Chief Registrar":
-        raise HTTPException(status_code=403, detail="Broadcast logs require Chief Registrar authority")
-    return whatsapp_logs
+    del whatsapp_logs[30:]
+    logger.info("Redacted simulated WhatsApp event accepted")
+    return {"status": "accepted", "message_id": event["message_id"]}
 
 # ----------------- SERVE STATIC FRONTEND FILES -----------------
 from fastapi.staticfiles import StaticFiles

@@ -60,8 +60,9 @@ run(`casesData = [${JSON.stringify({...record, case_id:'SAFE/EXECUTION', judgmen
 assert.match(dom.window.document.querySelector('#judgments-table-body').textContent, /Review Prompt \(90d\+\)/);
 assert.doesNotMatch(dom.window.document.querySelector('#judgments-table-body').textContent, /Compliant|Overdue/);
 assert.match(dom.window.document.querySelector('#tab-execution').textContent, /not a legal non-compliance finding/);
-run(`whatsappLogs = [{received_at: new Date().toISOString(), payload: {to: ${JSON.stringify(attack)}, simulated_text: ${JSON.stringify(attack)}}}]; renderWhatsAppLogs()`);
-assert.equal(dom.window.document.querySelector('#whatsapp-logs-container img'), null);
+run(`whatsappLogs = [{created_at: new Date().toISOString(), recipient_masked: ${JSON.stringify(attack)}, status: ${JSON.stringify(attack)}, case_id: ${JSON.stringify(attack)}, template_name: ${JSON.stringify(attack)}, error_message: ${JSON.stringify(attack)}}]; renderWhatsAppLogs()`);
+assert.equal(dom.window.document.querySelector('#whatsapp-logs-container img'), null, 'WhatsApp delivery logs render provider fields as escaped text');
+assert.ok(dom.window.document.querySelector('#whatsapp-logs-container').textContent.includes(attack));
 run(`showToast(${JSON.stringify(attack)})`);
 assert.equal(dom.window.document.querySelector('#toast-container img'), null);
 run(`casesData = [${JSON.stringify({...record, case_id:'SAFE/1', case_title:attack})}]; showWritModal('SAFE/1','Garnishee Order',${JSON.stringify(attack)},${JSON.stringify(attack)})`);

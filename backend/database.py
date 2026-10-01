@@ -189,6 +189,43 @@ class BaseDatabase:
     def list_audit_events(self, limit: int = 100) -> List[Dict[str, Any]]:
         raise NotImplementedError
 
+    def set_whatsapp_preference(
+        self, phone_hash: str, status: str, consent_source: str,
+        notice_version: str, evidence_reference: Optional[str],
+        recorded_by: Optional[str], recorded_at: str,
+    ) -> Dict[str, Any]:
+        raise NotImplementedError
+
+    def get_whatsapp_preference(self, phone_hash: str) -> Optional[Dict[str, Any]]:
+        raise NotImplementedError
+
+    def create_whatsapp_message(self, message: Dict[str, Any]) -> tuple[Dict[str, Any], bool]:
+        raise NotImplementedError
+
+    def get_whatsapp_message(self, message_id: str) -> Optional[Dict[str, Any]]:
+        raise NotImplementedError
+
+    def claim_whatsapp_message(self, message_id: str, updated_at: str) -> bool:
+        raise NotImplementedError
+
+    def update_whatsapp_message(
+        self, message_id: str, status: str, updated_at: str,
+        provider_message_id: Optional[str] = None,
+        error_code: Optional[str] = None,
+        error_message: Optional[str] = None,
+    ) -> bool:
+        raise NotImplementedError
+
+    def update_whatsapp_delivery_status(
+        self, provider_message_id: str, status: str, updated_at: str,
+        error_code: Optional[str] = None,
+        error_message: Optional[str] = None,
+    ) -> bool:
+        raise NotImplementedError
+
+    def list_whatsapp_messages(self, limit: int = 100) -> List[Dict[str, Any]]:
+        raise NotImplementedError
+
 
 # ---- SQLite Implementation ----
 
@@ -287,6 +324,52 @@ class SQLiteDatabase(BaseDatabase):
                     created_at TEXT NOT NULL
                 )
             """)
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS whatsapp_preferences (
+                    phone_hash TEXT PRIMARY KEY,
+                    status TEXT NOT NULL CHECK(status IN ('opted_in', 'opted_out')),
+                    consent_source TEXT NOT NULL,
+                    notice_version TEXT NOT NULL,
+                    evidence_reference TEXT,
+                    recorded_by TEXT,
+                    recorded_at TEXT NOT NULL,
+                    opted_out_at TEXT
+                )
+            """)
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS whatsapp_messages (
+                    message_id TEXT PRIMARY KEY,
+                    idempotency_key TEXT NOT NULL UNIQUE,
+                    case_id TEXT NOT NULL,
+                    recipient_role TEXT NOT NULL CHECK(recipient_role IN ('counsel', 'litigant')),
+                    recipient_hash TEXT NOT NULL,
+                    recipient_masked TEXT NOT NULL,
+                    template_name TEXT NOT NULL,
+                    trigger_type TEXT NOT NULL CHECK(trigger_type IN ('adjournment', 'manual_test')),
+                    status TEXT NOT NULL CHECK(status IN (
+                        'suppressed_no_consent', 'disabled', 'queued', 'sending',
+                        'accepted', 'sent', 'delivered', 'read', 'failed', 'unknown', 'simulated'
+                    )),
+                    provider_message_id TEXT UNIQUE,
+                    error_code TEXT,
+                    error_message TEXT,
+                    attempt_count INTEGER NOT NULL DEFAULT 0,
+                    created_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL
+                )
+            """)
+            cursor.execute(
+                "CREATE INDEX IF NOT EXISTS idx_whatsapp_messages_created "
+                "ON whatsapp_messages(created_at DESC, message_id DESC)"
+            )
+            cursor.execute(
+                "CREATE INDEX IF NOT EXISTS idx_whatsapp_messages_case "
+                "ON whatsapp_messages(case_id, created_at DESC)"
+            )
+            cursor.execute(
+                "CREATE INDEX IF NOT EXISTS idx_whatsapp_messages_provider_id "
+                "ON whatsapp_messages(provider_message_id)"
+            )
             cursor.execute(
                 "CREATE INDEX IF NOT EXISTS idx_case_qr_tokens_case_id "
                 "ON case_qr_tokens(case_id)"
@@ -725,6 +808,179 @@ class SQLiteDatabase(BaseDatabase):
                 "reason": row[6], "metadata": json.loads(row[7]),
             }
             for row in rows
+        ]
+
+    # ---- WhatsApp consent and delivery records ----
+
+    @staticmethod
+    def _whatsapp_preference_from_row(row) -> Optional[Dict[str, Any]]:
+        if not row:
+            return None
+        return {
+            "phone_hash": row[0], "status": row[1], "consent_source": row[2],
+            "notice_version": row[3], "evidence_reference": row[4],
+            "recorded_by": row[5], "recorded_at": row[6], "opted_out_at": row[7],
+        }
+
+    @staticmethod
+    def _whatsapp_message_from_row(row) -> Optional[Dict[str, Any]]:
+        if not row:
+            return None
+        return {
+            "message_id": row[0], "idempotency_key": row[1], "case_id": row[2],
+            "recipient_role": row[3], "recipient_hash": row[4],
+            "recipient_masked": row[5], "template_name": row[6],
+            "trigger_type": row[7], "status": row[8],
+            "provider_message_id": row[9], "error_code": row[10],
+            "error_message": row[11], "attempt_count": row[12],
+            "created_at": row[13], "updated_at": row[14],
+        }
+
+    def set_whatsapp_preference(
+        self, phone_hash: str, status: str, consent_source: str,
+        notice_version: str, evidence_reference: Optional[str],
+        recorded_by: Optional[str], recorded_at: str,
+    ) -> Dict[str, Any]:
+        if status not in {"opted_in", "opted_out"}:
+            raise ValueError("WhatsApp preference status must be opted_in or opted_out")
+        opted_out_at = recorded_at if status == "opted_out" else None
+        with self._lock:
+            self.conn.execute(
+                "INSERT INTO whatsapp_preferences "
+                "(phone_hash, status, consent_source, notice_version, evidence_reference, recorded_by, recorded_at, opted_out_at) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?) "
+                "ON CONFLICT(phone_hash) DO UPDATE SET "
+                "status=excluded.status, consent_source=excluded.consent_source, "
+                "notice_version=excluded.notice_version, evidence_reference=excluded.evidence_reference, "
+                "recorded_by=excluded.recorded_by, recorded_at=excluded.recorded_at, opted_out_at=excluded.opted_out_at",
+                (phone_hash, status, consent_source, notice_version, evidence_reference, recorded_by, recorded_at, opted_out_at),
+            )
+            row = self.conn.execute(
+                "SELECT phone_hash, status, consent_source, notice_version, evidence_reference, recorded_by, recorded_at, opted_out_at "
+                "FROM whatsapp_preferences WHERE phone_hash = ?", (phone_hash,),
+            ).fetchone()
+            self.conn.commit()
+        return self._whatsapp_preference_from_row(row)
+
+    def get_whatsapp_preference(self, phone_hash: str) -> Optional[Dict[str, Any]]:
+        with self._lock:
+            row = self.conn.execute(
+                "SELECT phone_hash, status, consent_source, notice_version, evidence_reference, recorded_by, recorded_at, opted_out_at "
+                "FROM whatsapp_preferences WHERE phone_hash = ?", (phone_hash,),
+            ).fetchone()
+        return self._whatsapp_preference_from_row(row)
+
+    def create_whatsapp_message(self, message: Dict[str, Any]) -> tuple[Dict[str, Any], bool]:
+        """Insert a privacy-minimized message/outbox row once per idempotency key."""
+        now = message["created_at"]
+        with self._lock:
+            cursor = self.conn.execute(
+                "INSERT OR IGNORE INTO whatsapp_messages "
+                "(message_id, idempotency_key, case_id, recipient_role, recipient_hash, recipient_masked, "
+                "template_name, trigger_type, status, provider_message_id, error_code, error_message, attempt_count, created_at, updated_at) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (
+                    message["message_id"], message["idempotency_key"], message["case_id"],
+                    message["recipient_role"], message["recipient_hash"], message["recipient_masked"],
+                    message["template_name"], message["trigger_type"], message["status"],
+                    message.get("provider_message_id"), message.get("error_code"),
+                    message.get("error_message"), int(message.get("attempt_count", 0)),
+                    now, message.get("updated_at", now),
+                ),
+            )
+            inserted = cursor.rowcount == 1
+            row = self.conn.execute(
+                "SELECT message_id, idempotency_key, case_id, recipient_role, recipient_hash, recipient_masked, "
+                "template_name, trigger_type, status, provider_message_id, error_code, error_message, attempt_count, created_at, updated_at "
+                "FROM whatsapp_messages WHERE idempotency_key = ?",
+                (message["idempotency_key"],),
+            ).fetchone()
+            self.conn.commit()
+        return self._whatsapp_message_from_row(row), inserted
+
+    def get_whatsapp_message(self, message_id: str) -> Optional[Dict[str, Any]]:
+        with self._lock:
+            row = self.conn.execute(
+                "SELECT message_id, idempotency_key, case_id, recipient_role, recipient_hash, recipient_masked, "
+                "template_name, trigger_type, status, provider_message_id, error_code, error_message, attempt_count, created_at, updated_at "
+                "FROM whatsapp_messages WHERE message_id = ?", (message_id,),
+            ).fetchone()
+        return self._whatsapp_message_from_row(row)
+
+    def claim_whatsapp_message(self, message_id: str, updated_at: str) -> bool:
+        """Atomically claim a queued row so concurrent workers cannot double-send it."""
+        with self._lock:
+            cursor = self.conn.execute(
+                "UPDATE whatsapp_messages SET status='sending', attempt_count=attempt_count+1, updated_at=? "
+                "WHERE message_id=? AND status='queued'",
+                (updated_at, message_id),
+            )
+            self.conn.commit()
+        return cursor.rowcount == 1
+
+    def update_whatsapp_message(
+        self, message_id: str, status: str, updated_at: str,
+        provider_message_id: Optional[str] = None,
+        error_code: Optional[str] = None,
+        error_message: Optional[str] = None,
+    ) -> bool:
+        valid_statuses = {
+            "suppressed_no_consent", "disabled", "queued", "sending", "accepted",
+            "sent", "delivered", "read", "failed", "unknown", "simulated",
+        }
+        if status not in valid_statuses:
+            raise ValueError("Invalid WhatsApp message status")
+        with self._lock:
+            cursor = self.conn.execute(
+                "UPDATE whatsapp_messages SET status=?, provider_message_id=COALESCE(?, provider_message_id), "
+                "error_code=?, error_message=?, updated_at=? WHERE message_id=?",
+                (status, provider_message_id, error_code, error_message, updated_at, message_id),
+            )
+            self.conn.commit()
+        return cursor.rowcount == 1
+
+    def update_whatsapp_delivery_status(
+        self, provider_message_id: str, status: str, updated_at: str,
+        error_code: Optional[str] = None,
+        error_message: Optional[str] = None,
+    ) -> bool:
+        ranks = {"accepted": 0, "sent": 1, "delivered": 2, "read": 3}
+        if status not in {*ranks, "failed"}:
+            return False
+        with self._lock:
+            row = self.conn.execute(
+                "SELECT status FROM whatsapp_messages WHERE provider_message_id = ?",
+                (provider_message_id,),
+            ).fetchone()
+            if not row:
+                return False
+            current = row[0]
+            # Out-of-order callbacks must not roll a message back from delivered/read.
+            if status != "failed" and current in ranks and ranks[current] > ranks[status]:
+                return True
+            cursor = self.conn.execute(
+                "UPDATE whatsapp_messages SET status=?, error_code=?, error_message=?, updated_at=? "
+                "WHERE provider_message_id=?",
+                (status, error_code, error_message, updated_at, provider_message_id),
+            )
+            self.conn.commit()
+        return cursor.rowcount == 1
+
+    def list_whatsapp_messages(self, limit: int = 100) -> List[Dict[str, Any]]:
+        if not 1 <= limit <= 500:
+            raise ValueError("WhatsApp message limit must be between 1 and 500")
+        with self._lock:
+            rows = self.conn.execute(
+                "SELECT message_id, idempotency_key, case_id, recipient_role, recipient_hash, recipient_masked, "
+                "template_name, trigger_type, status, provider_message_id, error_code, error_message, attempt_count, created_at, updated_at "
+                "FROM whatsapp_messages ORDER BY created_at DESC, message_id DESC LIMIT ?",
+                (limit,),
+            ).fetchall()
+        messages = [self._whatsapp_message_from_row(row) for row in rows]
+        # Never expose consent hashes or internal idempotency keys through the API.
+        return [
+            {key: value for key, value in message.items() if key not in {"recipient_hash", "idempotency_key"}}
+            for message in messages
         ]
 
     # ---- Maintenance ----

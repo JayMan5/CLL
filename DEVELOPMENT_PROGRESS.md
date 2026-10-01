@@ -1,5 +1,7 @@
 # Development progress
 
+> **Current status — 1 October 2026:** The WhatsApp Cloud API prototype slice and hosting comparison are now in the latest entry at the end of this log. Sending is disabled by default and real Meta delivery has not been tested; C6 remains open for external-account, staging, recovery, and operational acceptance. This is a competition-team prototype, not a government service, and government approvals do not block feature development. Older checkpoint notes below are historical and are superseded where the latest entry or completion plan says so.
+
 ## 1 October 2026 — first security tranche
 
 Development approved by the user. Overall release is NOT pilot-ready.
@@ -175,7 +177,7 @@ C3 is checked in the completion plan. At this point in the log, counts were 7 of
 
 Implemented:
 - Removed the adjournment-review block's write to `risk_flag`; it now records only the separate DCR review state. Existing case-level trigger logic (`adjournment_count >= 4`) was not changed and remains a prototype setting pending A3/Law Lead sign-off.
-- Added durable DCR request, acknowledgement, escalation, and decision history with actor/time/reason, an authorized DCR/Chief Registrar acknowledgement endpoint that does **not** approve or unblock, and a separate >24-hour in-app escalation clock anchored to the DCR request timestamp. The compliance sweep no longer uses the ML-risk notification clock for DCR escalation; historical records with no request timestamp initialize a new clock on first observation. Escalation is in-app state only; no external notification is sent.
+- Added durable DCR request, acknowledgement, escalation, and decision history with actor/time/reason, an authorized DCR/Chief Registrar acknowledgement endpoint that does **not** approve or unblock, and a separate >24-hour in-app escalation clock anchored to the DCR request timestamp. The compliance sweep no longer uses the ML-risk notification clock for DCR escalation; historical records with no request timestamp initialize a new clock on first observation. This DCR escalation remains in-app only; it is separate from the C6 WhatsApp adjournment-notice path, which is now implemented but disabled by default.
 - Updated the DCR queue to distinguish a configured threshold prompt from an actual pending review, show acknowledgement/escalation state, provide separate acknowledge and decision actions, and avoid presenting the count as a per-party statutory limit. Added the Judge/Chief Registrar scoped alert panel for upcoming hearing, adjournment-review, experimental delay-risk, and missing-file prompts; server content is rendered with `textContent`.
 - Corrected frontend claims: hearing failures are no longer always reported as fifth-adjournment blocks; successful hearing logging no longer claims WhatsApp delivery; AI UI now discloses generated synthetic training rows, the possible heuristic fallback, lack of independent real-outcome validation, and the non-legal nature of the score. Updated the abstract/team brief and marked older project audit/status snapshots as superseded.
 - Replaced the former NJC-labelled export and ML-derived compliance percentages with a scoped, PII-minimized prototype workflow summary; renamed the weekly DCR report fields to avoid treating ML risk as compliance. Print output is watermarked “Prototype Draft — Not Issued.” CSV/PDF formats, formal reporting schemas, and legal review remain open under D4/A4.
@@ -189,3 +191,23 @@ Verification:
 - `npm audit --audit-level=high`: 0 vulnerabilities. `.venv/bin/pip-audit -r requirements.txt`: no known vulnerabilities. `.venv/bin/pip check`: no broken requirements.
 
 Checklist reconciliation: C5 and D6 are checked. Current counts are **9 of 55 named A–H tasks (16.4%)** and **15 of 78 total plan checkboxes (19.2%)**. D7 remains open because complete 7/90-day boundary, concurrency, provider retry/failure, and actual device coverage are outstanding. C2 remains open pending phone/printer acceptance; C4/A3 legal approval, actual messaging integration, staging, live-data permission, production review, and pilot go/no-go remain external gates. No legal threshold or rule was changed; no real court data was used.
+
+
+## 1 October 2026 — WhatsApp Cloud API prototype and hosting comparison
+
+Implemented and reviewed against the current code:
+- Added an opt-in-gated individual WhatsApp Cloud API adapter for generic, no-variable template messages. Real delivery is explicitly disabled unless configured and is always blocked in demo mode. No group integration is claimed.
+- Added persisted WhatsApp preferences and delivery records; phone numbers are normalized to E.164, keyed-HMAC hashed for lookups, and masked in logs/UI. The phone normalizer rejects letters and unsupported punctuation before normalization.
+- Added authorized consent-evidence recording, consent revocation, a STOP/STOP ALL/UNSUBSCRIBE and related inbound opt-out path, Meta webhook verification/signature validation, idempotent status callbacks, and an authenticated Chief Registrar delivery log. Provider errors are minimized in storage/logs. Ambiguous provider timeouts are marked `unknown`; they are not automatically retried because Meta may already have accepted a request.
+- Added distinct idempotency keys for adjournment × recipient and controlled manual tests. The UI differentiates demo/simulated, disabled, queued, accepted, delivered, failed, and unknown statuses. The simulator never sends external messages.
+- Updated the abstract, team brief, README, and completion plan to describe implementation truthfully, preserve legal-rule sign-off, distinguish development from future institutional deployment, and avoid treating historical institutional-review claims as verified.
+- Added [`docs/HOSTING_COMPARISON_2026-10-01.md`](docs/HOSTING_COMPARISON_2026-10-01.md): compares Render, Railway, Fly.io, and DigitalOcean App Platform with current provider sources, SQLite/persistence implications, regional choices, indicative pricing, and a provisional Render staging recommendation. No cloud deployment/provider selection has happened.
+
+Verification:
+- `.venv/bin/python -m pytest -q`: **62 passed**, 2 FastAPI `on_event` deprecation warnings. Added direct accepted/rejected phone-normalization cases and asserted outbound HTTP timeout/redirect behavior.
+- `npm run test:frontend`: **passed** (security, session, and PWA suites; local asset build included).
+- `python -m compileall -q backend tests`, `node --check frontend/app.js`, `git diff --check`, `.venv/bin/python -m pip check`, and `.venv/bin/pip-audit -r requirements.txt`: passed; no known Python vulnerabilities. `npm audit --audit-level=high`: 0 vulnerabilities.
+- Targeted phone normalization examples accepted Nigerian local/international forms and rejected alphabetic input; the complete backend suite also passed after the change.
+- One-off `backend.main` import in an isolated temporary environment: approximately 80 MiB peak RSS; not a deployed load test.
+
+Still open for C6 / staging: no Meta business account, access token, approved template, or controlled test recipient was supplied; webhook delivery/status callbacks have not been tested against Meta. Automated retry/recovery policy, operational backup/restore, and hosted staging acceptance remain open. The code does not invent legal rules or claim live delivery. Use synthetic records until specific real-data permission is documented; complete C2 phone/printer acceptance on the intended device. Feature development is approved and does not wait on public-sector approval because CourtLOG is currently a competition-team project. Any future institutional pilot/public-sector deployment is separate.
