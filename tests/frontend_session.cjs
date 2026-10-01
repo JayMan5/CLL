@@ -49,11 +49,14 @@ dom.window.fetch = async (url, options = {}) => {
     const ready = new Promise(resolve => dom.window.document.addEventListener('DOMContentLoaded', () => setTimeout(resolve, 0), {once:true}));
     new vm.Script(fs.readFileSync('frontend/app.js', 'utf8')).runInContext(context);
     await ready;
+    assert.equal(dom.window.document.getElementById('nav-whatsapp').style.display, 'none');
 
     dom.window.document.getElementById('login-username').value = 'clerk';
     dom.window.document.getElementById('login-password').value = '123';
     await vm.runInContext('handleLoginSubmit({preventDefault(){}})', context);
     assert.equal(vm.runInContext('accessToken', context), 'login-access');
+    vm.runInContext('switchTab("tab-whatsapp")', context);
+    assert.equal(dom.window.document.getElementById('tab-whatsapp').classList.contains('hidden'), true);
     assert.equal(dom.window.document.getElementById('password-change-overlay').classList.contains('hidden'), false);
     assert.equal(dom.window.localStorage.getItem('courtlog-access-token'), null);
     assert.equal(dom.window.localStorage.getItem('courtlog-refresh-token'), null);

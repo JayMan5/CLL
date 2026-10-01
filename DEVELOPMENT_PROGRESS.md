@@ -55,4 +55,13 @@ Verification:
 - `node --check frontend/app.js` and `git diff --check`: passed.
 - Session tests use temporary DB/key files. Cookie tests set `COOKIE_SECURE=false` only for HTTP TestClient; the checked-in example defaults it to true.
 
-Not complete: no real-browser/device or staging test yet; built-in seeded accounts still have weak demo credentials and require the separate bootstrap/demo-mode tranche before any live use; forgot-password delivery is a manual Chief Registrar temporary-password process; rate limits, full CSP, legal approvals, remaining module workflows and deployment are still pending. The old `backend/test_api.py` suite has not yet been migrated to the authenticated API, so the 12-test security suite is not a claim that every repository test passes.
+At this checkpoint, not complete: no real-browser/device or staging test; forgot-password delivery is a manual Chief Registrar temporary-password process; rate limits, full CSP, legal approvals, remaining module workflows and deployment are pending. The old `backend/test_api.py` suite has not yet been migrated to the authenticated API, so this security suite is not a claim that every repository test passes.
+
+## 1 October 2026 — bootstrap and demo-mode safeguards
+
+- Live mode no longer creates sample users with hard-coded credentials. An empty database starts without an account unless `COURTLOG_BOOTSTRAP_USERNAME` and a strong `COURTLOG_BOOTSTRAP_PASSWORD` are provided; that one-time Chief Registrar must change the password at first sign-in.
+- The five fictional convenience accounts are seeded only with explicit `DEMO_MODE=true`. Known legacy seed accounts are disabled when the app starts in live mode; a configured bootstrap administrator can then be created if no active Chief Registrar remains.
+- Demo/simulator UI is hidden in live mode. `/api/config` exposes only the non-sensitive mode flag; simulator logs and ingestion are disabled unless demo mode is explicit and the simulator secret matches.
+- The WhatsApp code now returns `disabled` without making any outbound network request outside demo mode. UI labels state that simulation is not live Meta/WhatsApp delivery; the mock API token default was removed.
+- Verification: `.venv/bin/python -m pytest tests/test_security.py -q`: 16 passed; `npm ci && npm run test:frontend`: passed; `python -m compileall -q backend`, `node --check frontend/app.js`, `npm audit --audit-level=high`, and `git diff --check`: passed.
+- Remaining before live use: secrets must be provisioned safely, the first admin must be bootstrapped and tested in staging, no real WhatsApp adapter is implemented, and the broader pilot/showcase gates remain open.

@@ -11,14 +11,15 @@ WHATSAPP_WEBHOOK_URL = os.environ.get(
     "WHATSAPP_WEBHOOK_URL", 
     "http://localhost:8000/api/whatsapp/webhook-simulator"
 )
-WHATSAPP_TOKEN = os.environ.get("WHATSAPP_API_TOKEN", "mock_whatsapp_token_xyz123")
+WHATSAPP_TOKEN = os.environ.get("WHATSAPP_API_TOKEN", "")
 WHATSAPP_PHONE_ID = os.environ.get("WHATSAPP_PHONE_NUMBER_ID", "10987654321")
 
 def send_adjournment_broadcast(case_id: str, next_date: str, reason_code: str, group_id: str = "registry-group-104") -> Dict[str, Any]:
-    """
-    Simulates sending a WhatsApp Business API message using templates.
-    Compiles a broadcast payload and sends it to the configured webhook or API.
-    """
+    """Send a declared demo simulation only; no real WhatsApp adapter is implemented."""
+    if os.getenv("DEMO_MODE", "false").strip().lower() != "true":
+        logger.info("WhatsApp simulator disabled; no notification sent")
+        return {"status": "disabled", "message": "WhatsApp simulator is disabled outside DEMO_MODE"}
+
     # Compile the template message
     message_text = f"SUIT NO: {case_id} adjourned to {next_date}. Reason: {reason_code}. File routing back to Registry."
     

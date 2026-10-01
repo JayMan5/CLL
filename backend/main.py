@@ -40,6 +40,7 @@ app.add_middleware(
 REFRESH_COOKIE_NAME = "courtlog_refresh"
 REFRESH_COOKIE_PATH = "/api"
 COOKIE_SECURE = os.getenv("COOKIE_SECURE", "true").strip().lower() in {"1", "true", "yes", "on"}
+DEMO_MODE_ENABLED = os.getenv("DEMO_MODE", "false").strip().lower() == "true"
 
 
 def _set_refresh_cookie(response: Response, token: str) -> None:
@@ -249,6 +250,12 @@ class PasswordResetRequest(BaseModel):
         return value
 # get_current_user is imported from backend.auth and used as a FastAPI Depends()
 # It validates Bearer tokens and returns {"user_id": ..., "role": ...}
+
+@app.get("/api/config")
+def client_config():
+    """Expose only non-sensitive switches needed to render demo-only controls safely."""
+    return {"demo_mode": DEMO_MODE_ENABLED}
+
 
 @app.post("/api/login")
 def login(req: LoginRequest, response: Response):
@@ -1305,7 +1312,7 @@ def whatsapp_webhook_simulator(payload: Dict[str, Any] = Body(...), x_simulator_
     Stores payloads in-memory so the dashboard can pull and display the live broadcast logs.
     """
     secret = os.getenv("SIMULATOR_SECRET", "")
-    if os.getenv("DEMO_MODE", "false").lower() != "true":
+    if not DEMO_MODE_ENABLED:
         raise HTTPException(status_code=404, detail="Simulator disabled")
     if not secret or not secrets.compare_digest(x_simulator_secret or "", secret):
         raise HTTPException(status_code=401, detail="Invalid simulator credentials")
@@ -1323,7 +1330,9 @@ def whatsapp_webhook_simulator(payload: Dict[str, Any] = Body(...), x_simulator_
 
 @app.get("/api/whatsapp/logs")
 def get_whatsapp_broadcast_logs(auth: Dict[str, str] = Depends(get_current_user)):
-    """Returns the history of sent simulated WhatsApp notifications."""
+    """Returns the demo simulator log only when demo mode is explicitly enabled."""
+    if not DEMO_MODE_ENABLED:
+        raise HTTPException(status_code=404, detail="WhatsApp simulator disabled")
     if auth["role"] != "Chief Registrar":
         raise HTTPException(status_code=403, detail="Broadcast logs require Chief Registrar authority")
     return whatsapp_logs

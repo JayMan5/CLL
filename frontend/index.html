@@ -109,7 +109,7 @@
                         <i class="fa-solid fa-users-gear text-lg text-sky-400"></i>
                         <span>User Management</span>
                     </button>
-                    <button onclick="switchTab('tab-whatsapp')"
+                    <button id="nav-whatsapp" onclick="switchTab('tab-whatsapp')" style="display:none"
                         class="nav-item w-full flex items-center gap-3 px-4 py-3 rounded-xl text-left font-medium">
                         <i class="fa-brands fa-whatsapp text-lg"></i>
                         <span>WhatsApp Activity</span>
@@ -1070,14 +1070,11 @@
                         <div class="flex items-center justify-between pb-4"
                             style="border-bottom:1px solid var(--border-color)">
                             <div>
-                                <h3 class="font-heading font-bold text-lg text-heading">WhatsApp Business Webhook
-                                    Broadcasts</h3>
-                                <p class="text-xs text-body">View real-time logging payloads fired by the adjournment
-                                    compliance engine to Meta Cloud APIs.</p>
+                                <h3 class="font-heading font-bold text-lg text-heading">WhatsApp Notification Simulation</h3>
+                                <p class="text-xs text-body">Demo-only simulated payload history. This build does not send messages through Meta or WhatsApp.</p>
                             </div>
-                            <span class="badge badge-low font-mono flex items-center gap-1.5 px-3 py-1 rounded-full">
-                                <span class="w-2 h-2 rounded-full bg-emerald-500 animate-ping"></span> Live Webhook
-                                Simulator Active
+                            <span id="whatsapp-mode-status" class="badge badge-low font-mono flex items-center gap-1.5 px-3 py-1 rounded-full">
+                                Simulator disabled in this environment
                             </span>
                         </div>
 

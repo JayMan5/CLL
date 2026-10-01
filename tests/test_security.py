@@ -6,6 +6,7 @@ import sqlite3
 import secrets
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from unittest.mock import patch
 
 _runtime = tempfile.TemporaryDirectory()
 os.environ['COURTLOG_DB_PATH'] = str(Path(_runtime.name) / 'test.db')
@@ -18,7 +19,23 @@ from fastapi.testclient import TestClient
 import pytest
 from backend import main
 from backend.auth import create_access_token, create_refresh_token, REFRESH_TOKEN_EXPIRE_DAYS
-from backend.database import SQLiteDatabase, get_password_hash
+from backend.database import SQLiteDatabase, get_password_hash, verify_password
+from backend.whatsapp import send_adjournment_broadcast
+
+# Explicit fictional fixtures; production startup never receives these default credentials.
+_TEST_USERS = [
+    ('usr_sheriff_01', 'sheriff', 'Sheriff', 'FHC Abuja Court 4', 'Criminal', '123'),
+    ('usr_clerk_01', 'clerk', 'Clerk', 'FHC Abuja Court 4', 'Criminal', '123'),
+    ('usr_dcr_01', 'dcr', 'DCR', 'FHC Abuja', 'Criminal', '123'),
+    ('usr_cr_01', 'cr', 'Chief Registrar', 'All Courts', 'All Divisions', '12345'),
+    ('usr_judge_01', 'judge', 'Judge', 'FHC Abuja Court 4', 'Criminal', '123'),
+]
+for user_id, username, role, court, division, password in _TEST_USERS:
+    main.db.save_user(user_id, {
+        'user_id':user_id, 'username':username, 'password':get_password_hash(password),
+        'name':f'Test {role}', 'role':role, 'badge':'Fictional Test Account',
+        'court':court, 'division':division,
+    })
 
 client = TestClient(main.app)
 
@@ -229,3 +246,53 @@ def test_refresh_cookie_secure_flag_can_be_enabled(monkeypatch):
     main._set_refresh_cookie(response, 'test-token')
     cookie_headers = [value.decode().lower() for name, value in response.raw_headers if name.lower() == b'set-cookie']
     assert any('httponly' in value and 'secure' in value and 'samesite=strict' in value for value in cookie_headers)
+
+
+def test_live_bootstrap_is_env_driven_and_demo_accounts_are_disabled(tmp_path, monkeypatch):
+    database_path = tmp_path / 'demo-then-live.db'
+    monkeypatch.setenv('COURTLOG_DB_PATH', str(database_path))
+    monkeypatch.setenv('DEMO_MODE', 'true')
+    demo_db = SQLiteDatabase()
+    demo_users = demo_db.list_users()
+    assert len(demo_users) == 5
+    assert all(user.get('demo_only') and not user.get('disabled') for user in demo_users)
+    demo_db.conn.close()
+
+    monkeypatch.setenv('DEMO_MODE', 'false')
+    monkeypatch.delenv('COURTLOG_BOOTSTRAP_USERNAME', raising=False)
+    monkeypatch.delenv('COURTLOG_BOOTSTRAP_PASSWORD', raising=False)
+    live_db = SQLiteDatabase()
+    assert all(user.get('disabled') for user in live_db.list_users())
+    live_db.conn.close()
+
+    monkeypatch.setenv('COURTLOG_BOOTSTRAP_USERNAME', 'secure.admin')
+    monkeypatch.setenv('COURTLOG_BOOTSTRAP_PASSWORD', 'Long-Bootstrap-Password-4!')
+    provisioned_db = SQLiteDatabase()
+    accounts = provisioned_db.list_users()
+    bootstrap = next(user for user in accounts if user.get('username') == 'secure.admin')
+    assert bootstrap['role'] == 'Chief Registrar'
+    assert bootstrap['must_change_password'] is True
+    assert verify_password('Long-Bootstrap-Password-4!', bootstrap['password'])
+    assert all(user.get('disabled') for user in accounts if user.get('demo_only'))
+    provisioned_db.conn.close()
+
+
+def test_live_mode_does_not_send_whatsapp_simulation_or_expose_logs():
+    assert client.get('/api/config').json() == {'demo_mode':False}
+    with patch('backend.whatsapp.requests.post') as send:
+        result = send_adjournment_broadcast('SEC/NO-SEND', '2026-10-02', 'Test only')
+        send.assert_not_called()
+    assert result['status'] == 'disabled'
+    assert client.get('/api/whatsapp/logs', headers=headers('usr_cr_01')).status_code == 404
+
+
+def test_demo_simulator_requires_configured_secret(monkeypatch):
+    monkeypatch.setattr(main, 'DEMO_MODE_ENABLED', True)
+    monkeypatch.setenv('SIMULATOR_SECRET', 'demo-secret-123')
+    assert client.post('/api/whatsapp/webhook-simulator', json={}).status_code == 401
+    denied = client.post('/api/whatsapp/webhook-simulator', headers={'X-Simulator-Secret':'wrong'}, json={})
+    assert denied.status_code == 401
+    accepted = client.post('/api/whatsapp/webhook-simulator', headers={'X-Simulator-Secret':'demo-secret-123'}, json={'simulated_text':'TEST'})
+    assert accepted.status_code == 200
+    assert client.get('/api/whatsapp/logs', headers=headers('usr_cr_01')).status_code == 200
+    main.whatsapp_logs.clear()

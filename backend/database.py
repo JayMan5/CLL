@@ -9,7 +9,9 @@ so main.py requires minimal changes.
 import json
 import logging
 import os
+import re
 import sqlite3
+import uuid
 import threading
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
@@ -216,20 +218,78 @@ class SQLiteDatabase(BaseDatabase):
             self.conn.commit()
 
     def _seed_users_if_empty(self) -> None:
-        """Insert seed users if the users table is empty."""
+        """Seed demo accounts only in demo mode, or provision a one-time CR from env."""
         cursor = self.conn.cursor()
         cursor.execute("SELECT COUNT(*) FROM users")
         count = cursor.fetchone()[0]
-        if count == 0:
-            logger.info("Users table empty — seeding default users...")
-            with self._lock:
-                for user in SEED_USERS:
-                    cursor.execute(
-                        "INSERT INTO users (user_id, username, data) VALUES (?, ?, ?)",
-                        (user["user_id"], user.get("username", "").strip().lower() or None, json.dumps(user)),
-                    )
-                self.conn.commit()
-            logger.info(f"Seeded {len(SEED_USERS)} users.")
+        demo_mode = os.getenv("DEMO_MODE", "false").strip().lower() == "true"
+        demo_ids = {user["user_id"] for user in SEED_USERS}
+
+        if demo_mode:
+            if count == 0:
+                logger.warning("DEMO_MODE is enabled: installing fictional demo users with demo-only credentials")
+                with self._lock:
+                    for seed in SEED_USERS:
+                        user = {**seed, "demo_only": True, "disabled": False, "must_change_password": False}
+                        self.conn.execute(
+                            "INSERT INTO users (user_id, username, data) VALUES (?, ?, ?)",
+                            (user["user_id"], user.get("username", "").strip().lower() or None, json.dumps(user)),
+                        )
+                    self.conn.commit()
+                logger.info("Seeded %s demo users.", len(SEED_USERS))
+                return
+            for user in self.list_users():
+                if user.get("user_id") in demo_ids or user.get("demo_only"):
+                    if user.get("demo_only") is not True or user.get("disabled", False):
+                        user["demo_only"] = True
+                        user["disabled"] = False
+                        self.save_user(user["user_id"], user)
+            return
+
+        # Demo fixtures that pre-date explicit mode controls must never stay usable in live mode.
+        for user in self.list_users():
+            if user.get("user_id") in demo_ids or user.get("demo_only"):
+                if user.get("demo_only") is not True or not user.get("disabled", False):
+                    user["demo_only"] = True
+                    user["disabled"] = True
+                    self.save_user(user["user_id"], user)
+
+        active_cr = any(
+            user.get("role") == "Chief Registrar" and not user.get("disabled")
+            for user in self.list_users()
+        )
+        if active_cr:
+            logger.info("Live mode: demo seed accounts are disabled")
+            return
+
+        username = os.getenv("COURTLOG_BOOTSTRAP_USERNAME", "").strip().lower()
+        password = os.getenv("COURTLOG_BOOTSTRAP_PASSWORD", "")
+        if not username and not password:
+            logger.warning("No active Chief Registrar account. Set COURTLOG_BOOTSTRAP_USERNAME/PASSWORD or explicitly enable DEMO_MODE.")
+            return
+        if not username or not password:
+            raise RuntimeError("Both COURTLOG_BOOTSTRAP_USERNAME and COURTLOG_BOOTSTRAP_PASSWORD are required")
+        if not re.fullmatch(r"[a-z0-9][a-z0-9._-]{2,31}", username):
+            raise RuntimeError("COURTLOG_BOOTSTRAP_USERNAME must be 3-32 lowercase letters, digits, '.', '_' or '-'")
+        if len(password) < 12 or len(password.encode("utf-8")) > 72:
+            raise RuntimeError("COURTLOG_BOOTSTRAP_PASSWORD must be at least 12 characters and at most 72 UTF-8 bytes")
+        if any(str(user.get("username", "")).strip().casefold() == username.casefold() for user in self.list_users()):
+            raise RuntimeError("COURTLOG_BOOTSTRAP_USERNAME already exists; choose another username or recover the existing Chief Registrar")
+
+        user = {
+            "user_id": f"usr_cr_bootstrap_{uuid.uuid4().hex}",
+            "username": username,
+            "password": get_password_hash(password),
+            "name": os.getenv("COURTLOG_BOOTSTRAP_NAME", "Initial Chief Registrar").strip() or "Initial Chief Registrar",
+            "role": "Chief Registrar",
+            "badge": "Initial Court Administrator",
+            "court": "All Courts",
+            "division": "All Divisions",
+            "disabled": False,
+            "must_change_password": True,
+        }
+        self.save_user(user["user_id"], user)
+        logger.warning("Created one-time bootstrap Chief Registrar account '%s'; change its password at first sign-in.", username)
 
     # ---- Case operations ----
 

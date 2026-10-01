@@ -41,7 +41,7 @@ Every task is initially unchecked. Proposed owners are responsibility areas, not
 - [ ] **B3 — Remove XSS sinks.** Safe DOM rendering, event listeners instead of interpolated inline handlers, input constraints and a compatible CSP. Regression tests for malicious case IDs, scan fields and webhook data. *(S-02)*
 - [x] **B4 — Repair session lifecycle.** Refresh/re-login handling, secure refresh-token storage, logout/revocation, user-disable checks and last-admin/self-delete safeguards. *(S-06)*
 - [x] **B5 — Finish account management.** Unique IDs, username/password setup, validated roles and assignments, password change/reset, forced initial password change; UI driven by authenticated profile rather than demo identities. *(S-09, F-04)*
-- [ ] **B6 — Remove unsafe defaults.** No pre-filled admin password; environment-driven bootstrap; explicit demo mode; role switcher and simulator unavailable in live mode. *(S-03)*
+- [x] **B6 — Remove unsafe defaults.** No pre-filled admin password; environment-driven bootstrap; explicit demo mode; role switcher and simulator unavailable in live mode. *(S-03)*
 - [ ] **B7 — Harden requests and dependencies.** Rate limits, CORS allowlist, appropriate headers, validated dates/phones/lengths/path containment, dependency upgrades and removal of unused packages. Retest compatibility and triage scanner results. *(S-07–S-10, E-03)*
 - [ ] **B8 — Record trustworthy actions.** Actor identity from authentication; actor/time/reason on hearings and overrides; append-only application audit events for edits, exports and administrative changes. *(S-05)*
 

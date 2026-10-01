@@ -35,6 +35,7 @@ let accessToken = null;
 let authenticatedUser = null;
 let refreshPromise = null;
 let sessionExpiryHandled = false;
+let demoMode = false;
 let distributionChart = null;
 let currentHearingOutcome = "Adjourned";
 let activeOverrideCaseId = null;
@@ -59,6 +60,21 @@ function getActiveUser() {
     }
     if (currentUserId && USER_PROFILES[currentUserId]) return USER_PROFILES[currentUserId];
     return USER_PROFILES["usr_clerk_01"];
+}
+
+async function loadAppConfig() {
+    try {
+        const response = await fetch(`${API_BASE}/config`, { credentials: "same-origin" });
+        if (!response.ok) return;
+        const config = await response.json();
+        demoMode = config.demo_mode === true;
+    } catch (_) {
+        demoMode = false; // Fail closed: hide simulator-only UI if config cannot be read.
+    }
+    const status = document.getElementById("whatsapp-mode-status");
+    if (status) status.textContent = demoMode ? "DEMO SIMULATOR — NOT LIVE DELIVERY" : "Simulator disabled in this environment";
+    const nav = document.getElementById("nav-whatsapp");
+    if (nav) nav.style.display = "none";
 }
 
 function getTheme() {
@@ -109,6 +125,7 @@ function clearClientSession() {
     document.getElementById("form-password-change")?.reset();
     document.getElementById("form-add-user")?.reset();
     document.getElementById("form-login")?.reset();
+    if (document.getElementById("role-switcher-select")) updateRoleUI();
     if (distributionChart) distributionChart.destroy();
     distributionChart = null;
     // Clear tokens left by older versions; tokens are no longer persisted in web storage.
@@ -316,6 +333,7 @@ document.addEventListener("DOMContentLoaded", async function () {
     localStorage.removeItem("courtlog-access-token");
     localStorage.removeItem("courtlog-refresh-token");
     localStorage.removeItem("courtlog-active-user");
+    await loadAppConfig();
     updateSimulationClock();
 
     if (await refreshSession()) {
@@ -406,11 +424,13 @@ function updateRoleUI() {
     const navDCR = document.getElementById("nav-dcr-console");
     const navJudge = document.getElementById("nav-judge-docket");
     const navUserAdmin = document.getElementById("nav-user-admin");
+    const navWhatsApp = document.getElementById("nav-whatsapp");
     const btnNJC = document.getElementById("btn-njc-export");
 
     if (navDCR) navDCR.style.display = (role === "DCR" || role === "Chief Registrar") ? "flex" : "none";
     if (navJudge) navJudge.style.display = (role === "Judge" || role === "Chief Registrar") ? "flex" : "none";
     if (navUserAdmin) navUserAdmin.style.display = (role === "Chief Registrar") ? "flex" : "none";
+    if (navWhatsApp) navWhatsApp.style.display = (demoMode && role === "Chief Registrar") ? "flex" : "none";
     if (btnNJC) btnNJC.style.display = (role === "Chief Registrar" || role === "DCR") ? "inline-flex" : "none";
 }
 
@@ -421,6 +441,9 @@ function logger(message) {
 
 // Switching Tabs (Single Page App Navigation)
 function switchTab(tabId) {
+    if (tabId === "tab-whatsapp" && (!demoMode || authenticatedUser?.role !== "Chief Registrar")) {
+        tabId = "tab-overview";
+    }
     document.querySelectorAll("main > div > section").forEach(section => {
         section.classList.add("hidden");
     });
@@ -478,7 +501,7 @@ async function loadDashboardData() {
         populateDropdowns();
         renderExecutionTable();
         renderChart();
-        loadWhatsAppLogs();
+        if (demoMode && authenticatedUser?.role === "Chief Registrar") loadWhatsAppLogs();
     } catch (error) {
         logger(`Error loading dashboard: ${error}`);
     }
