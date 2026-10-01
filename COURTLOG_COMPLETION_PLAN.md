@@ -49,7 +49,9 @@ Every task is initially unchecked. Proposed owners are responsibility areas, not
   - [x] Upgrade vulnerable runtime/test dependencies and remove unused `passlib`, `xhtml2pdf`, and `python-multipart`; `pip-audit` reports no known vulnerabilities for the fresh dev environment or requirements set as of 1 October 2026.
   - [x] Restrict the hearing `outcome` field to the two existing UI choices (`Heard`, `Adjourned`) without changing hearing policy.
   - [ ] Still open: enum/schema review for reason codes and execution actions; deployment must also ensure correct client-address handling behind any reverse proxy. Wider scanner/CI triage remains open.
-- [ ] **B8 — Record trustworthy actions.** Actor identity from authentication; actor/time/reason on hearings and overrides; append-only application audit events for edits, exports and administrative changes. *(S-05)*
+- [x] **B8 — Record trustworthy actions.** Actor identity from authentication; actor/time/reason on hearings and overrides; append-only application audit events for edits, exports and administrative changes. *(S-05)*
+  - [x] SQLite audit table and append-only update/delete guards; Chief Registrar-only latest-events API; case/user/workflow actions, predictions, exports, cron, login and logout are recorded. Passwords, refresh tokens and party phone numbers are not copied into audit metadata.
+  - [ ] Production hardening remains: business writes and audit appends are currently separate commits, so an audit-store failure can leave an applied operation with a 503 response; verify before retrying. SQLite triggers are not an external tamper-proof log. Add atomic write+audit transactions and off-host retention before production.
 
 **Gate:** unauthenticated requests denied, cross-scope requests denied, no hashes leaked, XSS regression tests pass, disabled/deleted users lose access, no unresolved critical security findings.
 

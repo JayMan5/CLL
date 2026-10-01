@@ -166,6 +166,16 @@ class BaseDatabase:
         """Remove a successful login reservation so only failures consume quota."""
         raise NotImplementedError
 
+    def append_audit_event(
+        self, actor_user_id: Optional[str], action: str, entity_type: str,
+        entity_id: str, reason: Optional[str] = None,
+        metadata: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, Any]:
+        raise NotImplementedError
+
+    def list_audit_events(self, limit: int = 100) -> List[Dict[str, Any]]:
+        raise NotImplementedError
+
 
 # ---- SQLite Implementation ----
 
@@ -187,6 +197,8 @@ class SQLiteDatabase(BaseDatabase):
         logger.info(f"Initializing SQLite database at: {self.db_path}")
 
         self.conn = sqlite3.connect(self.db_path, check_same_thread=False)
+        # Ensure DELETE triggers also fire for conflict-replacement attempts.
+        self.conn.execute("PRAGMA recursive_triggers = ON")
         self._create_tables()
         self._seed_users_if_empty()
 
@@ -242,6 +254,40 @@ class SQLiteDatabase(BaseDatabase):
                 "CREATE INDEX IF NOT EXISTS idx_login_attempts_client_time "
                 "ON auth_login_attempts(client_key, attempted_at)"
             )
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS audit_events (
+                    event_id TEXT PRIMARY KEY,
+                    occurred_at TEXT NOT NULL,
+                    actor_user_id TEXT,
+                    action TEXT NOT NULL,
+                    entity_type TEXT NOT NULL,
+                    entity_id TEXT NOT NULL,
+                    reason TEXT,
+                    metadata TEXT NOT NULL
+                )
+            """)
+            cursor.execute(
+                "CREATE INDEX IF NOT EXISTS idx_audit_events_time "
+                "ON audit_events(occurred_at DESC, event_id DESC)"
+            )
+            cursor.execute(
+                "CREATE INDEX IF NOT EXISTS idx_audit_events_actor_time "
+                "ON audit_events(actor_user_id, occurred_at DESC)"
+            )
+            cursor.execute("""
+                CREATE TRIGGER IF NOT EXISTS trg_audit_events_no_update
+                BEFORE UPDATE ON audit_events
+                BEGIN
+                    SELECT RAISE(ABORT, 'audit_events is append-only');
+                END;
+            """)
+            cursor.execute("""
+                CREATE TRIGGER IF NOT EXISTS trg_audit_events_no_delete
+                BEFORE DELETE ON audit_events
+                BEGIN
+                    SELECT RAISE(ABORT, 'audit_events is append-only');
+                END;
+            """)
             self.conn.commit()
 
     def _seed_users_if_empty(self) -> None:
@@ -537,6 +583,66 @@ class SQLiteDatabase(BaseDatabase):
                 "DELETE FROM auth_login_attempts WHERE attempt_id = ?", (attempt_id,)
             )
             self.conn.commit()
+
+    def append_audit_event(
+        self, actor_user_id: Optional[str], action: str, entity_type: str,
+        entity_id: str, reason: Optional[str] = None,
+        metadata: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, Any]:
+        """Append a minimal, server-attributed event; never update/delete existing events."""
+        if not action or len(action) > 100:
+            raise ValueError("Audit action must contain 1-100 characters")
+        if not entity_type or len(entity_type) > 80:
+            raise ValueError("Audit entity_type must contain 1-80 characters")
+        if not entity_id or len(entity_id) > 256:
+            raise ValueError("Audit entity_id must contain 1-256 characters")
+        if reason is not None and len(reason) > 2000:
+            raise ValueError("Audit reason must not exceed 2000 characters")
+        metadata_json = json.dumps(metadata or {}, separators=(",", ":"), sort_keys=True)
+        if len(metadata_json.encode("utf-8")) > 4096:
+            raise ValueError("Audit metadata must not exceed 4096 bytes")
+
+        event = {
+            "event_id": uuid.uuid4().hex,
+            "occurred_at": format_date(datetime.now(timezone.utc)),
+            "actor_user_id": actor_user_id,
+            "action": action,
+            "entity_type": entity_type,
+            "entity_id": entity_id,
+            "reason": reason,
+            "metadata": metadata or {},
+        }
+        with self._lock:
+            self.conn.execute(
+                "INSERT INTO audit_events "
+                "(event_id, occurred_at, actor_user_id, action, entity_type, entity_id, reason, metadata) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                (
+                    event["event_id"], event["occurred_at"], actor_user_id,
+                    action, entity_type, entity_id, reason, metadata_json,
+                ),
+            )
+            self.conn.commit()
+        return event
+
+    def list_audit_events(self, limit: int = 100) -> List[Dict[str, Any]]:
+        """Return recent audit records; callers are responsible for authorization."""
+        if not 1 <= limit <= 500:
+            raise ValueError("Audit event limit must be between 1 and 500")
+        with self._lock:
+            rows = self.conn.execute(
+                "SELECT event_id, occurred_at, actor_user_id, action, entity_type, entity_id, reason, metadata "
+                "FROM audit_events ORDER BY occurred_at DESC, event_id DESC LIMIT ?",
+                (limit,),
+            ).fetchall()
+        return [
+            {
+                "event_id": row[0], "occurred_at": row[1], "actor_user_id": row[2],
+                "action": row[3], "entity_type": row[4], "entity_id": row[5],
+                "reason": row[6], "metadata": json.loads(row[7]),
+            }
+            for row in rows
+        ]
 
     # ---- Maintenance ----
 

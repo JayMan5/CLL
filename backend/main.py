@@ -9,7 +9,7 @@ import uuid
 from dotenv import load_dotenv
 from datetime import datetime, timezone, timedelta
 from typing import Dict, Any, List, Optional, Annotated, Literal
-from fastapi import FastAPI, HTTPException, BackgroundTasks, Body, Header, Depends, Response, Cookie, Request
+from fastapi import FastAPI, HTTPException, BackgroundTasks, Body, Header, Depends, Response, Cookie, Request, Query
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import AfterValidator, BaseModel, Field, field_validator, model_validator
 
@@ -100,6 +100,30 @@ def _clear_refresh_cookie(response: Response) -> None:
 
 def _safe_user(user: Dict[str, Any]) -> Dict[str, Any]:
     return {key: value for key, value in user.items() if key != "password"}
+
+
+def _audit_session_reference(session_id: str) -> str:
+    """Avoid copying bearer-adjacent session identifiers into audit records."""
+    return hashlib.sha256(session_id.encode("utf-8")).hexdigest()
+
+
+def _record_audit_event(
+    actor_user_id: Optional[str], action: str, entity_type: str,
+    entity_id: str, reason: Optional[str] = None,
+    metadata: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
+    try:
+        return db.append_audit_event(
+            actor_user_id=actor_user_id, action=action,
+            entity_type=entity_type, entity_id=str(entity_id),
+            reason=reason, metadata=metadata,
+        )
+    except Exception as exc:
+        logger.exception("Audit event append failed for %s on %s", action, entity_type)
+        raise HTTPException(
+            status_code=503,
+            detail="The operation may have been applied, but its audit record could not be saved. Verify before retrying.",
+        ) from exc
 
 
 # Global variables
@@ -493,6 +517,7 @@ def login(req: LoginRequest, response: Response, request: Request):
         refresh_token = create_refresh_token({**token_data, "jti": refresh_jti})
         _set_refresh_cookie(response, refresh_token)
         db.complete_login_attempt(attempt_id)
+        _record_audit_event(user_id, "auth.login.success", "session", _audit_session_reference(session_id))
 
         logger.info("User authenticated successfully: %s", user_id)
         return {
@@ -557,14 +582,18 @@ def logout(
 ):
     """Revoke the browser session server-side and clear its refresh cookie."""
     response.headers["Cache-Control"] = "no-store"
+    payload = None
     if refresh_token:
         try:
             payload = verify_token(refresh_token)
-            if payload.get("type") == "refresh" and payload.get("sid") and payload.get("sub"):
-                db.revoke_auth_session(payload["sid"], payload["sub"])
         except HTTPException:
             # Logout should still clear an expired or malformed cookie.
-            pass
+            payload = None
+    if payload and payload.get("type") == "refresh" and payload.get("sid") and payload.get("sub"):
+        session_id = payload["sid"]
+        user_id = payload["sub"]
+        if db.revoke_auth_session(session_id, user_id):
+            _record_audit_event(user_id, "auth.logout", "session", _audit_session_reference(session_id))
     _clear_refresh_cookie(response)
     return {"status": "success", "message": "Session ended"}
 
@@ -755,6 +784,17 @@ def list_users(auth: Dict[str, str] = Depends(get_current_user)):
         raise HTTPException(status_code=403, detail="User management requires Chief Registrar authority")
     return [{k: v for k, v in user.items() if k != "password"} for user in db.list_users()]
 
+@app.get("/api/audit/events", response_model=List[Dict[str, Any]])
+def get_audit_events(
+    limit: int = Query(default=100, ge=1, le=500),
+    auth: Dict[str, str] = Depends(get_current_user),
+):
+    """Chief Registrar-only access to the latest append-only operational events."""
+    if auth["role"] != "Chief Registrar":
+        raise HTTPException(status_code=403, detail="Audit review requires Chief Registrar authority")
+    return db.list_audit_events(limit)
+
+
 @app.post("/api/users", status_code=201)
 def create_user(req: UserCreateRequest, auth: Dict[str, str] = Depends(get_current_user)):
     """Create a named account with a temporary password that must be changed at first login."""
@@ -786,6 +826,10 @@ def create_user(req: UserCreateRequest, auth: Dict[str, str] = Depends(get_curre
         db.save_user(user_id, new_user)
     except sqlite3.IntegrityError:
         raise HTTPException(status_code=409, detail="Username is already in use")
+    _record_audit_event(
+        auth["user_id"], "user.create", "user", user_id,
+        metadata={"role": req.role},
+    )
     return _safe_user(new_user)
 
 
@@ -804,6 +848,7 @@ def change_my_password(req: PasswordChangeRequest, auth: Dict[str, str] = Depend
     user["must_change_password"] = False
     db.save_user(user["user_id"], user)
     db.revoke_user_sessions(user["user_id"])
+    _record_audit_event(auth["user_id"], "user.password.change", "user", user["user_id"])
     return {"status": "success", "relogin_required": True}
 
 
@@ -828,6 +873,10 @@ def reset_user_password(
     user["must_change_password"] = True
     db.save_user(user_id, user)
     db.revoke_user_sessions(user_id)
+    _record_audit_event(
+        auth["user_id"], "user.password.reset", "user", user_id,
+        metadata={"must_change_password": True},
+    )
     return {"status": "success", "must_change_password": True}
 
 
@@ -843,7 +892,12 @@ def delete_user(user_id: str, auth: Dict[str, str] = Depends(get_current_user)):
     target = db.get_user(user_id)
     if target.get("role") == "Chief Registrar" and sum(u.get("role") == "Chief Registrar" and not u.get("disabled") for u in db.list_users()) <= 1:
         raise HTTPException(status_code=409, detail="Cannot delete the last active Chief Registrar")
-    db.delete_user(user_id)
+    if not db.delete_user(user_id):
+        raise HTTPException(status_code=404, detail="User not found")
+    _record_audit_event(
+        auth["user_id"], "user.delete", "user", user_id,
+        metadata={"role": target.get("role")},
+    )
     return {"status": "success", "message": f"User {user_id} deleted."}
 
 
@@ -907,6 +961,10 @@ def create_case(req: CaseCreateRequest, auth: Dict[str, str] = Depends(get_curre
     new_case["risk_flag"] = pred["risk_flag"]
     
     db.save_case(req.case_id, new_case)
+    _record_audit_event(
+        auth["user_id"], "case.create", "case", req.case_id,
+        metadata={"case_type": req.case_type, "court": req.court},
+    )
     return new_case
 
 @app.post("/api/scan", response_model=Dict[str, Any])
@@ -948,7 +1006,10 @@ def record_scan_event(req: ScanRequest, auth: Dict[str, str] = Depends(get_curre
         "delay_risk_score": pred["delay_risk_score"],
         "risk_flag": pred["risk_flag"]
     })
-    
+    _record_audit_event(
+        auth["user_id"], "case.scan", "case", req.case_id,
+        metadata={"location": req.location},
+    )
     return db.get_case(req.case_id)
 
 @app.post("/api/cases/{case_id:path}/hearings", response_model=Dict[str, Any])
@@ -982,6 +1043,11 @@ def log_hearing_outcome(case_id: CaseIdentifier, req: HearingRequest, background
                 "adjournment_blocked": True,
                 "risk_flag": True
             })
+            _record_audit_event(
+                auth["user_id"], "case.hearing.blocked", "case", case_id,
+                reason=req.reason_code,
+                metadata={"outcome": req.outcome, "existing_adjournment_count": current_adj_count},
+            )
             raise HTTPException(
                 status_code=400,
                 detail="5th Adjournment BLOCKED by System under ACJA/ACJL Section 396 compliance rules. Requires Deputy Chief Registrar (DCR) approval with exceptional reason."
@@ -1038,7 +1104,11 @@ def log_hearing_outcome(case_id: CaseIdentifier, req: HearingRequest, background
         "delay_risk_score": pred["delay_risk_score"],
         "risk_flag": pred["risk_flag"]
     })
-    
+    _record_audit_event(
+        auth["user_id"], "case.hearing.record", "case", case_id,
+        reason=req.reason_code if req.reason_code != "None" else None,
+        metadata={"outcome": req.outcome, "next_date": next_date_value},
+    )
     return db.get_case(case_id)
 
 @app.post("/api/cases/{case_id:path}/dcr-override", response_model=Dict[str, Any])
@@ -1062,6 +1132,10 @@ def override_dcr_adjournment(case_id: CaseIdentifier, req: DCROverrideRequest, a
     }
     
     db.update_case(case_id, updates)
+    _record_audit_event(
+        auth["user_id"], "case.dcr_override", "case", case_id,
+        reason=req.exceptional_reason,
+    )
     return db.get_case(case_id)
 
 # ----------------- NEW ENDPOINTS: RBAC FEATURE COMPLETION -----------------
@@ -1093,6 +1167,10 @@ def report_file_missing(case_id: CaseIdentifier, req: FileMissingRequest, auth: 
         "custody_alert": True,
         "risk_flag": True
     })
+    _record_audit_event(
+        auth["user_id"], "case.file_missing.report", "case", case_id,
+        metadata={"last_known_location": req.last_known_location},
+    )
 
     logger.warning(f"FILE MISSING REPORT: Case {case_id} reported missing by {auth['user_id']} — last seen at {req.last_known_location}")
     return db.get_case(case_id)
@@ -1119,6 +1197,11 @@ def assign_judge_to_case(case_id: CaseIdentifier, req: AssignJudgeRequest, auth:
     db.update_case(case_id, {
         "assigned_judge_id": req.judge_id,
     })
+    _record_audit_event(
+        auth["user_id"], "case.judge.assign", "case", case_id,
+        reason=req.reason,
+        metadata={"judge_id": req.judge_id},
+    )
 
     logger.info(f"CASE ASSIGNMENT: {case_id} assigned to Judge {req.judge_id} by {auth['user_id']} — Reason: {req.reason}")
     return db.get_case(case_id)
@@ -1148,6 +1231,11 @@ def reassign_case(case_id: CaseIdentifier, req: ReassignRequest, auth: Dict[str,
         raise HTTPException(status_code=400, detail="Must specify new_division or new_court for reassignment.")
 
     db.update_case(case_id, updates)
+    _record_audit_event(
+        auth["user_id"], "case.reassign", "case", case_id,
+        reason=req.reason,
+        metadata=updates,
+    )
 
     logger.info(f"CASE REASSIGNMENT: {case_id} reassigned by {auth['user_id']} ({auth['role']}) — Reason: {req.reason}")
     return db.get_case(case_id)
@@ -1179,6 +1267,10 @@ def export_dcr_weekly_report(auth: Dict[str, str] = Depends(get_current_user)):
     blocked = [c for c in division_cases if c.get("adjournment_blocked")]
     missing_files = [c for c in division_cases if c.get("file_missing_report") and not c["file_missing_report"].get("resolved")]
     compliance_score = round(max(0, (1 - (len(stalled) / max(1, total))) * 100), 1)
+    _record_audit_event(
+        auth["user_id"], "report.export.dcr_weekly", "report", division,
+        metadata={"case_count": total},
+    )
 
     return {
         "report_title": f"DCR Weekly Division Report — {division}",
@@ -1224,6 +1316,10 @@ def upload_document(case_id: CaseIdentifier, req: DocumentUploadRequest, auth: D
     db.update_case(case_id, {
         "documents": [doc_record]
     })
+    _record_audit_event(
+        auth["user_id"], "case.document.metadata_record", "case", case_id,
+        metadata={"document_type": req.document_type},
+    )
 
     logger.info(f"DOCUMENT METADATA RECORDED: {req.document_type} '{req.title}' for case {case_id} by {auth['user_id']}")
     return db.get_case(case_id)
@@ -1375,6 +1471,10 @@ def export_njc_report(auth: Dict[str, str] = Depends(get_current_user)):
     stalled_cases = [c for c in cases if c.get("risk_flag")]
     delays_count = len(stalled_cases)
     compliance_score = round(max(0, (1 - (delays_count / max(1, total_cases))) * 100), 1)
+    _record_audit_event(
+        auth["user_id"], "report.export.njc", "report", auth["role"],
+        metadata={"case_count": total_cases},
+    )
     
     return {
         "report_title": "National Judicial Council (NJC) Monthly Delay Compliance Report",
@@ -1414,6 +1514,10 @@ def predict_case_risk(case_id: CaseIdentifier, auth: Dict[str, str] = Depends(ge
         "delay_risk_score": pred["delay_risk_score"],
         "risk_flag": pred["risk_flag"]
     })
+    _record_audit_event(
+        auth["user_id"], "case.predict", "case", case_id,
+        metadata={"source": "on_demand"},
+    )
     
     return {
         "case_id": case_id,
@@ -1455,6 +1559,10 @@ def batch_predict_all_cases(auth: Dict[str, str] = Depends(get_current_user)):
             "filing_date": case.get("filing_date", "")
         })
     results.sort(key=lambda x: x["delay_risk_score"], reverse=True)
+    _record_audit_event(
+        auth["user_id"], "case.predict.batch", "case_collection", auth["user_id"],
+        metadata={"case_count": len(results)},
+    )
     return results
 
 @app.post("/api/cases/{case_id:path}/execution", response_model=Dict[str, Any])
@@ -1490,6 +1598,10 @@ def add_execution_action(case_id: CaseIdentifier, req: ExecutionRequest, auth: D
     
     # Re-run compliance updates
     run_compliance_checks_sync()
+    _record_audit_event(
+        auth["user_id"], "case.execution.record", "case", case_id,
+        metadata={"action": req.action},
+    )
     
     return db.get_case(case_id)
 
@@ -1510,6 +1622,10 @@ def run_cron_compliance_sweep(auth: Dict[str, str] = Depends(get_current_user)):
         "non_compliant_enforcements": sum(1 for c in cases if c.get("enforcement_non_compliant")),
         "high_risk_delay_cases": sum(1 for c in cases if c.get("risk_flag"))
     }
+    _record_audit_event(
+        auth["user_id"], "compliance.sweep", "case_collection", "all",
+        metadata={"case_count": stats["total_cases"]},
+    )
     
     return {
         "status": "success",

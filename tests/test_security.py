@@ -64,7 +64,8 @@ def fixture_case(cid, court='FHC Abuja Court 4'):
 
 def test_exposed_routes_require_authentication():
     fixture_case('SEC/1')
-    for method, path in [('get', '/api/users'), ('get', '/api/cases/SEC/1'),
+    for method, path in [('get', '/api/users'), ('get', '/api/audit/events'),
+                         ('get', '/api/cases/SEC/1'),
                          ('post', '/api/cases/SEC/1/predict'), ('post', '/api/cron'),
                          ('get', '/api/whatsapp/logs')]:
         assert getattr(client, method)(path).status_code == 401
@@ -145,6 +146,12 @@ def test_login_uses_httponly_refresh_cookie_and_logout_revokes_access():
         assert session_client.get('/api/users', headers={'Authorization': f'Bearer {access}'}).status_code == 401
         assert session_client.get('/api/users', headers={'Authorization': f"Bearer {refresh.json()['access_token']}"}).status_code == 401
         assert session_client.post('/api/refresh').status_code == 401
+        auth_events = [
+            e for e in main.db.list_audit_events(100)
+            if e['actor_user_id'] == 'usr_cr_01' and e['action'] in {'auth.login.success', 'auth.logout'}
+        ]
+        assert {e['action'] for e in auth_events} >= {'auth.login.success', 'auth.logout'}
+        assert all(len(e['entity_id']) == 64 for e in auth_events)
 
 
 def test_disabled_user_cannot_login():
@@ -236,7 +243,7 @@ def test_legacy_user_table_migrates_username_index_and_session_store(tmp_path, m
     migrated_tables = {
         row[0] for row in migrated.conn.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()
     }
-    assert {'auth_sessions', 'auth_login_attempts'} <= migrated_tables
+    assert {'auth_sessions', 'auth_login_attempts', 'audit_events'} <= migrated_tables
     with pytest.raises(sqlite3.IntegrityError):
         migrated.save_user('duplicate_user', {'user_id':'duplicate_user', 'username':'legacy.user', 'role':'Clerk'})
     migrated.conn.close()
@@ -502,3 +509,95 @@ def test_login_rate_limit_reservations_are_atomic_under_concurrency():
     assert all(delay >= 1 for _, delay in blocked)
     for attempt_id in allowed:
         main.db.complete_login_attempt(attempt_id)
+
+
+def test_audit_log_attributes_case_creation_and_is_chief_registrar_only():
+    payload = {
+        'case_id':'SEC/AUDIT-CREATE', 'case_type':'Criminal',
+        'court':'FHC Abuja Court 4', 'counsel_phone':'+2348031234567',
+        'litigant_phone':'+2348037654321',
+    }
+    created = client.post('/api/cases', headers=headers('usr_clerk_01'), json=payload)
+    assert created.status_code == 201
+    assert client.get('/api/audit/events', headers=headers('usr_clerk_01')).status_code == 403
+
+    admin_headers = headers('usr_cr_01')
+    response = client.get('/api/audit/events?limit=200', headers=admin_headers)
+    assert response.status_code == 200
+    assert client.get('/api/audit/events?limit=501', headers=admin_headers).status_code == 422
+    event = next(e for e in response.json() if e['action'] == 'case.create' and e['entity_id'] == payload['case_id'])
+    assert event['actor_user_id'] == 'usr_clerk_01'
+    assert event['entity_type'] == 'case'
+    assert event['occurred_at']
+    assert '+2348031234567' not in json.dumps(event)
+    assert '+2348037654321' not in json.dumps(event)
+
+    with pytest.raises(sqlite3.IntegrityError):
+        main.db.conn.execute("UPDATE audit_events SET reason = 'tampered' WHERE event_id = ?", (event['event_id'],))
+    main.db.conn.rollback()
+    with pytest.raises(sqlite3.IntegrityError):
+        main.db.conn.execute("DELETE FROM audit_events WHERE event_id = ?", (event['event_id'],))
+    main.db.conn.rollback()
+    with pytest.raises(sqlite3.IntegrityError):
+        main.db.conn.execute(
+            "INSERT OR REPLACE INTO audit_events "
+            "(event_id, occurred_at, actor_user_id, action, entity_type, entity_id, reason, metadata) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            (event['event_id'], event['occurred_at'], event['actor_user_id'], event['action'],
+             event['entity_type'], event['entity_id'], 'replacement', json.dumps(event['metadata'])),
+        )
+    main.db.conn.rollback()
+    assert any(e['event_id'] == event['event_id'] for e in main.db.list_audit_events(200))
+
+
+def test_audit_records_hearing_and_override_actor_time_and_reason():
+    fixture_case('SEC/AUDIT-HEARING')
+    hearing = client.post(
+        '/api/cases/SEC/AUDIT-HEARING/hearings', headers=headers('usr_clerk_01'),
+        json={'outcome':'Adjourned', 'reason_code':'Counsel Absent', 'next_date':'2026-10-20'},
+    )
+    assert hearing.status_code == 200
+
+    fixture_case('SEC/AUDIT-OVERRIDE')
+    override_reason = 'Urgent exceptional registry reason 482'
+    override = client.post(
+        '/api/cases/SEC/AUDIT-OVERRIDE/dcr-override', headers=headers('usr_dcr_01'),
+        json={'exceptional_reason':override_reason},
+    )
+    assert override.status_code == 200
+
+    events = main.db.list_audit_events(200)
+    hearing_event = next(e for e in events if e['action'] == 'case.hearing.record' and e['entity_id'] == 'SEC/AUDIT-HEARING')
+    assert hearing_event['actor_user_id'] == 'usr_clerk_01'
+    assert hearing_event['reason'] == 'Counsel Absent'
+    assert hearing_event['metadata']['outcome'] == 'Adjourned'
+    assert hearing_event['occurred_at']
+
+    override_event = next(e for e in events if e['action'] == 'case.dcr_override' and e['entity_id'] == 'SEC/AUDIT-OVERRIDE')
+    assert override_event['actor_user_id'] == 'usr_dcr_01'
+    assert override_event['reason'] == override_reason
+    assert override_event['occurred_at']
+
+
+def test_user_password_audit_events_exclude_credentials():
+    target_id = 'usr_audit_password_target'
+    main.db.save_user(target_id, {
+        'user_id':target_id, 'username':'audit-target',
+        'password':get_password_hash('Initial-Password-41!'),
+        'role':'Clerk', 'court':'FHC Abuja Court 4', 'division':'Criminal',
+        'disabled':False,
+    })
+    temporary = 'Temporary-Password-42!'
+    response = client.post(
+        f'/api/users/{target_id}/reset-password', headers=headers('usr_cr_01'),
+        json={'temporary_password':temporary},
+    )
+    assert response.status_code == 200
+    event = next(
+        e for e in main.db.list_audit_events(200)
+        if e['action'] == 'user.password.reset' and e['entity_id'] == target_id
+    )
+    serialized = json.dumps(event)
+    assert event['actor_user_id'] == 'usr_cr_01'
+    assert temporary not in serialized
+    assert 'Initial-Password-41!' not in serialized

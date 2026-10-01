@@ -82,7 +82,7 @@ Verification:
 - `node --check frontend/app.js`, `npm run test:frontend`, and `npm audit --audit-level=high`: passed; 0 npm vulnerabilities.
 - `python -m compileall -q backend` and `git diff --check`: passed.
 
-B7 remains open: rate limiting/lockout, broad enum review, dependency upgrades/removals, and full scanner triage have not been completed. Document binary upload/storage remains a separate D3 task. Real-browser, device, staging and pilot readiness have not been established; legal-rule changes remain pending Law Lead sign-off.
+At this checkpoint B7 remained open: rate limiting/lockout, broad enum review, dependency upgrades/removals, and full scanner triage had not yet been completed. Document binary upload/storage remains a separate D3 task. Real-browser, device, staging and pilot readiness have not been established; legal-rule changes remain pending Law Lead sign-off.
 
 ## 1 October 2026 — B7 login throttling and dependency hardening
 
@@ -101,3 +101,19 @@ Verification:
 - Regression tests cover threshold, `Retry-After`, rolling expiry, clearing successful reservations, concurrent request atomicity, and rejection of unknown hearing outcomes.
 
 Still open: proper trusted-proxy client-IP configuration/edge throttling for the deployment, review of reason/action enums, broader scanner/CI triage, and all remaining workflow, legal, staging and pilot gates. The rate limiter does not by itself establish production readiness.
+
+## 1 October 2026 — B8 application audit trail
+
+Implemented:
+- Added a SQLite append-only `audit_events` table with event IDs, UTC timestamps, authenticated actor IDs, action/entity identifiers, optional reason text and bounded JSON metadata. SQL triggers reject ordinary update/delete statements.
+- Added a Chief Registrar-only `/api/audit/events` endpoint with a bounded latest-event limit.
+- Recorded successful login/logout, user create/password change/reset/delete, case registration/scans/hearings (including blocked attempts)/DCR overrides/missing-file reports/judge assignment/reassignment/document metadata/execution, predictions, exports and manual compliance sweeps.
+- Session references in the audit trail are hashed; password values, refresh/access tokens and party contact numbers are not copied into event metadata. Hearing/override reasons and authenticated actors are recorded.
+- If appending an event fails after the business write, the request returns an explicit 503 warning that the operation may already have applied; the client is told to verify before retrying.
+
+Verification:
+- `.venv/bin/python -m pytest tests/test_security.py -q`: 31 passed, two FastAPI lifespan deprecation warnings.
+- Regression tests verify authentication and CR-only access, correct actor/time/reason, no phone/password leakage, and SQL update/delete guards.
+- `python -m compileall -q backend` and `git diff --check`: passed.
+
+Important limitation: the case/user mutation and audit insert are separate database commits. SQLite triggers deter ordinary app-level edits but are not protection against a database administrator or file replacement. Atomic write+audit transactions and off-host/tamper-evident retention remain production gates. Broad browser/device, staging, module and legal sign-offs remain pending.
