@@ -142,11 +142,13 @@ Run this while signed in as the assigned Sheriff, with the app page already open
 | Offline behavior | No success, no queued/replayed event; a new online scan works after reconnect | |
 | Evidence and cleanup | No credentials/raw token/real data in evidence; test labels controlled/destroyed | |
 
-**Overall result:** Pass / Fail / Blocked  
-**Defects or follow-up IDs:**  
-**Tester:**  
-**Pilot owner/witness:**  
-**Date/time and sign-off:**  
+| Sign-off field | Entry |
+|---|---|
+| Overall result | Pass / Fail / Blocked |
+| Defects or follow-up IDs | |
+| Tester | |
+| Pilot owner/witness | |
+| Date/time and sign-off | |
 
 C2 may be checked complete only after required checks pass on the actual target phone and intended printer, failures are resolved and retested, and the completed record is reviewed. A blocked or unrun physical test leaves C2 open.
 
