@@ -75,3 +75,11 @@ def test_dcr_export_is_scoped():
     response = client.get('/api/export/njc', headers=headers('usr_dcr_01'))
     assert response.status_code == 200
     assert all(c['assigned_division'] == 'Criminal' for c in response.json()['audited_cases'])
+
+def test_hostile_case_identifiers_rejected():
+    h = headers('usr_cr_01')
+    for cid in ('../../tmp/escape', "X');alert(1)//", '<img>', 'A//B'):
+        response = client.post('/api/cases', headers=h, json={
+            'case_id': cid, 'case_type':'Criminal', 'court':'FHC Abuja Court 4',
+            'counsel_phone':'+2348000000001', 'litigant_phone':'+2348000000002'})
+        assert response.status_code == 422

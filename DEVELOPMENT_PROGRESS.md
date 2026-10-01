@@ -26,3 +26,13 @@ Verification:
 Still pending: frontend XSS remediation, complete session/logout/revocation, account creation/password management, strict input validation, dependency upgrades, explicit Sheriff assignment UI, actual QR capture, document storage, compliance/lifecycle correctness, AI rebuild, remaining tests and deployment.
 
 Known integration changes: non-admin user/message-log requests now receive 403; frontend permission/error presentation still needs updating. Simulator broadcasts need DEMO_MODE=true and a strong SIMULATOR_SECRET; production notification integration remains pending. Legal-policy changes await Law Lead decisions.
+
+## 1 October 2026 — publication and frontend security tranche
+
+- Published the first security tranche to GitHub on `arena/01a0f82f-cll` (not main).
+- Escaped server-controlled text at table, notification, scan-history, toast and writ rendering boundaries while retaining original identifiers in application state.
+- Replaced dynamic inline JavaScript action attributes with delegated listeners and data attributes.
+- URL-encoded QR payloads; added case identifier constraints/traversal rejection and nonblank override reasons.
+- Added jsdom regression checks for malicious case IDs, webhook content, toast content and writ fields; verified buttons preserve original IDs without executing injected code.
+- Verification: 8 backend security tests pass; frontend security harness passes; JavaScript syntax passes.
+- Not complete: full CSP migration (static HTML handlers/CDN remain), comprehensive frontend/browser testing, session/logout/revocation and remaining completion-plan items.

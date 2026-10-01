@@ -1,3 +1,30 @@
+// Escape untrusted values only at the HTML rendering boundary.
+function escapeHTML(value) {
+    return String(value ?? '').replace(/[&<>"']/g, char => ({
+        '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+    }[char]));
+}
+function safeRecord(value) {
+    if (typeof value === 'string') return escapeHTML(value);
+    if (Array.isArray(value)) return value.map(safeRecord);
+    if (value && typeof value === 'object') {
+        return Object.fromEntries(Object.entries(value).map(([key, item]) => [key, safeRecord(item)]));
+    }
+    return value;
+}
+// Never put user-controlled identifiers inside executable JavaScript attributes.
+document.addEventListener('click', event => {
+    const button = event.target.closest('[data-case-action]');
+    if (!button) return;
+    const actions = {
+        scan: shortcutQRScan, hearing: shortcutHearingLog, assign: openAssignJudgeModal,
+        writ: selectCaseForWrit, override: openDCROverrideModal, ruling: logJudicialRuling,
+        deleteUser: deleteUserAccount, explain: showExplainability
+    };
+    const action = actions[button.dataset.caseAction];
+    if (action) action(button.dataset.recordId);
+});
+
 // ===== GLOBAL STATE =====
 const API_BASE = "/api";
 let casesData = [];
@@ -185,7 +212,7 @@ function showToast(message, type = "info") {
     const toast = document.createElement("div");
     toast.className = `toast toast-${type}`;
     const icons = { success: "fa-circle-check", error: "fa-circle-xmark", warning: "fa-triangle-exclamation", info: "fa-circle-info" };
-    toast.innerHTML = `<i class="fa-solid ${icons[type] || icons.info}"></i><span>${message}</span><button onclick="this.parentElement.remove()" class="toast-close">&times;</button>`;
+    toast.innerHTML = `<i class="fa-solid ${icons[type] || icons.info}"></i><span>${escapeHTML(message)}</span><button onclick="this.parentElement.remove()" class="toast-close">&times;</button>`;
     container.appendChild(toast);
     requestAnimationFrame(() => toast.classList.add("toast-visible"));
     setTimeout(() => { toast.classList.remove("toast-visible"); setTimeout(() => toast.remove(), 400); }, 4000);
@@ -370,7 +397,7 @@ function renderHeatmapTable(cases) {
         return;
     }
 
-    cases.forEach(c => {
+    cases.map(safeRecord).forEach(c => {
         // Find latest scan location
         let lastScanLocation = "N/A";
         let lastScanTime = "";
@@ -435,9 +462,9 @@ function renderHeatmapTable(cases) {
             <td class="py-3 px-4 text-center">${alertBadge}</td>
             <td class="py-3 px-4 text-right">
                 <div class="flex items-center justify-end gap-2">
-                    <button onclick="shortcutQRScan('${c.case_id}')" class="btn-secondary" style="padding:2px 8px;font-size:10px;" title="Scan QR Code"><i class="fa-solid fa-qrcode mr-1"></i> Scan</button>
-                    ${getActiveUser().role !== 'Sheriff' ? `<button onclick="shortcutHearingLog('${c.case_id}')" class="btn-secondary" style="padding:2px 8px;font-size:10px;" title="Log Hearing"><i class="fa-solid fa-gavel mr-1"></i> Log</button>` : ''}
-                    ${getActiveUser().role === 'Chief Registrar' ? `<button onclick="openAssignJudgeModal('${c.case_id}')" class="btn-secondary" style="padding:2px 8px;font-size:10px; color:var(--purple-400)" title="Assign Judge"><i class="fa-solid fa-scale-balanced mr-1"></i> Assign</button>` : ''}
+                    <button data-case-action="scan" data-record-id="${c.case_id}" class="btn-secondary" style="padding:2px 8px;font-size:10px;" title="Scan QR Code"><i class="fa-solid fa-qrcode mr-1"></i> Scan</button>
+                    ${getActiveUser().role !== 'Sheriff' ? `<button data-case-action="hearing" data-record-id="${c.case_id}" class="btn-secondary" style="padding:2px 8px;font-size:10px;" title="Log Hearing"><i class="fa-solid fa-gavel mr-1"></i> Log</button>` : ''}
+                    ${getActiveUser().role === 'Chief Registrar' ? `<button data-case-action="assign" data-record-id="${c.case_id}" class="btn-secondary" style="padding:2px 8px;font-size:10px; color:var(--purple-400)" title="Assign Judge"><i class="fa-solid fa-scale-balanced mr-1"></i> Assign</button>` : ''}
                 </div>
             </td>
         `;
@@ -458,7 +485,7 @@ function renderExecutionTable() {
             return;
         }
 
-        judgments.forEach(c => {
+        judgments.map(safeRecord).forEach(c => {
             // Calculate dynamic delivery date
             let deliveryDate = "N/A";
             const deliveryEvent = (c.execution_log || []).find(e => e.action && e.action.includes("Delivered"));
@@ -489,7 +516,7 @@ function renderExecutionTable() {
                     </div>
                 </td>
                 <td class="py-3 px-3 text-right">
-                    <button onclick="selectCaseForWrit('${c.case_id}')" class="btn-primary" style="font-size:10px; padding:4px 12px;">
+                    <button data-case-action="writ" data-record-id="${c.case_id}" class="btn-primary" style="font-size:10px; padding:4px 12px;">
                         Compile Writ
                     </button>
                 </td>
@@ -498,7 +525,7 @@ function renderExecutionTable() {
         });
     } catch (error) {
         console.error("Error in renderExecutionTable:", error);
-        tableBody.innerHTML = `<tr><td colspan="6" class="text-center py-8" style="color:red">Error: ${error.message}</td></tr>`;
+        tableBody.innerHTML = `<tr><td colspan="6" class="text-center py-8" style="color:red">Error: ${escapeHTML(error.message)}</td></tr>`;
     }
 }
 
@@ -511,7 +538,7 @@ function renderWhatsAppLogs() {
     }
 
     container.innerHTML = "";
-    whatsappLogs.forEach(log => {
+    whatsappLogs.map(safeRecord).forEach(log => {
         const payload = log.payload;
         const msgText = payload.simulated_text || "N/A";
         const dateFormatted = new Date(log.received_at).toLocaleTimeString();
@@ -827,14 +854,14 @@ function renderDCRTable() {
         return;
     }
 
-    dcrCases.forEach(c => {
+    dcrCases.map(safeRecord).forEach(c => {
         const isBlocked = c.dcr_approval_required || (c.adjournment_count >= 4 && !c.dcr_override_reason);
         let statusBadge = isBlocked
             ? `<span class="badge badge-high badge-pulse font-bold"><i class="fa-solid fa-ban mr-1"></i> 5th Adj. Blocked</span>`
             : `<span class="badge badge-low font-semibold"><i class="fa-solid fa-circle-check mr-1"></i> DCR Approved</span>`;
 
         let actionBtn = isBlocked
-            ? `<button onclick="openDCROverrideModal('${c.case_id}')" class="btn-primary bg-amber-600 hover:bg-amber-700 text-xs py-1 px-3"><i class="fa-solid fa-shield-halved mr-1"></i> Review & Approve</button>`
+            ? `<button data-case-action="override" data-record-id="${c.case_id}" class="btn-primary bg-amber-600 hover:bg-amber-700 text-xs py-1 px-3"><i class="fa-solid fa-shield-halved mr-1"></i> Review & Approve</button>`
             : `<span class="text-xs text-emerald-400 font-mono"><i class="fa-solid fa-lock-open"></i> Unblocked</span>`;
 
         const row = document.createElement("tr");
@@ -908,7 +935,7 @@ function renderJudgeDocketTable() {
         return;
     }
 
-    judgeCases.forEach(c => {
+    judgeCases.map(safeRecord).forEach(c => {
         const row = document.createElement("tr");
         row.innerHTML = `
             <td class="py-3 px-4 font-mono font-bold text-heading">${c.case_id}</td>
@@ -917,7 +944,7 @@ function renderJudgeDocketTable() {
             <td class="py-3 px-4 text-center font-mono">${c.days_since_filing} d</td>
             <td class="py-3 px-4 text-center"><span class="badge ${c.risk_flag ? 'badge-high' : 'badge-low'}">${(c.delay_risk_score * 100).toFixed(0)}%</span></td>
             <td class="py-3 px-4 text-right">
-                <button onclick="logJudicialRuling('${c.case_id}')" class="btn-primary text-xs py-1 px-3"><i class="fa-solid fa-gavel mr-1"></i> Deliver Ruling</button>
+                <button data-case-action="ruling" data-record-id="${c.case_id}" class="btn-primary text-xs py-1 px-3"><i class="fa-solid fa-gavel mr-1"></i> Deliver Ruling</button>
             </td>
         `;
         tableBody.appendChild(row);
@@ -963,7 +990,7 @@ function renderUsersAdminTable() {
         return;
     }
 
-    usersData.forEach(u => {
+    usersData.map(safeRecord).forEach(u => {
         const row = document.createElement("tr");
         row.innerHTML = `
             <td class="py-3 px-4 font-mono text-heading">${u.user_id}</td>
@@ -972,7 +999,7 @@ function renderUsersAdminTable() {
             <td class="py-3 px-4" style="color:var(--text-secondary)">${u.badge}</td>
             <td class="py-3 px-4">${u.division || 'All'}</td>
             <td class="py-3 px-4 text-right">
-                <button onclick="deleteUserAccount('${u.user_id}')" class="btn-secondary text-xs text-rose hover:bg-rose-900/20 py-1 px-2.5"><i class="fa-solid fa-trash"></i></button>
+                <button data-case-action="deleteUser" data-record-id="${u.user_id}" class="btn-secondary text-xs text-rose hover:bg-rose-900/20 py-1 px-2.5"><i class="fa-solid fa-trash"></i></button>
             </td>
         `;
         tableBody.appendChild(row);
@@ -1088,7 +1115,7 @@ function updateQRDisplay() {
     if (!caseId) return;
 
     document.getElementById("qr-display-suit").textContent = caseId;
-    document.getElementById("qr-display-img").src = `https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=${caseId}&color=0f172a`;
+    document.getElementById("qr-display-img").src = `https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=${encodeURIComponent(caseId)}&color=0f172a`;
 
     // Bind chain of custody logs to preview
     const targetCase = casesData.find(c => c.case_id === caseId);
@@ -1096,7 +1123,7 @@ function updateQRDisplay() {
     logsContainer.innerHTML = "";
 
     if (targetCase && targetCase.scan_events && targetCase.scan_events.length > 0) {
-        [...targetCase.scan_events].reverse().forEach(scan => {
+        [...targetCase.scan_events].reverse().map(safeRecord).forEach(scan => {
             const dt = new Date(scan.timestamp).toLocaleDateString() + " " + new Date(scan.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
             const item = document.createElement("div");
             item.className = "flex justify-between items-center text-[10px] py-1";
@@ -1241,6 +1268,11 @@ function showWritModal(caseId, writType, extraDetails, sheriffId) {
     const dateStr = dayNum + ' ' + monthName + ', ' + year;
     const sfx = (dayNum >= 11 && dayNum <= 13) ? 'th' : [null,'st','nd','rd'][dayNum%10] || 'th';
 
+    caseId = escapeHTML(caseId);
+    plaintiff = escapeHTML(plaintiff);
+    defendant = escapeHTML(defendant);
+    extraDetails = escapeHTML(extraDetails.toUpperCase());
+    sheriffId = escapeHTML(sheriffId);
     let docHTML = "";
 
     if (writType === "Writ of Fi Fa") {
@@ -1290,7 +1322,7 @@ function showWritModal(caseId, writType, extraDetails, sheriffId) {
         + '<h4 style="font-weight:bold;border-bottom:1px solid #999;padding-bottom:4px;margin:24px 0 8px 0;">DEFINITIONS</h4>'
         + '<ul style="list-style:disc;padding-left:20px;"><li><strong>"Garnishee"</strong>: A third party holding money or property belonging to the Judgment Debtor.</li><li><strong>"Court"</strong>: The High Court of the FCT.</li><li><strong>"Judgment Sum"</strong>: The total amount awarded, inclusive of costs and interest.</li></ul>'
         + '<h4 style="font-weight:bold;border-bottom:1px solid #999;padding-bottom:4px;margin:24px 0 8px 0;">1. IDENTIFICATION OF PARTIES</h4>'
-        + '<p>1.1. Judgment Creditor: <strong>' + plaintiff + '</strong></p><p>1.2. Judgment Debtor: <strong>' + defendant + '</strong></p><p>1.3. Garnishee: <strong>' + extraDetails.toUpperCase() + '</strong></p>'
+        + '<p>1.1. Judgment Creditor: <strong>' + plaintiff + '</strong></p><p>1.2. Judgment Debtor: <strong>' + defendant + '</strong></p><p>1.3. Garnishee: <strong>' + extraDetails + '</strong></p>'
         + '<h4 style="font-weight:bold;border-bottom:1px solid #999;padding-bottom:4px;margin:24px 0 8px 0;">2. GARNISHEE PROCEEDINGS</h4>'
         + '<p>2.1. The Judgment Creditor commences Garnishee proceedings against the Garnishee in accordance with the relevant laws of the Federal Republic of Nigeria.</p>'
         + '<p>2.2. The Judgment Creditor seeks to recover the Judgment Sum from the Garnishee.</p>'
@@ -1658,7 +1690,7 @@ function renderAIRiskDashboard() {
 
     // Table rows
     const tbody = document.getElementById('ai-risk-table-body');
-    tbody.innerHTML = data.map(c => {
+    tbody.innerHTML = data.map(safeRecord).map(c => {
         const score = c.delay_risk_score;
         const pct = (score * 100).toFixed(1);
         let riskLabel, riskColor, riskIcon, barBg;
@@ -1687,7 +1719,7 @@ function renderAIRiskDashboard() {
             </td>
             <td><span class="text-xs px-2 py-1 rounded-full font-semibold" style="background:rgba(255,255,255,0.06);">${c.judgment_status}</span></td>
             <td class="text-center">
-                <button onclick="showExplainability('${c.case_id}')" class="text-xs px-2 py-1 rounded-lg font-semibold" 
+                <button data-case-action="explain" data-record-id="${c.case_id}" class="text-xs px-2 py-1 rounded-lg font-semibold"
                     style="background:rgba(139,92,246,0.15);color:#a78bfa;border:1px solid rgba(139,92,246,0.3);cursor:pointer;">
                     <i class="fa-solid fa-magnifying-glass-chart"></i> Why?
                 </button>

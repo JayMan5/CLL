@@ -3,10 +3,10 @@ import joblib
 import logging
 from dotenv import load_dotenv
 from datetime import datetime, timezone, timedelta
-from typing import Dict, Any, List, Optional
+from typing import Dict, Any, List, Optional, Annotated
 from fastapi import FastAPI, HTTPException, BackgroundTasks, Body, Header, Depends
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel
+from pydantic import BaseModel, Field, field_validator
 
 load_dotenv()
 
@@ -97,9 +97,21 @@ def startup_event():
     # Run initial compliance sweep
     run_compliance_checks_sync()
 
+# Identifiers allow Nigerian suit-number separators but reject traversal and HTML.
+CaseIdentifier = Annotated[str, Field(min_length=1, max_length=120, pattern=r"^[A-Za-z0-9][A-Za-z0-9_()./-]*$")]
+
 # Helper Pydantic Models for Input Validation
-class ScanRequest(BaseModel):
-    case_id: str
+class CaseIdentifierRequest(BaseModel):
+    @field_validator("case_id", check_fields=False)
+    @classmethod
+    def reject_traversal(cls, value):
+        if ".." in value or "//" in value or value.endswith("/"):
+            raise ValueError("Invalid case identifier")
+        return value
+
+
+class ScanRequest(CaseIdentifierRequest):
+    case_id: CaseIdentifier
     location: str
     staff_id: str
 
@@ -112,15 +124,15 @@ class ExecutionRequest(BaseModel):
     action: str  # "Writ of Fi Fa Filed", "Garnishee Order Filed", etc.
     sheriff_id: str
 
-class CaseCreateRequest(BaseModel):
-    case_id: str
+class CaseCreateRequest(CaseIdentifierRequest):
+    case_id: CaseIdentifier
     case_type: str
     court: str
     counsel_phone: str
     litigant_phone: str
 
 class DCROverrideRequest(BaseModel):
-    exceptional_reason: str
+    exceptional_reason: str = Field(min_length=1, max_length=2000, pattern=r"\S")
 
 class LoginRequest(BaseModel):
     username: str
