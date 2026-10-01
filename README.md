@@ -36,7 +36,7 @@ On Windows, use `.venv\Scripts\python.exe` instead of `.venv/bin/python`.
 
 For a first-run demo, the application seeds fictional demo accounts only into the fresh database when `DEMO_MODE=true`. Keep that database private and disposable. When testing without demo accounts, leave `DEMO_MODE=false` and provision accounts through the documented bootstrap/admin flow.
 
-**A local HTTP demo is not the C2 real-device test.** A phone cannot use the developer computer's `localhost`, and camera access on a remote plain-HTTP address is not a secure browser context. Use the approved HTTPS staging deployment for phone/printer acceptance and follow [`C2_REAL_DEVICE_ACCEPTANCE_TEST.md`](C2_REAL_DEVICE_ACCEPTANCE_TEST.md).
+**A local HTTP demo is not the C2 real-device test.** A phone cannot use the developer computer's `localhost`, and camera access on a remote plain-HTTP address is not a secure browser context. Use the approved HTTPS staging deployment for phone/printer acceptance. Follow the [`C2 PWA setup, installation, and user guide`](C2_PWA_SETUP_AND_USER_GUIDE.md), then complete the [`C2 real-device acceptance test`](C2_REAL_DEVICE_ACCEPTANCE_TEST.md).
 
 ## Build and verification commands
 

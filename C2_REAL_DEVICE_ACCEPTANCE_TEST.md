@@ -1,6 +1,6 @@
 # C2 — Real-Device Acceptance Test Guide
 
-**Purpose:** verify the installable Sheriff QR check-in on the actual pilot phone and printer before C2 is marked complete. This is a field acceptance test, not a legal-rule review or production certification.
+**Purpose:** verify the installable Sheriff QR check-in on the actual pilot phone and printer before C2 is marked complete. This is a field acceptance test, not a legal-rule review or production certification. For initial environment setup, first-install steps, and day-to-day instructions, see [`C2_PWA_SETUP_AND_USER_GUIDE.md`](C2_PWA_SETUP_AND_USER_GUIDE.md).
 
 **Current status:** C2 remains open until this procedure is run, results are recorded, and the pilot owner accepts them. Automated API and frontend tests do not replace the phone, camera, printer, and network checks below.
 
