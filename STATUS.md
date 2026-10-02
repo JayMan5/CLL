@@ -55,6 +55,7 @@ git diff --check
 |---|---|
 | [`README.md`](README.md) | Current setup, safety, behavior, integration limits, and verification commands; update when the code or scripts change. |
 | [`COURTLOG_COMPLETION_PLAN.md`](COURTLOG_COMPLETION_PLAN.md) | Current acceptance checklist and unresolved decisions; check a box only after its full criterion is verified. |
+| [`UI_UPGRADE_PLAN.md`](UI_UPGRADE_PLAN.md) | Screenshot-based UI improvement backlog; planning only, with no redesign implemented yet. |
 | [`DEVELOPMENT_PROGRESS.md`](DEVELOPMENT_PROGRESS.md) | Dated implementation log; older entries are historical and do not override current gates. |
 | [`COURTLOG_Abstract.md`](COURTLOG_Abstract.md) | Current cautious prototype abstract; institutional and legal claims remain explicitly qualified. |
 | [`COURTLOG_FULL_AUDIT.md`](COURTLOG_FULL_AUDIT.md) | Historical audit of commit `723a583`, not the current branch. Its individual reproduced findings are not automatically current evidence. |
