@@ -6,10 +6,14 @@ import sqlite3
 import secrets
 import hashlib
 import hmac
+import threading
+import time
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from concurrent.futures import ThreadPoolExecutor
 from unittest.mock import patch
+
+import requests
 
 _runtime = tempfile.TemporaryDirectory()
 os.environ['COURTLOG_DB_PATH'] = str(Path(_runtime.name) / 'test.db')
@@ -27,6 +31,8 @@ from backend.whatsapp import (
     hash_phone as hash_whatsapp_phone,
     mask_phone as mask_whatsapp_phone,
     normalize_whatsapp_phone,
+    create_manual_test_message,
+    deliver_whatsapp_message,
     send_adjournment_broadcast,
 )
 
@@ -673,6 +679,143 @@ def test_whatsapp_signed_webhook_updates_status_and_honours_stop(monkeypatch):
     assert client.post('/api/whatsapp/test-send', headers=headers('usr_cr_01'), json={
         'case_id': case_id, 'recipient_role': 'counsel',
     }).status_code == 409
+
+
+def test_whatsapp_uncertain_timeout_is_persisted_and_not_automatically_retried(monkeypatch):
+    configure_whatsapp_cloud(monkeypatch)
+    case_id = 'SEC/WA-UNKNOWN'
+    phone = '+2348030008765'
+    case = fixture_case(case_id)
+    case['party_contact'] = {'counsel_phone': phone}
+    main.db.save_case(case_id, case)
+    record_opt_in(phone, evidence='FICTIONAL-CONSENT-UNKNOWN')
+
+    with patch('backend.whatsapp.requests.post', side_effect=requests.Timeout('synthetic timeout')) as send:
+        first = send_adjournment_broadcast(
+            case_id, event_id='fictional-timeout-event-1', database=main.db,
+        )
+        second = send_adjournment_broadcast(
+            case_id, event_id='fictional-timeout-event-1', database=main.db,
+        )
+
+    assert first['message_statuses'] == ['unknown']
+    assert second['message_statuses'] == ['unknown']
+    assert send.call_count == 1
+    stored = [message for message in main.db.list_whatsapp_messages(100) if message['case_id'] == case_id]
+    assert len(stored) == 1
+    assert stored[0]['status'] == 'unknown'
+    assert stored[0]['error_code'] == 'provider_outcome_unknown'
+    assert phone not in json.dumps(stored)
+
+
+def test_whatsapp_concurrent_delivery_claim_calls_provider_once(monkeypatch):
+    configure_whatsapp_cloud(monkeypatch)
+    case_id = 'SEC/WA-CONCURRENT'
+    phone = '+2348030008766'
+    case = fixture_case(case_id)
+    case['party_contact'] = {'counsel_phone': phone}
+    main.db.save_case(case_id, case)
+    record_opt_in(phone, evidence='FICTIONAL-CONSENT-CONCURRENT')
+    message, inserted = create_manual_test_message(main.db, case_id, 'counsel')
+    assert inserted is True
+    assert message['status'] == 'queued'
+
+    class FakeMetaResponse:
+        status_code = 200
+
+        def json(self):
+            return {'messages': [{'id': 'wamid.COURTLOG-CONCURRENCY-TEST'}]}
+
+    provider_started = threading.Event()
+
+    def slow_provider_response(*args, **kwargs):
+        provider_started.set()
+        time.sleep(0.05)
+        return FakeMetaResponse()
+
+    with patch('backend.whatsapp.requests.post', side_effect=slow_provider_response) as send:
+        with ThreadPoolExecutor(max_workers=8) as pool:
+            results = list(pool.map(
+                lambda _index: deliver_whatsapp_message(main.db, message['message_id']),
+                range(8),
+            ))
+
+    assert provider_started.is_set()
+    assert send.call_count == 1
+    assert {result['status'] for result in results}.issubset({'sending', 'accepted'})
+    stored = main.db.get_whatsapp_message(message['message_id'])
+    assert stored['status'] == 'accepted'
+    assert stored['attempt_count'] == 1
+
+
+def test_compliance_sweep_boundaries_for_7_day_custody_24_hour_review_and_90_day_prompt(monkeypatch):
+    now = datetime(2026, 10, 2, 12, 0, tzinfo=timezone.utc)
+    monkeypatch.setattr(main, 'get_current_time', lambda: now)
+
+    def iso(value):
+        return value.isoformat().replace('+00:00', 'Z')
+
+    cases = {
+        'SEC/BOUNDARY-7-EXACT': {
+            'filing_date': iso(now - timedelta(days=7)),
+            'judgment_status': 'Pending', 'scan_events': [],
+        },
+        'SEC/BOUNDARY-7-BEFORE': {
+            'filing_date': iso(now - timedelta(days=7) + timedelta(seconds=1)),
+            'judgment_status': 'Pending', 'scan_events': [],
+        },
+        'SEC/BOUNDARY-7-AFTER': {
+            'filing_date': iso(now - timedelta(days=7, seconds=1)),
+            'judgment_status': 'Pending', 'scan_events': [],
+        },
+        'SEC/BOUNDARY-24-BEFORE': {
+            'filing_date': iso(now - timedelta(days=1)),
+            'judgment_status': 'Pending', 'scan_events': [],
+            'dcr_approval_required': True,
+            'dcr_approval_requested_at': iso(now - timedelta(hours=23, minutes=59, seconds=59)),
+        },
+        'SEC/BOUNDARY-24-EXACT': {
+            'filing_date': iso(now - timedelta(days=1)),
+            'judgment_status': 'Pending', 'scan_events': [],
+            'dcr_approval_required': True,
+            'dcr_approval_requested_at': iso(now - timedelta(hours=24)),
+        },
+        'SEC/BOUNDARY-24-AFTER': {
+            'filing_date': iso(now - timedelta(days=1)),
+            'judgment_status': 'Pending', 'scan_events': [],
+            'dcr_approval_required': True,
+            'dcr_approval_requested_at': iso(now - timedelta(hours=24, seconds=1)),
+        },
+        'SEC/BOUNDARY-90-BEFORE': {
+            'filing_date': iso(now - timedelta(days=200)),
+            'judgment_status': 'Delivered', 'scan_events': [],
+            'execution_log': [{'action': 'Judgment Delivered', 'date': iso(now - timedelta(days=89))}],
+        },
+        'SEC/BOUNDARY-90-EXACT': {
+            'filing_date': iso(now - timedelta(days=200)),
+            'judgment_status': 'Delivered', 'scan_events': [],
+            'execution_log': [{'action': 'Judgment Delivered', 'date': iso(now - timedelta(days=90))}],
+        },
+        'SEC/BOUNDARY-90-AFTER': {
+            'filing_date': iso(now - timedelta(days=200)),
+            'judgment_status': 'Delivered', 'scan_events': [],
+            'execution_log': [{'action': 'Judgment Delivered', 'date': iso(now - timedelta(days=91))}],
+        },
+    }
+    for case_id, case in cases.items():
+        main.db.save_case(case_id, {'case_id': case_id, **case})
+
+    main.run_compliance_checks_sync()
+
+    assert main.db.get_case('SEC/BOUNDARY-7-BEFORE')['custody_alert'] is False
+    assert main.db.get_case('SEC/BOUNDARY-7-EXACT')['custody_alert'] is True
+    assert main.db.get_case('SEC/BOUNDARY-7-AFTER')['custody_alert'] is True
+    assert main.db.get_case('SEC/BOUNDARY-24-BEFORE').get('dcr_auto_escalated', False) is False
+    assert main.db.get_case('SEC/BOUNDARY-24-EXACT').get('dcr_auto_escalated', False) is False
+    assert main.db.get_case('SEC/BOUNDARY-24-AFTER')['dcr_auto_escalated'] is True
+    assert main.db.get_case('SEC/BOUNDARY-90-BEFORE')['enforcement_non_compliant'] is False
+    assert main.db.get_case('SEC/BOUNDARY-90-EXACT')['enforcement_non_compliant'] is False
+    assert main.db.get_case('SEC/BOUNDARY-90-AFTER')['enforcement_non_compliant'] is True
 
 
 def test_demo_mode_never_sends_real_whatsapp_even_with_cloud_credentials(monkeypatch):

@@ -1,6 +1,6 @@
 # Development progress
 
-> **Current status — 1 October 2026:** The WhatsApp Cloud API prototype slice and hosting comparison are now in the latest entry at the end of this log. Sending is disabled by default and real Meta delivery has not been tested; C6 remains open for external-account, staging, recovery, and operational acceptance. This is a competition-team prototype, not a government service, and government approvals do not block feature development. Older checkpoint notes below are historical and are superseded where the latest entry or completion plan says so.
+> **Current status — 2 October 2026:** The latest local tranche adds a verified synthetic-only demo seeder and court-aware registration defaults, threshold/concurrency/notification-failure regression tests, starter role/demo/feedback materials, a current status index, and CI/container build configuration. Full automated suites pass locally; GitHub Actions and the Docker image have not yet been verified remotely/built. The WhatsApp Cloud API remains disabled by default and real delivery has not been tested. This is a competition-team prototype, not a government service, and government approval does not block feature development. Older checkpoints below are historical and are superseded where the latest entry or completion plan says so.
 
 ## 1 October 2026 — first security tranche
 
@@ -211,3 +211,22 @@ Verification:
 - One-off `backend.main` import in an isolated temporary environment: approximately 80 MiB peak RSS; not a deployed load test.
 
 Still open for C6 / staging: no Meta business account, access token, approved template, or controlled test recipient was supplied; webhook delivery/status callbacks have not been tested against Meta. Automated retry/recovery policy, operational backup/restore, and hosted staging acceptance remain open. The code does not invent legal rules or claim live delivery. Use synthetic records until specific real-data permission is documented; complete C2 phone/printer acceptance on the intended device. Feature development is approved and does not wait on public-sector approval because CourtLOG is currently a competition-team project. Any future institutional pilot/public-sector deployment is separate.
+
+## 2 October 2026 — deterministic demo data, threshold tests, status/docs and delivery tooling
+
+Implemented:
+- Replaced the case-registration form's hard-coded Lagos default with the signed-in Clerk's court; the Clerk cannot select a different court in the form. Non-registering roles no longer see the registration panel. The backend's court and assignment checks remain authoritative.
+- Added `scripts/seed_demo_data.py`, which creates eight deterministic-by-date, clearly fictional pending/concluded scenarios for the five demo roles. It reads no CSV or tracked database; it requires `DEMO_MODE=true`, an ignored `.local/` path, known demo accounts, and refuses mixed/non-demo records. Added a scenario catalog and tests for reproducibility, every-role scope, safe overwrite, risk bands, missing/found history, and overdue execution.
+- Added regression coverage for the configured 7-day custody prompt, 24-hour DCR escalation, and 90-day execution-review prompt at their boundaries; added a concurrent WhatsApp outbox-claim test and an ambiguous timeout test that preserves `unknown` without retrying.
+- Added `.github/workflows/ci.yml` for backend/frontend tests, dependency consistency, and Python/npm security audits. Added a non-root Dockerfile, `.dockerignore`, health check, and documented build/run instructions. These are local source changes; Actions has not yet run on GitHub and Docker is unavailable in this workspace.
+- Added a current evidence index (`STATUS.md`), linked it from README, replaced the inaccurate legacy root walkthrough, and added role-specific demo guidance, scenario catalog, and feedback/triage template. Historical Markdown reports remain explicitly labeled; binary `.docx`/`.pptx` and competition materials still need review.
+- Updated the completion plan: D1 is fully checked after code/test verification. D7, D8, E2, and E3 remain unchecked with partial progress documented. The two legacy `task.md` verification items remain open; the tracked database was not reseeded.
+
+Verification:
+- `.venv/bin/python -m pytest -q`: **70 passed**, two existing FastAPI `on_event` deprecation warnings.
+- `npm run test:frontend`: passed (security, session/registration-default, and PWA suites). The build emits a non-blocking outdated `caniuse-lite` advisory.
+- `.venv/bin/python -m pip check`: no broken requirements. `.venv/bin/pip-audit -r requirements.txt`: no known vulnerabilities. `npm audit --audit-level=high`: 0 vulnerabilities.
+- `.venv/bin/python -m compileall -q backend tests scripts`, `node --check frontend/app.js`, and `git diff --check`: passed.
+- Isolated seed smoke test created eight fictional cases and five demo accounts in a disposable `.local/` directory, then removed that scratch database. Tests and smoke checks did not write to tracked `data/courtlog.db`.
+
+Still open: full end-to-end workflow/browser/device acceptance, pilot role owners/feedback channel, Legal Lead decisions, real-data permission, provider-backed WhatsApp delivery, hosted staging, tested backups/restore/rollback, complete CI execution, container build, and review/correction of the tracked Word/PowerPoint materials. No legal rule changed, no real court data was used, and no pilot/deployment acceptance is implied.

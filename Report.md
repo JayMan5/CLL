@@ -4,8 +4,10 @@
 
 **Project:** COURTLOG — Intelligent Court Case Tracking & Compliance Platform
 **Target:** COUCH 2026 Competition
-**Report basis:** Full read-only codebase audit (entire project excluding `venv/`)
-**Status tagline:** Fully implemented (v2 backend/frontend); final verification & competition deliverables outstanding.
+**Report basis:** Historical read-only codebase audit (not the current branch)
+**Original status tagline (retained for traceability, not current):** Fully implemented (v2 backend/frontend); final verification & competition deliverables outstanding.
+
+Current status is maintained in [`STATUS.md`](STATUS.md), [`README.md`](README.md), and [`COURTLOG_COMPLETION_PLAN.md`](COURTLOG_COMPLETION_PLAN.md). Do not reuse the historical tagline in a proposal, pitch, or release note.
 
 ---
 

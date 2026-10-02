@@ -6,7 +6,7 @@
 
 ---
 
-## Current Architecture
+## Historical Architecture Snapshot — not current
 
 | Layer | Tech | Status |
 |-------|------|--------|

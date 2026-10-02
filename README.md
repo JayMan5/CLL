@@ -1,6 +1,6 @@
 # COURTLOG
 
-COURTLOG is a **competition-team prototype**, not a governmental entity or certified public-sector service. Feature development is authorized and does not wait on government approval; use synthetic/demo data unless written permission authorizes specific real court records. It is **not certified for production use**. Some legal/workflow policies, real integrations, deployment controls, and field acceptance checks remain open; see [`COURTLOG_COMPLETION_PLAN.md`](COURTLOG_COMPLETION_PLAN.md), [`DEVELOPMENT_PROGRESS.md`](DEVELOPMENT_PROGRESS.md), and the [hosting comparison and recommendation](docs/HOSTING_COMPARISON_2026-10-01.md).
+COURTLOG is a **competition-team prototype**, not a governmental entity or certified public-sector service. Feature development is authorized and does not wait on government approval; use synthetic/demo data unless written permission authorizes specific real court records. It is **not certified for production use**. Some legal/workflow policies, real integrations, deployment controls, and field acceptance checks remain open; see the [current verified status](STATUS.md), [`COURTLOG_COMPLETION_PLAN.md`](COURTLOG_COMPLETION_PLAN.md), [`DEVELOPMENT_PROGRESS.md`](DEVELOPMENT_PROGRESS.md), and the [hosting comparison and recommendation](docs/HOSTING_COMPARISON_2026-10-01.md).
 
 ## Safety before running
 
@@ -26,17 +26,42 @@ On Windows, use `.venv\Scripts\python.exe` instead of `.venv/bin/python`.
 
 1. Copy `.env.example` to `.env` and edit it for a **disposable local demo only**. Set `DEMO_MODE=true`, `COOKIE_SECURE=false` (plain HTTP is only for local development), and use a unique path under `.local/` for `COURTLOG_DB_PATH`, `JWT_PRIVATE_KEY_PATH`, and `JWT_PUBLIC_KEY_PATH`. Use a fresh database file rather than the tracked `data/courtlog.db`.
 2. Set a local-only `SIMULATOR_SECRET` only if you need to exercise the redacted demo webhook. It does not send real WhatsApp messages. The Meta Cloud API remains disabled by default.
-3. Start the API and static frontend:
+3. Optionally seed eight fixed fictional scenarios into the isolated database. Timestamps default to today's UTC date; pass `--as-of YYYY-MM-DD` to reproduce a specific dated walkthrough. The seeder never reads the tracked database or any CSV:
+
+   ```bash
+   .venv/bin/python scripts/seed_demo_data.py
+   ```
+
+   The command requires `DEMO_MODE=true` and a `COURTLOG_DB_PATH` inside the ignored `.local/` directory. It refuses mixed/non-demo case records; use `--overwrite-fixtures` only when intentionally resetting those sample cases.
+4. Start the API and static frontend:
 
 ```bash
 .venv/bin/python -m uvicorn backend.main:app --host 127.0.0.1 --port 8000
 ```
 
-4. Open `http://127.0.0.1:8000/` on the same development computer. Stop the process with Ctrl+C.
+5. Open `http://127.0.0.1:8000/` on the same development computer. Stop the process with Ctrl+C.
 
-For a first-run demo, the application seeds fictional demo accounts only into the fresh database when `DEMO_MODE=true`. Keep that database private and disposable. When testing without demo accounts, leave `DEMO_MODE=false` and provision accounts through the documented bootstrap/admin flow.
+For a first-run demo, the application seeds fictional demo accounts only into the fresh database when `DEMO_MODE=true`; the optional script above adds fictional case scenarios. Keep that database private and disposable. When testing without demo accounts, leave `DEMO_MODE=false` and provision accounts through the documented bootstrap/admin flow. Do not run `seed_app_database.py` or `backend/seed_db.py` against tracked data; they are legacy tooling, not part of this safe demo workflow.
 
 **A local HTTP demo is not the C2 real-device test.** A phone cannot use the developer computer's `localhost`, and camera access on a remote plain-HTTP address is not a secure browser context. Use the approved HTTPS staging deployment for phone/printer acceptance. Follow the [`C2 PWA setup, installation, and user guide`](C2_PWA_SETUP_AND_USER_GUIDE.md), then complete the [`C2 real-device acceptance test`](C2_REAL_DEVICE_ACCEPTANCE_TEST.md).
+
+## Container image (build tooling, not a deployment)
+
+The repository includes a minimal Docker image for reproducible staging evaluation. It serves the same FastAPI app and built frontend, runs as a non-root user, keeps SQLite/JWT files under `/var/lib/courtlog`, and exposes `/api/config` as a health check. Use a persistent volume at `/var/lib/courtlog`; do not copy the tracked `data/` directory into an image. The image defaults to live mode, demo accounts off, secure cookies on, and WhatsApp off. Building or running this image is not staging acceptance and does not establish HTTPS, backups, restore, monitoring, rollback, or provider configuration.
+
+```bash
+docker build -t courtlog:local .
+docker volume create courtlog-data
+# Export bootstrap credentials from a secret manager in your shell before this step.
+docker run --rm --name courtlog -p 8000:8000 \
+  --mount type=volume,src=courtlog-data,dst=/var/lib/courtlog \
+  -e COOKIE_SECURE=false \
+  -e COURTLOG_BOOTSTRAP_USERNAME \
+  -e COURTLOG_BOOTSTRAP_PASSWORD \
+  courtlog:local
+```
+
+Use this only on a controlled machine. `COOKIE_SECURE=false` is present only because the example uses plain HTTP on the same computer; keep it `true` behind HTTPS. Keep the bootstrap password out of shell history and container logs, remove it from the environment after first provisioning, and terminate the container when finished. For real hosted use, configure HTTPS and secrets at the provider, retain the volume, and complete the separate staging/backup/restore/rollback checks first. Docker itself must be installed locally; this workspace has no Docker daemon, so the Docker build has not been executed here.
 
 ## Build and verification commands
 

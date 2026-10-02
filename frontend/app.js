@@ -426,8 +426,47 @@ function toggleTheme() {
     renderChart();
 }
 
+function syncCaseRegistrationDefaults(user = getActiveUser()) {
+    const panel = document.getElementById("register-case-panel");
+    const courtSelect = document.getElementById("new-case-court");
+    const typeSelect = document.getElementById("new-case-type");
+    const canRegister = user.role === "Chief Registrar" || (user.role === "Clerk" && Boolean(user.court));
+
+    if (panel) panel.classList.toggle("hidden", !canRegister);
+    if (!courtSelect) return;
+
+    const options = Array.from(courtSelect.options);
+    if (user.role === "Clerk" && user.court) {
+        let assignedOption = options.find(option => option.value === user.court);
+        if (!assignedOption) {
+            assignedOption = new Option(user.court, user.court);
+            courtSelect.add(assignedOption);
+        }
+        for (const option of courtSelect.options) option.disabled = option !== assignedOption;
+        courtSelect.value = user.court;
+        courtSelect.disabled = true;
+        courtSelect.title = "Clerks can register cases only in their assigned court.";
+    } else {
+        courtSelect.disabled = false;
+        courtSelect.title = "Select the court for this case.";
+        for (const option of courtSelect.options) option.disabled = false;
+        const profileCourt = options.find(option => option.value === user.court);
+        if (profileCourt) {
+            courtSelect.value = profileCourt.value;
+        } else if (options.some(option => option.value === "FHC Abuja Court 4")) {
+            courtSelect.value = "FHC Abuja Court 4";
+        }
+    }
+
+    if (typeSelect && user.role === "Clerk" && user.division === "Criminal"
+        && Array.from(typeSelect.options).some(option => option.value === "Criminal")) {
+        typeSelect.value = "Criminal";
+    }
+}
+
 function updateRoleUI() {
     const user = getActiveUser();
+    syncCaseRegistrationDefaults(user);
     const select = document.getElementById("role-switcher-select");
     if (select) {
         if (user.user_id && !Array.from(select.options).some(option => option.value === user.user_id)) {
@@ -1184,6 +1223,7 @@ async function handleCreateCase(e) {
         }
 
         document.getElementById("form-create-case").reset();
+        syncCaseRegistrationDefaults(getActiveUser());
         await loadDashboardData();
         alert(`Case file ${case_id} cataloged and initialized successfully!`);
     } catch (error) {
