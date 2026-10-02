@@ -2,7 +2,7 @@
 
 **Created:** 2 October 2026
 
-**Status:** backlog only — this change does not redesign the interface.
+**Status:** active — the first shell, dashboard, case-intake, and install-guidance slice is implemented; real-browser and device acceptance remain open.
 
 **Evidence:** the two supplied desktop screenshots of the Chief Registrar dashboard and browser install prompt.
 
@@ -32,23 +32,23 @@ This is a starting layout recommendation, not a final design mockup. Confirm it 
 ## P0 — Clarify roles, navigation, and the application shell
 
 - [ ] **UI-01 — Map the top tasks for each role.** Document the first three tasks and permitted views for Sheriff, Clerk, Judge, DCR, and Chief Registrar. Use this map to decide what belongs in the sidebar and what belongs in page actions.
-- [ ] **UI-02 — Simplify the global header.** Show the authenticated role/scope once as non-editable information; keep account/profile and sign-out together; move Registry Clock and secondary actions out of the primary action cluster. Do not display a role control that implies staff can switch identity.
-- [ ] **UI-03 — Reorganize navigation.** Group work queues (custody, hearings, review, execution), insights, and administration. Shorten labels, retain accessible names, mark the current destination, and use a keyboard-accessible mobile drawer. Do not rely on hidden UI as an authorization boundary; keep API permission checks unchanged.
-- [ ] **UI-04 — Establish page layout and spacing rules.** Use a consistent content max-width, spacing scale, heading hierarchy, card padding, button sizes, and responsive grid. Reduce excess visual effects where they compete with text or controls.
+- [x] **UI-02 — Simplify the global header.** Show the authenticated role/scope once as non-editable information; keep account/profile and sign-out together; move Registry Clock and secondary actions out of the primary action cluster. Do not display a role control that implies staff can switch identity.
+- [x] **UI-03 — Reorganize navigation.** Group work queues (custody, hearings, review, execution), insights, and administration. Shorten labels, retain accessible names, mark the current destination, and use a keyboard-accessible mobile drawer. Do not rely on hidden UI as an authorization boundary; keep API permission checks unchanged.
+- [x] **UI-04 — Establish page layout and spacing rules.** Use a consistent content max-width, spacing scale, heading hierarchy, card padding, button sizes, and responsive grid. Reduce excess visual effects where they compete with text or controls.
 
 ## P1 — Make the dashboard scannable and task-oriented
 
-- [ ] **UI-05 — Prioritize one attention area.** Replace the duplicated alert-card/KPI presentation with a concise “Needs attention” area whose actions navigate to the relevant filtered list. Keep each count tied to a defined status.
-- [ ] **UI-06 — Reduce and clarify dashboard metrics.** Limit the first metric row to a small set of non-duplicated values. Give experimental risk and configured workflow prompts explicit prototype wording; never present them as approved legal conclusions.
-- [ ] **UI-07 — Give the case worklist priority.** Put search, filters, and the case table/work queue before secondary analytics. At narrow widths, reflow rows into readable cards or a controlled horizontal table region rather than shrinking text.
-- [ ] **UI-08 — Separate case registration from analytics.** Move “Register a Case File” to a dedicated view or an accessible drawer/modal with a clear open/close path. Keep the authenticated Clerk's court default and API validation. Do not change phone-field requiredness, consent policy, hearing rules, or execution rules as part of a visual redesign without the relevant review.
-- [ ] **UI-09 — Normalize alert presentation.** Use a consistent icon, label, explanation, and action for each alert. Do not use color alone to communicate severity. Preserve the distinction between an idle-custody prompt and an explicitly reported missing file.
+- [x] **UI-05 — Prioritize one attention area.** Replace the duplicated alert-card/KPI presentation with a concise “Needs attention” area whose actions navigate to the relevant filtered list. Keep each count tied to a defined status.
+- [x] **UI-06 — Reduce and clarify dashboard metrics.** Limit the first metric row to a small set of non-duplicated values. Give experimental risk and configured workflow prompts explicit prototype wording; never present them as approved legal conclusions.
+- [x] **UI-07 — Give the case worklist priority.** Put search, filters, and the case table/work queue before secondary analytics. At narrow widths, reflow rows into readable cards or a controlled horizontal table region rather than shrinking text.
+- [x] **UI-08 — Separate case registration from analytics.** Move “Register a Case File” to a dedicated view or an accessible drawer/modal with a clear open/close path. Keep the authenticated Clerk's court default and API validation. Do not change phone-field requiredness, consent policy, hearing rules, or execution rules as part of a visual redesign without the relevant review.
+- [x] **UI-09 — Normalize alert presentation.** Use a consistent icon, label, explanation, and action for each alert. Do not use color alone to communicate severity. Preserve the distinction between an idle-custody prompt and an explicitly reported missing file.
 
 ## P1 — Make the installable PWA easier to understand
 
-- [ ] **UI-10 — Confirm the installed-app identity.** Decide whether the PWA represents all of CourtLOG or a Sheriff-only custody workflow; then align `frontend/manifest.webmanifest`, app title, icon, and installation instructions. Do not claim the install dialog is customizable—the browser owns that dialog.
-- [ ] **UI-11 — Keep install invitation deliberate.** Show an in-app install action only when the browser supports it; explain the iPhone/iPad “Add to Home Screen” path separately. Never auto-open the native prompt on page load. Explain that `127.0.0.1:8000` is expected for a local demo; a hosted origin depends on a separately selected/approved host.
-- [ ] **UI-12 — Clarify install and offline status.** Add clear success/dismissed/help states near the install action. Preserve the existing truthful rule: the PWA shell may be available offline, but custody scans are not stored or queued offline.
+- [x] **UI-10 — Confirm the installed-app identity.** Decide whether the PWA represents all of CourtLOG or a Sheriff-only custody workflow; then align `frontend/manifest.webmanifest`, app title, icon, and installation instructions. Do not claim the install dialog is customizable—the browser owns that dialog.
+- [x] **UI-11 — Keep install invitation deliberate.** Show an in-app install action only when the browser supports it; explain the iPhone/iPad “Add to Home Screen” path separately. Never auto-open the native prompt on page load. Explain that `127.0.0.1:8000` is expected for a local demo; a hosted origin depends on a separately selected/approved host.
+- [x] **UI-12 — Clarify install and offline status.** Add clear success/dismissed/help states near the install action. Preserve the existing truthful rule: the PWA shell may be available offline, but custody scans are not stored or queued offline.
 
 ## P2 — Improve forms, tables, and accessibility
 

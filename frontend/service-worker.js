@@ -1,5 +1,5 @@
 /* COURTLOG PWA shell only. Authenticated API data and all POSTs are never cached. */
-const CACHE_NAME = "courtlog-shell-v4";
+const CACHE_NAME = "courtlog-shell-v5";
 const SHELL_ASSETS = [
   "/static/tailwind.css",
   "/static/index.css",

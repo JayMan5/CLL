@@ -21,8 +21,12 @@ for (const localAsset of [
 assert.ok(fs.statSync('frontend/tailwind.css').size > 0, 'Tailwind output was built locally');
 assert.ok(fs.statSync('frontend/chart.bundle.js').size > 100_000, 'Chart.js is bundled locally');
 assert.ok(indexHtml.indexOf('/static/chart.bundle.js') < indexHtml.indexOf('/static/app.js'), 'Chart.js loads before the application that uses it');
+assert.equal(manifest.name, 'COURTLOG Sheriff Custody Check-In');
+assert.equal(manifest.short_name, 'COURTLOG');
 assert.equal(manifest.start_url, '/');
 assert.equal(manifest.scope, '/');
+assert.equal(manifest.background_color, '#0b1117', 'installed splash color matches the refreshed dark shell');
+assert.equal(manifest.theme_color, '#0b1117', 'browser theme chrome matches the refreshed dark shell');
 assert.ok(manifest.icons.some(icon => icon.sizes === '192x192'));
 assert.ok(manifest.icons.some(icon => icon.sizes === '512x512'));
 for (const icon of manifest.icons) assert.ok(fs.existsSync(`frontend${icon.src.replace('/static', '')}`));
@@ -40,7 +44,7 @@ for (const localAsset of [
 for (const [, path] of serviceWorker.matchAll(/"(\/static\/[^\"]+)"/g)) {
   assert.ok(fs.existsSync(`frontend${path.replace('/static', '')}`), `cached asset exists: ${path}`);
 }
-assert.match(serviceWorker, /courtlog-shell-v4/, 'asset changes invalidate the earlier static cache');
+assert.match(serviceWorker, /courtlog-shell-v5/, 'the refreshed app shell invalidates the earlier static cache');
 assert.match(serviceWorker, /request\.method !== "GET"/);
 assert.match(serviceWorker, /url\.pathname\.startsWith\("\/api\/"\)/, 'API responses are bypassed by the shell cache');
 assert.match(serviceWorker, /does not queue custody scans/i);

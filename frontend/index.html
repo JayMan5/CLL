@@ -4,13 +4,13 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
-    <meta name="theme-color" content="#0b1220">
+    <meta name="theme-color" content="#0b1117">
     <meta name="mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <link rel="manifest" href="/static/manifest.webmanifest">
     <link rel="apple-touch-icon" href="/static/icons/courtlog-192.png">
-    <title>COURTLOG 2.0 - Court File Tracking Prototype</title>
+    <title>CourtLOG | Registry Workflow Prototype</title>
     <meta name="description"
         content="A prototype for court-file custody workflows and experimental delay-risk decision support. Not certified for production use.">
     <!-- Frontend dependencies are pinned and self-hosted; the page makes no CDN requests. -->
@@ -22,480 +22,339 @@
 </head>
 
 <body class="font-sans antialiased">
+    <a class="skip-link" href="#main-content">Skip to main content</a>
 
     <!-- Shell Container -->
-    <div class="flex min-h-screen">
+    <div class="app-shell">
 
-        <!-- Sidebar Navigation -->
-        <aside class="sidebar w-64 flex flex-col justify-between shrink-0 sticky top-0 h-screen z-20">
-            <div>
-                <!-- Brand Logo & Header -->
-                <div class="p-6 border-b border-white/10">
-                    <div class="flex items-center gap-3">
-                        <div class="w-10 h-10 rounded-xl bg-emerald-500/20 flex items-center justify-center shadow-lg">
-                            <i class="fa-solid fa-scale-balanced text-emerald-400 text-lg"></i>
-                        </div>
-                        <div>
-                            <h1
-                                class="font-heading font-bold text-lg text-heading tracking-tight flex items-center gap-1.5">
-                                COURTLOG
-                            </h1>
-                            <p class="text-[10px] text-heading opacity-60 font-medium uppercase tracking-wider">Registry Workflow Prototype</p>
-                        </div>
-                    </div>
+        <!-- Mobile navigation backdrop -->
+        <button id="nav-backdrop" class="nav-backdrop hidden" type="button" aria-label="Close navigation"></button>
+
+        <!-- Primary navigation -->
+        <aside id="app-sidebar" class="sidebar app-sidebar" aria-label="Primary navigation">
+            <div class="sidebar-brand">
+                <div class="brand-mark" aria-hidden="true"><i class="fa-solid fa-scale-balanced"></i></div>
+                <div class="brand-copy">
+                    <div class="brand-name">COURTLOG</div>
+                    <p>Registry workflow prototype</p>
                 </div>
-
-                <!-- Nav Items -->
-                <nav class="p-4 space-y-1.5" id="sidebar-nav-container">
-                    <button onclick="switchTab('tab-overview')"
-                        class="nav-item active w-full flex items-center gap-3 px-4 py-3 rounded-xl text-left font-medium">
-                        <i class="fa-solid fa-chart-pie text-emerald-400 text-lg"></i>
-                        <span>Dashboard Overview</span>
-                    </button>
-                    <button id="nav-qr-scan" onclick="switchTab('tab-qr-scan')"
-                        class="nav-item w-full flex items-center gap-3 px-4 py-3 rounded-xl text-left font-medium">
-                        <i class="fa-solid fa-location-dot text-lg"></i>
-                        <span>Custody Check-In</span>
-                    </button>
-                    <button id="nav-courtrooms" onclick="switchTab('tab-courtrooms')"
-                        class="nav-item w-full flex items-center gap-3 px-4 py-3 rounded-xl text-left font-medium">
-                        <i class="fa-solid fa-gavel text-lg"></i>
-                        <span>Clerk Call-Over Logger</span>
-                    </button>
-                    <button id="nav-dcr-console" onclick="switchTab('tab-dcr-console')"
-                        class="nav-item w-full flex items-center gap-3 px-4 py-3 rounded-xl text-left font-medium">
-                        <i class="fa-solid fa-user-shield text-lg text-amber-400"></i>
-                        <span>DCR Division Hub</span>
-                    </button>
-                    <button id="nav-judge-docket" onclick="switchTab('tab-judge-docket')"
-                        class="nav-item w-full flex items-center gap-3 px-4 py-3 rounded-xl text-left font-medium">
-                        <i class="fa-solid fa-balance-scale text-lg text-purple-400"></i>
-                        <span>Judge's Docket</span>
-                    </button>
-                    <button id="nav-ai-risk" onclick="switchTab('tab-ai-risk')"
-                        class="nav-item w-full flex items-center gap-3 px-4 py-3 rounded-xl text-left font-medium">
-                        <i class="fa-solid fa-brain text-lg text-rose-400"></i>
-                        <span>Experimental Risk Prototype</span>
-                    </button>
-                    <button id="nav-execution" onclick="switchTab('tab-execution')"
-                        class="nav-item w-full flex items-center gap-3 px-4 py-3 rounded-xl text-left font-medium">
-                        <i class="fa-solid fa-file-contract text-lg"></i>
-                        <span>Execution & Writs</span>
-                    </button>
-                    <button id="nav-user-admin" onclick="switchTab('tab-user-admin')"
-                        class="nav-item w-full flex items-center gap-3 px-4 py-3 rounded-xl text-left font-medium">
-                        <i class="fa-solid fa-users-gear text-lg text-sky-400"></i>
-                        <span>User Management</span>
-                    </button>
-                    <button id="nav-whatsapp" onclick="switchTab('tab-whatsapp')" style="display:none"
-                        class="nav-item w-full flex items-center gap-3 px-4 py-3 rounded-xl text-left font-medium">
-                        <i class="fa-brands fa-whatsapp text-lg"></i>
-                        <span>WhatsApp Activity</span>
-                    </button>
-                </nav>
             </div>
 
-            <!-- User Info (Moved to Header) -->
+            <nav class="sidebar-nav" id="sidebar-nav-container" aria-label="Workspace">
+                <div class="nav-group" data-nav-group>
+                    <p class="nav-group-title">Workspace</p>
+                    <button id="nav-overview" type="button" data-tab="tab-overview" onclick="switchTab('tab-overview')"
+                        class="nav-item active" aria-current="page">
+                        <i class="fa-solid fa-chart-pie" aria-hidden="true"></i><span>Dashboard</span>
+                    </button>
+                    <button id="nav-case-register" type="button" data-tab="tab-case-register" onclick="switchTab('tab-case-register')"
+                        class="nav-item hidden">
+                        <i class="fa-solid fa-folder-plus" aria-hidden="true"></i><span>Register a case</span>
+                    </button>
+                    <button id="nav-qr-scan" type="button" data-tab="tab-qr-scan" onclick="switchTab('tab-qr-scan')"
+                        class="nav-item hidden">
+                        <i class="fa-solid fa-qrcode" aria-hidden="true"></i><span>Custody check-in</span>
+                    </button>
+                    <button id="nav-courtrooms" type="button" data-tab="tab-courtrooms" onclick="switchTab('tab-courtrooms')"
+                        class="nav-item">
+                        <i class="fa-solid fa-gavel" aria-hidden="true"></i><span>Hearing log</span>
+                    </button>
+                    <button id="nav-execution" type="button" data-tab="tab-execution" onclick="switchTab('tab-execution')"
+                        class="nav-item">
+                        <i class="fa-solid fa-file-contract" aria-hidden="true"></i><span>Execution work</span>
+                    </button>
+                </div>
+
+                <div class="nav-group" data-nav-group>
+                    <p class="nav-group-title">Role workspaces</p>
+                    <button id="nav-dcr-console" type="button" data-tab="tab-dcr-console" onclick="switchTab('tab-dcr-console')"
+                        class="nav-item hidden">
+                        <i class="fa-solid fa-user-shield" aria-hidden="true"></i><span>DCR review queue</span>
+                    </button>
+                    <button id="nav-judge-docket" type="button" data-tab="tab-judge-docket" onclick="switchTab('tab-judge-docket')"
+                        class="nav-item hidden">
+                        <i class="fa-solid fa-scale-balanced" aria-hidden="true"></i><span>Judge's docket</span>
+                    </button>
+                </div>
+
+                <div class="nav-group" data-nav-group>
+                    <p class="nav-group-title">Insights</p>
+                    <button id="nav-ai-risk" type="button" data-tab="tab-ai-risk" onclick="switchTab('tab-ai-risk')"
+                        class="nav-item">
+                        <i class="fa-solid fa-chart-line" aria-hidden="true"></i><span>Experimental risk</span>
+                    </button>
+                </div>
+
+                <div class="nav-group" data-nav-group>
+                    <p class="nav-group-title">Administration</p>
+                    <button id="nav-user-admin" type="button" data-tab="tab-user-admin" onclick="switchTab('tab-user-admin')"
+                        class="nav-item hidden">
+                        <i class="fa-solid fa-users-gear" aria-hidden="true"></i><span>User management</span>
+                    </button>
+                    <button id="nav-whatsapp" type="button" data-tab="tab-whatsapp" onclick="switchTab('tab-whatsapp')"
+                        class="nav-item hidden">
+                        <i class="fa-brands fa-whatsapp" aria-hidden="true"></i><span>WhatsApp activity</span>
+                    </button>
+                </div>
+            </nav>
+
+            <div class="sidebar-footer">
+                <span class="prototype-dot" aria-hidden="true"></span>
+                <span>Prototype · use demo records</span>
+            </div>
         </aside>
 
         <!-- Main Dashboard Viewport -->
-        <main class="flex-1 flex flex-col min-w-0">
+        <main id="main-content" class="page-main">
 
-            <!-- Top Navbar Header -->
-            <header
-                class="glass-panel min-h-[5rem] py-4 flex flex-wrap items-center justify-between px-8 sticky top-0 z-10 gap-4">
-                <!-- Page Info / Search -->
-                <div class="flex items-center gap-6">
-                    <h2 id="view-title" class="font-heading font-bold text-xl text-heading">Registry Performance Hub
-                    </h2>
+            <!-- Compact application header -->
+            <header class="app-header" aria-label="Application header">
+                <div class="header-leading">
+                    <button id="mobile-nav-toggle" class="nav-toggle" type="button" aria-controls="app-sidebar"
+                        aria-expanded="false" aria-label="Open navigation">
+                        <i id="nav-toggle-icon" class="fa-solid fa-bars" aria-hidden="true"></i>
+                    </button>
+                    <div class="header-title-block">
+                        <p class="header-eyebrow">CourtLOG workspace</p>
+                        <h1 id="view-title" tabindex="-1">Dashboard</h1>
+                    </div>
+                </div>
 
-                    <!-- Search Input -->
-                    <div class="relative w-48 xl:w-64 hidden lg:block">
-                        <span class="absolute inset-y-0 left-0 flex items-center pl-3 pointer-events-none">
-                            <i class="fa-solid fa-magnifying-glass text-muted-th text-sm"
-                                style="color:var(--text-muted)"></i>
+                <div class="header-actions">
+                    <div class="role-context" aria-live="polite">
+                        <span class="role-context-icon" aria-hidden="true"><i class="fa-solid fa-id-badge"></i></span>
+                        <span class="role-context-copy">
+                            <span id="sidebar-user-role">Not signed in</span>
+                            <small id="active-user-scope">Sign in to view your assigned workspace</small>
                         </span>
-                        <input type="text" id="global-search" oninput="filterCases()"
-                            class="th-input w-full pl-10 pr-4 py-1.5" placeholder="Search Case ID, Court, Type...">
+                    </div>
+
+                    <button id="btn-install-pwa" type="button" class="btn-secondary pwa-install-button hidden"
+                        aria-describedby="pwa-install-help pwa-install-status" title="Your browser will show its own install confirmation">
+                        <i class="fa-solid fa-mobile-screen-button" aria-hidden="true"></i>
+                        <span>Install CourtLOG</span>
+                    </button>
+
+                    <div class="profile-control">
+                        <button id="profile-menu-toggle" class="account-trigger" type="button" aria-controls="profile-menu"
+                            aria-expanded="false" aria-label="Open account menu">
+                            <span id="active-user-initials" class="account-avatar" aria-hidden="true">—</span>
+                            <span id="sidebar-user-name" class="account-name">Account</span>
+                            <i class="fa-solid fa-chevron-down account-chevron" aria-hidden="true"></i>
+                        </button>
+                        <div id="profile-menu" class="profile-menu hidden" aria-label="Account options">
+                            <button id="theme-toggle-btn" type="button" onclick="toggleTheme()" class="profile-menu-item">
+                                <i id="theme-icon" class="fa-solid fa-moon" aria-hidden="true"></i><span>Switch theme</span>
+                            </button>
+                            <button id="profile-logout-btn" type="button" onclick="handleLogout()" class="profile-menu-item profile-menu-danger">
+                                <i class="fa-solid fa-right-from-bracket" aria-hidden="true"></i><span>Sign out</span>
+                            </button>
+                        </div>
                     </div>
                 </div>
-
-                <!-- Simulation Time, Role Switcher & System Status -->
-                <div class="flex items-center gap-4">
-                    <!-- Interactive 5-Level Role Switcher -->
-                    <div class="glass-panel px-3 py-1.5 rounded-xl flex items-center gap-3 text-xs"
-                        style="border-color: var(--accent); border-width: 1px;">
-                        <i class="fa-solid fa-id-badge text-emerald-400 text-sm"></i>
-                        <div>
-                            <label class="text-[9px] uppercase tracking-wider font-bold block"
-                                style="color:var(--text-muted)">Active Access Level</label>
-                            <select id="role-switcher-select" onchange="changeActiveRole(this.value)"
-                                class="bg-transparent text-xs font-bold text-heading focus:outline-none cursor-pointer">
-                                <option value="usr_sheriff_01" style="background:#18181b">Level 1: Sheriff (Physical
-                                    File Custodian)</option>
-                                <option value="usr_clerk_01" selected style="background:#18181b">Level 2: Clerk (Data
-                                    Entry & Event Logger)</option>
-                                <option value="usr_dcr_01" style="background:#18181b">Level 3: Deputy Chief Registrar
-                                    (Division Supervisor)</option>
-                                <option value="usr_cr_01" style="background:#18181b">Level 4: Chief Registrar (Master
-                                    Admin)</option>
-                                <option value="usr_judge_01" style="background:#18181b">Level 5: Judge (Decision Maker)
-                                </option>
-                            </select>
-                        </div>
-                    </div>
-
-                    <!-- Scoped prototype summary export -->
-                    <button id="btn-prototype-summary" onclick="exportPrototypeSummary()"
-                        class="btn-primary flex items-center gap-1.5 py-1.5 text-xs shadow-lg">
-                        <i class="fa-solid fa-file-export text-sm"></i> Prototype Summary
-                    </button>
-                    <button id="btn-install-pwa" type="button"
-                        class="btn-secondary hidden items-center gap-1.5 py-1.5 text-xs">
-                        <i class="fa-solid fa-mobile-screen-button"></i> Install CourtLOG
-                    </button>
-
-                    <!-- Simulation Time -->
-                    <div class="glass-panel px-4 py-2 rounded-xl items-center gap-3 text-sm hidden xl:flex">
-                        <i class="fa-regular fa-clock text-accent"></i>
-                        <div>
-                            <p class="text-[10px] uppercase tracking-wider font-semibold"
-                                style="color:var(--text-muted)">Registry Clock</p>
-                            <p id="simulation-clock" class="text-xs font-mono font-bold text-heading">July 18, 2026</p>
-                        </div>
-                    </div>
-
-                    <!-- User Profile Dropdown -->
-                    <div class="relative group cursor-pointer z-50">
-                        <div class="flex items-center gap-3 glass-panel px-3 py-1.5 rounded-xl border"
-                            style="border-color: var(--border-subtle);">
-                            <div id="active-user-initials"
-                                class="w-8 h-8 rounded-full bg-emerald-500/30 text-emerald-500 flex items-center justify-center text-xs font-bold border border-emerald-400/40">
-                                L2
-                            </div>
-                            <div class="hidden sm:block">
-                                <h4 id="sidebar-user-name" class="text-xs font-semibold text-heading">Level 2: Clerk
-                                </h4>
-                                <p id="sidebar-user-role" class="text-[10px] text-emerald-500 font-medium">Data Entry &
-                                    Event Logger</p>
-                            </div>
-                            <i class="fa-solid fa-chevron-down text-xs" style="color:var(--text-muted)"></i>
-                        </div>
-
-                        <!-- Dropdown Menu -->
-                        <div class="absolute right-0 top-full pt-2 w-48 hidden group-hover:block">
-                            <div class="glass-panel rounded-xl border shadow-xl overflow-hidden"
-                                style="border-color: var(--border-subtle);">
-                                <button id="theme-toggle-btn" onclick="toggleTheme()"
-                                    class="w-full text-left px-4 py-3 text-sm flex items-center gap-2 text-heading hover:bg-black/10">
-                                    <i id="theme-icon" class="fa-solid fa-moon text-accent"></i> Toggle Theme
-                                </button>
-                                <div class="h-px w-full" style="background-color: var(--border-color);"></div>
-                                <button onclick="handleLogout()"
-                                    class="w-full text-left px-4 py-3 text-sm text-rose flex items-center gap-2 hover:bg-rose-500/10">
-                                    <i class="fa-solid fa-right-from-bracket"></i> Log Out
-                                </button>
-                            </div>
-                        </div>
-                    </div>
-
-                    <!-- Sync/Cron Button -->
-                    <button onclick="triggerCronCompliance()" class="theme-toggle relative group"
-                        title="Run Prototype Workflow Sweep">
-                        <i class="fa-solid fa-arrows-spin text-sm" id="cron-icon"></i>
-                        <span
-                            class="absolute right-0 top-12 hidden group-hover:block text-xs py-1 px-2 rounded whitespace-nowrap z-30 glass-panel"
-                            style="color:var(--text-secondary)">Run Workflow Sweep</span>
-                    </button>
-                </div>
+                <p id="pwa-install-help" class="sr-only">This action opens the browser's native install confirmation. CourtLOG cannot restyle the browser dialog or its site-origin text.</p>
+                <p id="pwa-install-status" class="install-status" role="status" aria-live="polite"></p>
             </header>
 
             <!-- Scrollable Page Wrapper -->
-            <div class="flex-1 overflow-y-auto p-8 custom-scrollbar">
+            <div id="page-content" class="page-content custom-scrollbar">
 
                 <!-- ================== TAB 1: OVERVIEW ================== -->
-                <section id="tab-overview" class="space-y-8">
-
-                    <!-- Alert Dashboard Bar -->
-                    <div id="quick-alert-bar" class="hidden grid grid-cols-1 md:grid-cols-3 gap-4">
-                        <!-- Alert Box 1: Custody Alerts -->
-                        <div class="alert-box alert-rose">
-                            <div class="w-10 h-10 rounded-lg flex items-center justify-center shrink-0"
-                                style="background:var(--rose-soft)">
-                                <i class="fa-solid fa-triangle-exclamation text-lg text-rose"></i>
-                            </div>
-                            <div>
-                                <h4 class="font-semibold text-heading text-sm">Custody Check-In Alerts</h4>
-                                <p class="text-xs text-body"><span id="alert-count-custody"
-                                        class="font-bold text-rose">0</span> physical case files have not been checked
-                                    in for over 7 days.</p>
-                            </div>
-                            <button onclick="filterByAlert('custody')"
-                                class="ml-auto text-xs font-semibold text-rose hover:underline whitespace-nowrap">View
-                                Files</button>
+                <section id="tab-overview" class="tab-page overview-page" aria-labelledby="view-title">
+                    <div class="overview-toolbar">
+                        <div class="overview-copy">
+                            <p class="page-kicker">Registry overview</p>
+                            <p>Review active work in your authorised scope. Risk estimates are experimental and are not legal findings.</p>
+                            <p class="overview-date"><i class="fa-regular fa-calendar" aria-hidden="true"></i><span>Local date</span><strong id="simulation-clock">—</strong></p>
                         </div>
-
-                        <!-- Alert Box 2: Enforcement Alerts -->
-                        <div class="alert-box alert-amber">
-                            <div class="w-10 h-10 rounded-lg flex items-center justify-center shrink-0"
-                                style="background:var(--amber-soft)">
-                                <i class="fa-solid fa-scale-unbalanced text-lg text-amber-th"></i>
-                            </div>
-                            <div>
-                                <h4 class="font-semibold text-heading text-sm">90-Day Execution Review Prompts</h4>
-                                <p class="text-xs text-body"><span id="alert-count-enforcement"
-                                        class="font-bold text-amber-th">0</span> delivered judgments have no execution
-                                    log under the current prototype clock; verify the approved policy.</p>
-                            </div>
-                            <button onclick="filterByAlert('enforcement')"
-                                class="ml-auto text-xs font-semibold text-amber-th hover:underline whitespace-nowrap">Investigate</button>
-                        </div>
-
-                        <!-- Alert Box 3: Missing physical files -->
-                        <div class="alert-box alert-rose">
-                            <div class="w-10 h-10 rounded-lg flex items-center justify-center shrink-0" style="background:var(--rose-soft)">
-                                <i class="fa-solid fa-folder-minus text-lg text-rose"></i>
-                            </div>
-                            <div>
-                                <h4 class="font-semibold text-heading text-sm">Open Missing-File Reports</h4>
-                                <p class="text-xs text-body"><span id="alert-count-missing" class="font-bold text-rose">0</span> files require an explicit found/recovery action.</p>
-                            </div>
-                            <button onclick="filterByAlert('missing')" class="ml-auto text-xs font-semibold text-rose hover:underline whitespace-nowrap">Review</button>
+                        <div class="overview-actions" aria-label="Dashboard actions">
+                            <button id="btn-register-case" type="button" class="btn-primary" hidden onclick="switchTab('tab-case-register')">
+                                <i class="fa-solid fa-plus" aria-hidden="true"></i><span>Register a case</span>
+                            </button>
+                            <button id="btn-prototype-summary" type="button" class="btn-secondary" hidden onclick="exportPrototypeSummary()">
+                                <i class="fa-solid fa-file-export" aria-hidden="true"></i><span>Prototype summary</span>
+                            </button>
+                            <button id="btn-cron-sweep" type="button" class="btn-secondary" hidden onclick="triggerCronCompliance()">
+                                <i class="fa-solid fa-arrows-rotate" id="cron-icon" aria-hidden="true"></i><span>Run workflow sweep</span>
+                            </button>
                         </div>
                     </div>
 
-                    <!-- Metrics Stats Grid -->
-                    <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-6">
-                        <!-- Stat Card 1 -->
-                        <div class="stat-card stat-card-green flex items-center justify-between">
+                    <section id="quick-alert-bar" class="attention-panel hidden" aria-labelledby="attention-heading" aria-live="polite">
+                        <div class="attention-heading">
                             <div>
-                                <p class="stat-label">Total Tracked Files</p>
-                                <h3 id="stat-total-cases" class="stat-number mt-2">0</h3>
-                                <p class="text-xs mt-1.5 text-emerald-th"><i class="fa-solid fa-circle-check"></i> Cases in your authorised scope</p>
+                                <p class="page-kicker">Priority work</p>
+                                <h2 id="attention-heading">Needs attention</h2>
                             </div>
-                            <div class="w-12 h-12 rounded-xl flex items-center justify-center"
-                                style="background:var(--accent-soft); color:var(--accent)">
-                                <i class="fa-solid fa-folder-open text-xl"></i>
-                            </div>
+                            <p>Each item opens the related case list.</p>
                         </div>
+                        <div class="attention-grid">
+                            <article class="attention-card attention-custody">
+                                <div class="attention-card-top"><span class="attention-icon" aria-hidden="true"><i class="fa-solid fa-box-archive"></i></span><span class="attention-tag">Custody</span></div>
+                                <h3>Idle-custody prompts</h3>
+                                <p><strong id="alert-count-custody">0</strong> physical files have not been checked in for over 7 days.</p>
+                                <button type="button" class="attention-action" onclick="filterByAlert('custody')">Review custody list <i class="fa-solid fa-arrow-right" aria-hidden="true"></i></button>
+                            </article>
+                            <article class="attention-card attention-execution">
+                                <div class="attention-card-top"><span class="attention-icon" aria-hidden="true"><i class="fa-solid fa-scale-unbalanced"></i></span><span class="attention-tag">Prototype prompt</span></div>
+                                <h3>Execution review prompts</h3>
+                                <p><strong id="alert-count-enforcement">0</strong> delivered judgments have no execution log under the configured 90-day prototype clock.</p>
+                                <button type="button" class="attention-action" onclick="filterByAlert('enforcement')">Review execution list <i class="fa-solid fa-arrow-right" aria-hidden="true"></i></button>
+                            </article>
+                            <article class="attention-card attention-missing">
+                                <div class="attention-card-top"><span class="attention-icon" aria-hidden="true"><i class="fa-solid fa-folder-minus"></i></span><span class="attention-tag">Open report</span></div>
+                                <h3>Missing-file reports</h3>
+                                <p><strong id="alert-count-missing">0</strong> files have an open, explicitly reported missing status.</p>
+                                <button type="button" class="attention-action" onclick="filterByAlert('missing')">Review open reports <i class="fa-solid fa-arrow-right" aria-hidden="true"></i></button>
+                            </article>
+                        </div>
+                    </section>
 
-                        <!-- Stat Card 2 -->
-                        <div class="stat-card stat-card-rose flex items-center justify-between">
-                            <div>
-                                <p class="stat-label">Experimental Delay-Risk Flags</p>
-                                <h3 id="stat-high-risk" class="stat-number text-rose mt-2">0</h3>
-                                <p class="text-xs mt-1.5 text-body">Prototype trigger &gt;0.70; not a legal finding</p>
-                            </div>
-                            <div class="w-12 h-12 rounded-xl flex items-center justify-center"
-                                style="background:var(--rose-soft); color:var(--rose)">
-                                <i class="fa-solid fa-hourglass-half text-xl"></i>
-                            </div>
-                        </div>
-
-                        <!-- Stat Card 3 -->
-                        <div class="stat-card stat-card-rose flex items-center justify-between">
-                            <div>
-                                <p class="stat-label">Custody Alerts</p>
-                                <h3 id="stat-custody-alerts" class="stat-number text-rose mt-2">0</h3>
-                                <p class="text-xs mt-1.5 text-body">Idle in registry <span
-                                        class="font-bold text-rose">&gt; 7 days</span></p>
-                            </div>
-                            <div class="w-12 h-12 rounded-xl flex items-center justify-center"
-                                style="background:var(--rose-soft); color:var(--rose)">
-                                <i class="fa-solid fa-box-archive text-xl"></i>
-                            </div>
-                        </div>
-
-                        <!-- Stat Card 4: Missing files are not the idle-custody metric -->
-                        <div class="stat-card stat-card-rose flex items-center justify-between">
-                            <div>
-                                <p class="stat-label">Missing Files</p>
-                                <h3 id="stat-missing-files" class="stat-number text-rose mt-2">0</h3>
-                                <p class="text-xs mt-1.5 text-body">Open reports until found</p>
-                            </div>
-                            <div class="w-12 h-12 rounded-xl flex items-center justify-center" style="background:var(--rose-soft); color:var(--rose)">
-                                <i class="fa-solid fa-folder-minus text-xl"></i>
-                            </div>
-                        </div>
-
-                        <!-- Stat Card 5 -->
-                        <div class="stat-card stat-card-amber flex items-center justify-between">
-                            <div>
-                                <p class="stat-label">90-Day Execution Review</p>
-                                <h3 id="stat-enforcement-alerts" class="stat-number text-amber-th mt-2">0</h3>
-                                <p class="text-xs mt-1.5 text-body">Prototype prompt; verify policy before treating as overdue</p>
-                            </div>
-                            <div class="w-12 h-12 rounded-xl flex items-center justify-center"
-                                style="background:var(--amber-soft); color:var(--amber)">
-                                <i class="fa-solid fa-triangle-exclamation text-xl"></i>
-                            </div>
-                        </div>
+                    <div class="overview-metrics" aria-label="Key case metrics">
+                        <article class="metric-card metric-total">
+                            <span class="metric-icon" aria-hidden="true"><i class="fa-solid fa-folder-open"></i></span>
+                            <div><p class="stat-label">Tracked files</p><p id="stat-total-cases" class="stat-number">0</p><p class="metric-note">In your authorised scope</p></div>
+                        </article>
+                        <article class="metric-card metric-risk">
+                            <span class="metric-icon" aria-hidden="true"><i class="fa-solid fa-chart-line"></i></span>
+                            <div><p class="stat-label">Experimental risk flags</p><p id="stat-high-risk" class="stat-number">0</p><p class="metric-note">Prototype trigger &gt;0.70; not a legal finding</p></div>
+                        </article>
                     </div>
 
-                    <!-- Double Column Charts & Add Case Section -->
-                    <div class="grid grid-cols-1 lg:grid-cols-3 gap-8">
-                        <!-- Chart Column -->
-                        <div class="glass-panel rounded-2xl p-6 lg:col-span-2 accent-stripe">
-                            <div class="flex items-center justify-between mb-4">
-                                <h3 class="font-heading font-bold text-base text-heading">Delay Risk Probability
-                                    Distributions</h3>
-                                <span class="text-xs px-2 py-1 rounded-lg badge-low">Logistic Regression
-                                    Analytics</span>
-                            </div>
-                            <div class="h-64">
-                                <canvas id="chart-delay-distribution"></canvas>
-                            </div>
-                        </div>
-
-                        <!-- New Case Catalog Form -->
-                        <div id="register-case-panel" class="glass-panel rounded-2xl p-6 flex flex-col justify-between">
+                    <section id="cases-directory" class="content-card case-worklist" aria-labelledby="cases-heading">
+                        <div class="section-heading case-worklist-heading">
                             <div>
-                                <h3 class="font-heading font-bold text-base text-heading mb-2">Register a Case File</h3>
-                                <p class="text-xs text-body mb-4">Create the case record here. Registry staff can issue a local opaque QR label from the custody check-in tab.</p>
-
-                                <form id="form-create-case" onsubmit="handleCreateCase(event)" class="space-y-3">
-                                    <div>
-                                        <label class="stat-label block mb-1">SUIT NO / Case ID</label>
-                                        <input type="text" id="new-case-id" required maxlength="120"
-                                            pattern="[A-Za-z0-9][A-Za-z0-9_()./-]*" class="th-input w-full"
-                                            placeholder="e.g. FHC/ABJ/CR/200/2026"
-                                            title="Use letters, numbers, and suit-number separators only.">
-                                    </div>
-                                    <div class="grid grid-cols-2 gap-3">
-                                        <div>
-                                            <label class="stat-label block mb-1">Case Type</label>
-                                            <select id="new-case-type" required class="th-input w-full">
-                                                <option value="Land Dispute">Land Dispute</option>
-                                                <option value="Criminal">Criminal</option>
-                                                <option value="Civil Debt" selected>Civil Debt</option>
-                                                <option value="Family">Family</option>
-                                                <option value="Admiralty">Admiralty</option>
-                                                <option value="Intellectual Property">Intellectual Property</option>
-                                            </select>
-                                        </div>
-                                        <div>
-                                            <label class="stat-label block mb-1">Courtroom</label>
-                                            <select id="new-case-court" required class="th-input w-full">
-                                                <option value="FHC Abuja Court 4" selected>FHC Abuja Court 4</option>
-                                                <option value="Lagos High Court 2">Lagos High Court 2</option>
-                                                <option value="FHC Abuja Court 2">FHC Abuja Court 2</option>
-                                                <option value="Kano High Court 5">Kano High Court 5</option>
-                                                <option value="FHC Lagos Court 1">FHC Lagos Court 1</option>
-                                            </select>
-                                        </div>
-                                    </div>
-                                    <div class="grid grid-cols-2 gap-3">
-                                        <div>
-                                            <label class="stat-label block mb-1">Counsel Phone</label>
-                                            <input type="tel" id="new-case-counsel" required maxlength="32" autocomplete="tel"
-                                                class="th-input w-full" placeholder="e.g. +2348031234567">
-                                        </div>
-                                        <div>
-                                            <label class="stat-label block mb-1">Litigant Phone</label>
-                                            <input type="tel" id="new-case-litigant" required maxlength="32" autocomplete="tel"
-                                                class="th-input w-full" placeholder="e.g. +2348031234567">
-                                        </div>
-                                    </div>
-
-                                    <button type="submit" class="btn-primary w-full mt-2">
-                                        <i class="fa-solid fa-plus-circle"></i> Register Case
-                                    </button>
-                                </form>
+                                <p class="page-kicker">Primary work area</p>
+                                <h2 id="cases-heading">Case worklist</h2>
+                                <p id="case-worklist-note">Search and filter cases in your authorised scope. Experimental risk estimates are decision support only.</p>
                             </div>
-                        </div>
-                    </div>
-
-                    <!-- Heatmap Analytics Case Table -->
-                    <div class="glass-panel rounded-2xl p-6 accent-stripe">
-                        <div class="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 mb-6">
-                            <div>
-                                <h3 class="font-heading font-bold text-base text-heading">Delay-Risk Analytics Heatmap &
-                                    File Directory</h3>
-                                <p class="text-xs text-body">Current file status and an experimental delay-risk score for active records; the score is decision support only.</p>
-                            </div>
-
-                            <!-- Table Filter Controls -->
-                            <div class="flex flex-wrap items-center gap-3">
-                                <select id="filter-status" onchange="filterCases()" class="th-input">
-                                    <option value="ALL">All Statuses</option>
+                            <div class="case-filters" aria-label="Case filters">
+                                <label class="search-field" for="global-search">
+                                    <i class="fa-solid fa-magnifying-glass" aria-hidden="true"></i>
+                                    <span class="sr-only">Search cases by ID, court, or type</span>
+                                    <input type="search" id="global-search" oninput="filterCases()" placeholder="Search ID, court, type" autocomplete="off">
+                                </label>
+                                <label class="sr-only" for="filter-status">Filter by case status</label>
+                                <select id="filter-status" onchange="filterCases()" class="th-input" aria-label="Filter by case status">
+                                    <option value="ALL">All statuses</option>
                                     <option value="Pending">Pending</option>
                                     <option value="Delivered">Delivered</option>
                                     <option value="Executed">Executed</option>
-                                    <option value="ALERTS">Active Alerts</option>
+                                    <option value="ALERTS">Active alerts</option>
                                 </select>
-                                <select id="filter-risk" onchange="filterCases()" class="th-input">
-                                    <option value="ALL">All Risk Levels</option>
-                                    <option value="HIGH">High Risk (&gt;0.70)</option>
-                                    <option value="MED">Moderate (0.40 - 0.70)</option>
-                                    <option value="LOW">Low Risk (&lt;0.40)</option>
+                                <label class="sr-only" for="filter-risk">Filter by experimental risk</label>
+                                <select id="filter-risk" onchange="filterCases()" class="th-input" aria-label="Filter by experimental risk">
+                                    <option value="ALL">All risk levels</option>
+                                    <option value="HIGH">High (&gt;0.70)</option>
+                                    <option value="MED">Moderate (0.40–0.70)</option>
+                                    <option value="LOW">Low (&lt;0.40)</option>
                                 </select>
-                                <button onclick="resetFilters()" class="text-xs hover:underline"
-                                    style="color:var(--text-muted)">Reset</button>
+                                <button type="button" onclick="resetFilters()" class="filter-reset">Reset filters</button>
                             </div>
                         </div>
-
-                        <!-- Table Scroll -->
-                        <div class="overflow-x-auto custom-scrollbar">
-                            <table class="w-full text-left border-collapse table-premium">
+                        <div class="table-scroll-hint" aria-hidden="true">Swipe horizontally to view all columns</div>
+                        <div class="table-scroll custom-scrollbar" tabindex="0" aria-label="Scrollable case worklist">
+                            <table class="case-table table-premium" aria-describedby="case-worklist-note">
                                 <thead>
-                                    <tr class="text-[11px] uppercase font-bold tracking-wider">
-                                        <th class="py-3 px-4">Suit / Case ID</th>
-                                        <th class="py-3 px-4">Case Type</th>
-                                        <th class="py-3 px-4">Location / Court</th>
-                                        <th class="py-3 px-4">Adjournments</th>
-                                        <th class="py-3 px-4 text-center">Filing Age</th>
-                                        <th class="py-3 px-4 text-center">Delay Probability</th>
-                                        <th class="py-3 px-4 text-center">Registry Alerts</th>
-                                        <th class="py-3 px-4 text-right">Actions</th>
+                                    <tr>
+                                        <th scope="col">Suit / Case ID</th>
+                                        <th scope="col">Case type</th>
+                                        <th scope="col">Court</th>
+                                        <th scope="col">Adjournments</th>
+                                        <th scope="col">Filing age</th>
+                                        <th scope="col">Experimental risk</th>
+                                        <th scope="col">Registry alerts</th>
+                                        <th scope="col">Actions</th>
                                     </tr>
                                 </thead>
-                                <tbody id="cases-table-body" class="text-xs" style="color:var(--text-secondary)">
-                                    <!-- Dynamic rows from app.js -->
-                                </tbody>
+                                <tbody id="cases-table-body"></tbody>
                             </table>
                         </div>
+                    </section>
+
+                    <section class="content-card analytics-card" aria-labelledby="analytics-heading">
+                        <div class="section-heading">
+                            <div>
+                                <p class="page-kicker">Secondary analysis</p>
+                                <h2 id="analytics-heading">Experimental delay-risk distribution</h2>
+                                <p>Model output is synthetic/prototype decision support and has not been validated for real-world decisions.</p>
+                            </div>
+                            <span class="prototype-label">Experimental</span>
+                        </div>
+                        <div class="chart-frame"><canvas id="chart-delay-distribution" aria-label="Chart of experimental case delay-risk distribution" role="img"></canvas></div>
+                    </section>
+
+                    <details class="content-card metadata-disclosure">
+                        <summary><span>Record document metadata</span><i class="fa-solid fa-chevron-down" aria-hidden="true"></i></summary>
+                        <p class="form-note">Record document metadata only. This does not upload or store the underlying document.</p>
+                        <form id="form-upload-doc" onsubmit="handleUploadDocument(event)" class="form-stack">
+                            <div class="field-grid">
+                                <label for="upload-case-id">Case ID<input type="text" id="upload-case-id" required maxlength="120" pattern="[A-Za-z0-9][A-Za-z0-9_()./-]*" class="th-input" placeholder="e.g. CR-104-2025"></label>
+                                <label for="upload-doc-type">Document type<select id="upload-doc-type" class="th-input"><option>Ruling</option><option>Motion</option><option>Exhibit</option><option>Affidavit</option></select></label>
+                            </div>
+                            <div class="field-grid">
+                                <label for="upload-title">Document title<input type="text" id="upload-title" required maxlength="200" class="th-input" placeholder="e.g. Motion for Bail"></label>
+                                <label for="upload-filename">Filename<input type="text" id="upload-filename" required maxlength="120" pattern="[A-Za-z0-9][A-Za-z0-9 _().-]*" class="th-input" placeholder="e.g. bail_motion.pdf"></label>
+                            </div>
+                            <button type="submit" class="btn-secondary"><i class="fa-solid fa-clipboard-check" aria-hidden="true"></i> Record metadata</button>
+                        </form>
+                    </details>
+                </section>
+
+                <!-- Case registration is a dedicated task, not a competing dashboard card. -->
+                <section id="tab-case-register" class="tab-page case-register-page hidden" aria-labelledby="register-page-title">
+                    <div class="section-heading register-heading">
+                        <div>
+                            <p class="page-kicker">Case intake</p>
+                            <h2 id="register-page-title">Register a case</h2>
+                            <p>Create a case record in your authorised scope. The server confirms successful registration.</p>
+                        </div>
+                        <button type="button" class="btn-secondary" onclick="switchTab('tab-overview')"><i class="fa-solid fa-arrow-left" aria-hidden="true"></i> Back to dashboard</button>
                     </div>
 
-
-                    <!-- Document Metadata -->
-                    <div class="space-y-4 pt-6" style="border-top:1px solid var(--border-color)">
-                        <h4 class="font-heading font-bold text-sm text-heading flex items-center gap-2">
-                            <i class="fa-solid fa-file-lines text-accent"></i> Record Document Metadata
-                        </h4>
-                        <form id="form-upload-doc" onsubmit="handleUploadDocument(event)" class="space-y-3">
-                            <div class="grid grid-cols-2 gap-3">
-                                <div>
-                                    <label class="stat-label block mb-1">Case ID</label>
-                                    <input type="text" id="upload-case-id" required maxlength="120"
-                                        pattern="[A-Za-z0-9][A-Za-z0-9_()./-]*" class="th-input w-full py-2"
-                                        placeholder="e.g. CR-104-2025">
-                                </div>
-                                <div>
-                                    <label class="stat-label block mb-1">Document Type</label>
-                                    <select id="upload-doc-type" class="th-input w-full py-2">
-                                        <option>Ruling</option>
-                                        <option>Motion</option>
-                                        <option>Exhibit</option>
-                                        <option>Affidavit</option>
+                    <div id="register-case-panel" class="content-card form-panel">
+                        <div class="form-intro">
+                            <h3>Case details</h3>
+                            <p>Fields marked <span class="required-mark" aria-hidden="true">*</span> are required. A Clerk is limited to their assigned court.</p>
+                        </div>
+                        <form id="form-create-case" onsubmit="handleCreateCase(event)" class="form-stack">
+                            <label for="new-case-id">Suit number / Case ID <span class="required-mark" aria-hidden="true">*</span>
+                                <input type="text" id="new-case-id" required maxlength="120" pattern="[A-Za-z0-9][A-Za-z0-9_()./-]*" class="th-input" placeholder="e.g. FHC/ABJ/CR/200/2026" title="Use letters, numbers, and suit-number separators only.">
+                            </label>
+                            <div class="field-grid">
+                                <label for="new-case-type">Case type <span class="required-mark" aria-hidden="true">*</span>
+                                    <select id="new-case-type" required class="th-input">
+                                        <option value="Land Dispute">Land Dispute</option>
+                                        <option value="Criminal">Criminal</option>
+                                        <option value="Civil Debt" selected>Civil Debt</option>
+                                        <option value="Family">Family</option>
+                                        <option value="Admiralty">Admiralty</option>
+                                        <option value="Intellectual Property">Intellectual Property</option>
                                     </select>
-                                </div>
+                                </label>
+                                <label for="new-case-court">Court <span class="required-mark" aria-hidden="true">*</span>
+                                    <select id="new-case-court" required class="th-input" aria-describedby="case-court-help">
+                                        <option value="FHC Abuja Court 4" selected>FHC Abuja Court 4</option>
+                                        <option value="Lagos High Court 2">Lagos High Court 2</option>
+                                        <option value="FHC Abuja Court 2">FHC Abuja Court 2</option>
+                                        <option value="Kano High Court 5">Kano High Court 5</option>
+                                        <option value="FHC Lagos Court 1">FHC Lagos Court 1</option>
+                                    </select>
+                                    <small id="case-court-help">Your account scope determines which court can be selected.</small>
+                                </label>
                             </div>
-                            <div class="grid grid-cols-2 gap-3">
-                                <div>
-                                    <label class="stat-label block mb-1">Document Title</label>
-                                    <input type="text" id="upload-title" required maxlength="200" class="th-input w-full py-2"
-                                        placeholder="e.g. Motion for Bail">
-                                </div>
-                                <div>
-                                    <label class="stat-label block mb-1">Filename</label>
-                                    <input type="text" id="upload-filename" required maxlength="120"
-                                        pattern="[A-Za-z0-9][A-Za-z0-9 _().-]*" class="th-input w-full py-2"
-                                        placeholder="e.g. bail_motion.pdf">
-                                </div>
+                            <div class="field-grid">
+                                <label for="new-case-counsel">Counsel phone <span class="required-mark" aria-hidden="true">*</span>
+                                    <input type="tel" id="new-case-counsel" required maxlength="32" autocomplete="tel" class="th-input" placeholder="e.g. +2348031234567" aria-describedby="case-phone-help">
+                                </label>
+                                <label for="new-case-litigant">Litigant phone <span class="required-mark" aria-hidden="true">*</span>
+                                    <input type="tel" id="new-case-litigant" required maxlength="32" autocomplete="tel" class="th-input" placeholder="e.g. +2348031234567" aria-describedby="case-phone-help">
+                                </label>
                             </div>
-                            <button type="submit" class="btn-primary w-full mt-3">
-                                <i class="fa-solid fa-clipboard-check"></i> Record Metadata
-                            </button>
+                            <p id="case-phone-help" class="form-note">Registering a phone number does not send a message. Any WhatsApp notification requires separate recorded opt-in.</p>
+                            <div class="form-actions">
+                                <button id="btn-create-case" type="submit" class="btn-primary"><i class="fa-solid fa-folder-plus" aria-hidden="true"></i> Register case</button>
+                            </div>
                         </form>
                     </div>
                 </section>
@@ -678,8 +537,7 @@
                                 </div>
                             </div>
                         </div>
-                        <p id="pwa-install-status" class="text-xs text-body text-center" role="status" aria-live="polite"></p>
-                        <p class="text-[10px] text-body text-center">Install from the browser menu. On iPhone or iPad, use Safari Share → Add to Home Screen.</p>
+                        <p class="install-guidance">When supported, choose <strong>Install CourtLOG</strong> in the header. The installed-app name is <strong>COURTLOG Sheriff Custody Check-In</strong>, as set in the manifest. Your browser controls the native confirmation and its origin/publisher text, which may show the current site address (for local demos, <code>127.0.0.1:8000</code>). CourtLOG cannot style that browser dialog. On iPhone or iPad, use Safari Share → Add to Home Screen.</p>
                     </div>
                 </section>
 
@@ -1558,7 +1416,7 @@
     </div>
 
     <!-- Toast Notifications -->
-    <div id="toast-container"></div>
+    <div id="toast-container" role="status" aria-live="polite" aria-relevant="additions" aria-label="Notifications"></div>
 
     <!-- Local Chart.js bundle (no runtime CDN request). -->
     <script src="/static/chart.bundle.js"></script>

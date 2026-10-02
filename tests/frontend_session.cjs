@@ -60,7 +60,7 @@ dom.window.fetch = async (url, options = {}) => {
     const ready = new Promise(resolve => dom.window.document.addEventListener('DOMContentLoaded', () => setTimeout(resolve, 0), {once:true}));
     new vm.Script(fs.readFileSync('frontend/app.js', 'utf8')).runInContext(context);
     await ready;
-    assert.equal(dom.window.document.getElementById('nav-whatsapp').style.display, 'none');
+    assert.equal(dom.window.document.getElementById('nav-whatsapp').classList.contains('hidden'), true);
 
     dom.window.document.getElementById('login-username').value = 'clerk';
     dom.window.document.getElementById('login-password').value = '123';

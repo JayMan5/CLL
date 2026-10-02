@@ -5,7 +5,7 @@
   "scripts": {
     "build:pwa": "esbuild frontend/c2-pwa.js --bundle --format=iife --target=es2020 --minify --outfile=frontend/c2-pwa.bundle.js",
     "build:frontend": "npm run build:pwa && tailwindcss -c tailwind.config.cjs -i frontend/tailwind.input.css -o frontend/tailwind.css --minify && esbuild frontend/chart-entry.js --bundle --format=iife --target=es2020 --minify --outfile=frontend/chart.bundle.js && node scripts/build_static_vendors.mjs",
-    "test:frontend": "npm run build:frontend && node tests/frontend_security.cjs && node tests/frontend_session.cjs && node tests/frontend_pwa.cjs"
+    "test:frontend": "npm run build:frontend && node tests/frontend_security.cjs && node tests/frontend_session.cjs && node tests/frontend_pwa.cjs && node tests/frontend_ui.cjs"
   },
   "devDependencies": {
     "esbuild": "0.28.2",

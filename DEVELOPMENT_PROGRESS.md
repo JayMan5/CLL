@@ -1,6 +1,6 @@
 # Development progress
 
-> **Current status — 2 October 2026:** The latest local tranche adds a verified synthetic-only demo seeder and court-aware registration defaults, threshold/concurrency/notification-failure regression tests, starter role/demo/feedback materials, a current status index, and CI/container build configuration. Full automated suites pass locally; GitHub Actions and the Docker image have not yet been verified remotely/built. The WhatsApp Cloud API remains disabled by default and real delivery has not been tested. This is a competition-team prototype, not a government service, and government approval does not block feature development. Older checkpoints below are historical and are superseded where the latest entry or completion plan says so.
+> **Current status — 2 October 2026:** The latest local tranche adds a verified synthetic-only demo seeder, court-aware registration defaults, threshold/concurrency/notification-failure tests, and a first screenshot-driven UI refresh: grouped role-aware navigation, a quieter header, a prioritized worklist, and a dedicated case-intake view. Frontend tests pass locally; manual browser/device acceptance remains open. GitHub Actions and the Docker image have not yet been verified remotely/built. WhatsApp remains disabled by default; real delivery is untested. This is a competition-team prototype, not a government service, and government approval does not block feature development. Older checkpoints below are historical and are superseded where the latest entry or completion plan says so.
 
 ## 1 October 2026 — first security tranche
 
@@ -230,3 +230,19 @@ Verification:
 - Isolated seed smoke test created eight fictional cases and five demo accounts in a disposable `.local/` directory, then removed that scratch database. Tests and smoke checks did not write to tracked `data/courtlog.db`.
 
 Still open: full end-to-end workflow/browser/device acceptance, pilot role owners/feedback channel, Legal Lead decisions, real-data permission, provider-backed WhatsApp delivery, hosted staging, tested backups/restore/rollback, CI execution after the repository billing lock is resolved, container build, and review/correction of the tracked Word/PowerPoint materials. No legal rule changed, no real court data was used, and no pilot/deployment acceptance is implied.
+
+## 2 October 2026 — first screenshot-driven UI refresh
+
+Implemented:
+- Replaced the flat left navigation with grouped workspaces, role-filtered links that follow the existing server permission matrix, an active-page indicator, and an accessible mobile drawer with Escape/backdrop close and keyboard focus containment. Server/API authorization remains authoritative.
+- Simplified the header: removed the role-selector-shaped control, show authenticated role/scope once, moved account/theme/sign-out to a click-operated menu, and relocated export/workflow sweep actions to the dashboard.
+- Rebuilt the dashboard hierarchy: one distinct “Needs attention” area, two non-duplicated metrics, a searchable case worklist before the experimental chart, and a collapsible metadata-only form.
+- Moved case registration to a dedicated role-gated page, kept the Clerk court default and all server validation/required fields, improved mobile form stacking and contact/WhatsApp helper text, and replaced the case-create browser alert with server-confirmed loading/success/error feedback.
+- Added consistent responsive shell/card/table/form styles, visible keyboard focus, a skip link, accessible labels/status regions, reduced-motion support, and mobile horizontal-scroll guidance for the case table.
+- Kept the PWA manifest name `COURTLOG Sheriff Custody Check-In`; added in-app explanation that the browser owns its native install confirmation and origin/publisher text, and aligned manifest theme colors with the refreshed dark shell. Install is still requested only after the user clicks the supported-browser action; scans are not queued offline. Bumped the static shell cache to v5.
+
+Verification:
+- `npm ci`: passed; 0 reported npm vulnerabilities.
+- `npm run test:frontend`: passed (security/XSS, session, PWA, and new role-aware UI/navigation/dashboard checks).
+- `node --check frontend/app.js`, HTML ID/label consistency check, manifest parsing, and `git diff --check`: passed.
+- No backend or legal-rule changes were made. Manual browser viewport, contrast review, and physical-device PWA acceptance remain open.

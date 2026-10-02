@@ -150,7 +150,7 @@ function clearClientSession() {
     document.getElementById("form-login")?.reset();
     document.getElementById("form-sheriff-custody")?.reset();
     document.getElementById("sheriff-custody-modal")?.classList.add("hidden");
-    if (document.getElementById("role-switcher-select")) updateRoleUI();
+    if (document.getElementById("app-sidebar")) updateRoleUI();
     if (distributionChart) distributionChart.destroy();
     distributionChart = null;
     // Clear tokens left by older versions; tokens are no longer persisted in web storage.
@@ -296,13 +296,6 @@ async function handleLogout() {
     logger("User logged out.");
 }
 
-function changeActiveRole(userId) {
-    // Authorization belongs to the signed-in account; a browser-side selector cannot switch roles.
-    if (!authenticatedUser || userId !== authenticatedUser.user_id) {
-        updateRoleUI();
-    }
-}
-
 function showPasswordChangePrompt() {
     const overlay = document.getElementById("password-change-overlay");
     if (overlay) overlay.classList.remove("hidden");
@@ -352,8 +345,85 @@ function updateSimulationClock() {
     clockEl.textContent = now.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' });
 }
 
+function setSidebarOpen(open, restoreFocus = true) {
+    const toggle = document.getElementById("mobile-nav-toggle");
+    const backdrop = document.getElementById("nav-backdrop");
+    const sidebar = document.getElementById("app-sidebar");
+    if (!toggle || !sidebar || !backdrop) return;
+
+    document.body.classList.toggle("nav-open", open);
+    toggle.setAttribute("aria-expanded", String(open));
+    toggle.setAttribute("aria-label", open ? "Close navigation" : "Open navigation");
+    const icon = document.getElementById("nav-toggle-icon");
+    if (icon) icon.className = `fa-solid ${open ? "fa-xmark" : "fa-bars"}`;
+    backdrop.classList.toggle("hidden", !open);
+
+    if (open) {
+        sidebar.querySelector(".nav-item:not(.hidden)")?.focus();
+    } else if (restoreFocus) {
+        toggle.focus();
+    }
+}
+
+function setProfileMenuOpen(open, restoreFocus = false) {
+    const toggle = document.getElementById("profile-menu-toggle");
+    const menu = document.getElementById("profile-menu");
+    if (!toggle || !menu) return;
+    menu.classList.toggle("hidden", !open);
+    toggle.setAttribute("aria-expanded", String(open));
+    if (!open && restoreFocus) toggle.focus();
+}
+
+function initializeShellControls() {
+    const navToggle = document.getElementById("mobile-nav-toggle");
+    const navBackdrop = document.getElementById("nav-backdrop");
+    const profileToggle = document.getElementById("profile-menu-toggle");
+    const profileMenu = document.getElementById("profile-menu");
+
+    navToggle?.addEventListener("click", () => {
+        const open = navToggle.getAttribute("aria-expanded") !== "true";
+        setProfileMenuOpen(false);
+        setSidebarOpen(open);
+    });
+    navBackdrop?.addEventListener("click", () => setSidebarOpen(false));
+    profileToggle?.addEventListener("click", () => {
+        const open = profileToggle.getAttribute("aria-expanded") !== "true";
+        setSidebarOpen(false, false);
+        setProfileMenuOpen(open);
+    });
+    document.addEventListener("click", event => {
+        if (profileMenu && !profileMenu.contains(event.target) && !profileToggle?.contains(event.target)) {
+            setProfileMenuOpen(false);
+        }
+    });
+    document.addEventListener("keydown", event => {
+        if (event.key === "Tab" && document.body.classList.contains("nav-open")) {
+            const sidebar = document.getElementById("app-sidebar");
+            const items = Array.from(sidebar?.querySelectorAll(".nav-item:not(.hidden):not(:disabled)") || []);
+            const first = items[0];
+            const last = items[items.length - 1];
+            if (event.shiftKey && document.activeElement === first) {
+                event.preventDefault();
+                last?.focus();
+            } else if (!event.shiftKey && document.activeElement === last) {
+                event.preventDefault();
+                first?.focus();
+            }
+        }
+        if (event.key !== "Escape") return;
+        if (document.body.classList.contains("nav-open")) setSidebarOpen(false);
+        if (profileToggle?.getAttribute("aria-expanded") === "true") setProfileMenuOpen(false, true);
+    });
+    window.addEventListener("resize", () => {
+        if (window.innerWidth > 1024 && document.body.classList.contains("nav-open")) {
+            setSidebarOpen(false, false);
+        }
+    });
+}
+
 // ===== APP INITIALIZATION =====
 document.addEventListener("DOMContentLoaded", async function () {
+    initializeShellControls();
     window.CourtLogPwa?.initialize();
     window.CourtLogPwa?.setScanHandler(handleQrPayloadFromCamera);
     // Discard bearer/refresh tokens from pre-cookie versions; identity is re-derived from the server.
@@ -373,6 +443,7 @@ document.addEventListener("DOMContentLoaded", async function () {
         await loadDashboardData();
         if (authenticatedUser.role === "Chief Registrar") await loadUsersData();
     } else {
+        updateRoleUI();
         document.getElementById("login-overlay").classList.remove("hidden");
     }
 });
@@ -399,7 +470,7 @@ function showToast(message, type = "info") {
     const toast = document.createElement("div");
     toast.className = `toast toast-${type}`;
     const icons = { success: "fa-circle-check", error: "fa-circle-xmark", warning: "fa-triangle-exclamation", info: "fa-circle-info" };
-    toast.innerHTML = `<i class="fa-solid ${icons[type] || icons.info}"></i><span>${escapeHTML(message)}</span><button onclick="this.parentElement.remove()" class="toast-close">&times;</button>`;
+    toast.innerHTML = `<i class="fa-solid ${icons[type] || icons.info}" aria-hidden="true"></i><span>${escapeHTML(message)}</span><button type="button" aria-label="Dismiss notification" onclick="this.parentElement.remove()" class="toast-close">&times;</button>`;
     container.appendChild(toast);
     requestAnimationFrame(() => toast.classList.add("toast-visible"));
     setTimeout(() => { toast.classList.remove("toast-visible"); setTimeout(() => toast.remove(), 400); }, 4000);
@@ -464,46 +535,109 @@ function syncCaseRegistrationDefaults(user = getActiveUser()) {
     }
 }
 
-function updateRoleUI() {
-    const user = getActiveUser();
-    syncCaseRegistrationDefaults(user);
-    const select = document.getElementById("role-switcher-select");
-    if (select) {
-        if (user.user_id && !Array.from(select.options).some(option => option.value === user.user_id)) {
-            const option = document.createElement("option");
-            option.value = user.user_id;
-            option.textContent = `${user.role}: ${user.name}`;
-            select.appendChild(option);
-        }
-        select.value = user.user_id || "";
-        select.disabled = true;
-        select.title = "Access level is determined by the authenticated account.";
-    }
+function setNavItemVisible(id, visible) {
+    const item = document.getElementById(id);
+    if (!item) return;
+    item.classList.toggle("hidden", !visible);
+    item.setAttribute("aria-hidden", String(!visible));
+}
 
-    document.getElementById("sidebar-user-name").textContent = user.name;
-    document.getElementById("sidebar-user-role").textContent = user.badge;
-    document.getElementById("active-user-initials").textContent = user.initials;
-    const scanOperator = document.getElementById("scan-authenticated-operator");
-    if (scanOperator) {
-        scanOperator.textContent = authenticatedUser?.user_id ? `${user.name} (${user.role})` : "No authenticated account";
-    }
+function updateNavGroups() {
+    document.querySelectorAll("[data-nav-group]").forEach(group => {
+        const items = Array.from(group.querySelectorAll("[data-tab]"));
+        group.classList.toggle("hidden", items.length > 0 && items.every(item => item.classList.contains("hidden")));
+    });
+}
 
-    // Toggle tab permissions according to Permission Matrix
+function canAccessTab(tabId, user = authenticatedUser) {
+    if (!user) return tabId === "tab-overview";
     const role = user.role;
+    const roleAccess = {
+        "tab-case-register": role === "Chief Registrar" || (role === "Clerk" && Boolean(user.court)),
+        "tab-qr-scan": ["Sheriff", "Clerk", "Chief Registrar"].includes(role),
+        "tab-courtrooms": ["Clerk", "Judge", "Chief Registrar"].includes(role),
+        "tab-execution": ["Sheriff", "Chief Registrar"].includes(role),
+        "tab-dcr-console": ["DCR", "Chief Registrar"].includes(role),
+        "tab-judge-docket": ["Judge", "Chief Registrar"].includes(role),
+        "tab-user-admin": role === "Chief Registrar",
+        "tab-whatsapp": role === "Chief Registrar"
+    };
+    return Object.prototype.hasOwnProperty.call(roleAccess, tabId) ? roleAccess[tabId] : true;
+}
 
-    const navCustody = document.getElementById("nav-qr-scan");
-    const navDCR = document.getElementById("nav-dcr-console");
-    const navJudge = document.getElementById("nav-judge-docket");
-    const navUserAdmin = document.getElementById("nav-user-admin");
-    const navWhatsApp = document.getElementById("nav-whatsapp");
-    const btnReportExport = document.getElementById("btn-prototype-summary");
+function updateRoleUI() {
+    const user = authenticatedUser ? getActiveUser() : null;
+    const accountName = document.getElementById("sidebar-user-name");
+    const roleLabel = document.getElementById("sidebar-user-role");
+    const scopeLabel = document.getElementById("active-user-scope");
+    const initials = document.getElementById("active-user-initials");
+    const profileToggle = document.getElementById("profile-menu-toggle");
+    const registerPanel = document.getElementById("register-case-panel");
 
-    if (navCustody) navCustody.style.display = ["Sheriff", "Clerk", "Chief Registrar"].includes(role) ? "flex" : "none";
-    if (navDCR) navDCR.style.display = (role === "DCR" || role === "Chief Registrar") ? "flex" : "none";
-    if (navJudge) navJudge.style.display = (role === "Judge" || role === "Chief Registrar") ? "flex" : "none";
-    if (navUserAdmin) navUserAdmin.style.display = (role === "Chief Registrar") ? "flex" : "none";
-    if (navWhatsApp) navWhatsApp.style.display = (role === "Chief Registrar") ? "flex" : "none";
-    if (btnReportExport) btnReportExport.style.display = (role === "Chief Registrar" || role === "DCR") ? "inline-flex" : "none";
+    if (!user) {
+        if (accountName) accountName.textContent = "Signed out";
+        if (roleLabel) roleLabel.textContent = "Not signed in";
+        if (scopeLabel) scopeLabel.textContent = "Sign in to view your assigned workspace";
+        if (initials) initials.textContent = "—";
+        profileToggle?.setAttribute("aria-label", "Account options — signed out");
+        if (profileToggle) profileToggle.disabled = true;
+        setProfileMenuOpen(false);
+        document.querySelectorAll("#sidebar-nav-container [data-tab]").forEach(item => {
+            item.classList.toggle("hidden", item.dataset.tab !== "tab-overview");
+            item.setAttribute("aria-hidden", String(item.dataset.tab !== "tab-overview"));
+        });
+        registerPanel?.classList.add("hidden");
+        ["btn-register-case", "btn-prototype-summary", "btn-cron-sweep"].forEach(id => {
+            const button = document.getElementById(id);
+            if (button) button.hidden = true;
+        });
+        updateNavGroups();
+        window.CourtLogPwa?.setRole("");
+        return;
+    }
+
+    syncCaseRegistrationDefaults(user);
+    if (accountName) accountName.textContent = user.name || user.username || "Account";
+    if (roleLabel) roleLabel.textContent = user.role || "Staff";
+    if (scopeLabel) {
+        const scope = [];
+        if (user.court) scope.push(user.court);
+        if (user.division && user.division !== "All Divisions") scope.push(`${user.division} division`);
+        scopeLabel.textContent = scope.join(" · ") || "Assigned workspace";
+    }
+    if (initials) initials.textContent = user.initials || "U";
+    profileToggle?.setAttribute("aria-label", `Account options for ${user.name || user.username || "user"}`);
+    if (profileToggle) profileToggle.disabled = false;
+
+    const role = user.role;
+    const canRegister = role === "Chief Registrar" || (role === "Clerk" && Boolean(user.court));
+    const navVisibility = {
+        "nav-overview": true,
+        "nav-case-register": canRegister,
+        "nav-qr-scan": ["Sheriff", "Clerk", "Chief Registrar"].includes(role),
+        "nav-courtrooms": ["Clerk", "Judge", "Chief Registrar"].includes(role),
+        "nav-execution": ["Sheriff", "Chief Registrar"].includes(role),
+        "nav-dcr-console": ["DCR", "Chief Registrar"].includes(role),
+        "nav-judge-docket": ["Judge", "Chief Registrar"].includes(role),
+        "nav-ai-risk": true,
+        "nav-user-admin": role === "Chief Registrar",
+        "nav-whatsapp": role === "Chief Registrar"
+    };
+    Object.entries(navVisibility).forEach(([id, visible]) => setNavItemVisible(id, visible));
+    updateNavGroups();
+
+    const buttonVisibility = {
+        "btn-register-case": canRegister,
+        "btn-prototype-summary": ["Chief Registrar", "DCR"].includes(role),
+        "btn-cron-sweep": role === "Chief Registrar"
+    };
+    Object.entries(buttonVisibility).forEach(([id, visible]) => {
+        const button = document.getElementById(id);
+        if (button) button.hidden = !visible;
+    });
+
+    const scanOperator = document.getElementById("scan-authenticated-operator");
+    if (scanOperator) scanOperator.textContent = `${user.name} (${user.role})`;
 
     const sheriffQrTools = document.getElementById("sheriff-qr-tools");
     const qrLabelTools = document.getElementById("qr-label-tools");
@@ -515,6 +649,10 @@ function updateRoleUI() {
     if (reportMissingTools) reportMissingTools.classList.toggle("hidden", !canManageMissingFiles);
     if (resolveMissingTools) resolveMissingTools.classList.toggle("hidden", !canManageMissingFiles);
     window.CourtLogPwa?.setRole(role);
+
+    const activePage = Array.from(document.querySelectorAll("#page-content > section"))
+        .find(section => !section.classList.contains("hidden"));
+    if (activePage && !canAccessTab(activePage.id, user)) switchTab("tab-overview");
 }
 
 // Logger Utility
@@ -524,33 +662,51 @@ function logger(message) {
 
 // Switching Tabs (Single Page App Navigation)
 function switchTab(tabId) {
-    if (tabId === "tab-whatsapp" && authenticatedUser?.role !== "Chief Registrar") {
+    if (!document.getElementById(tabId) || !canAccessTab(tabId)) {
+        if (authenticatedUser && tabId !== "tab-overview") {
+            showToast("That workspace is not available to your signed-in role.", "warning");
+        }
         tabId = "tab-overview";
     }
-    if (tabId === "tab-qr-scan" && !["Sheriff", "Clerk", "Chief Registrar"].includes(authenticatedUser?.role)) {
-        tabId = "tab-overview";
-    }
-    document.querySelectorAll("main > div > section").forEach(section => {
-        section.classList.add("hidden");
+
+    document.querySelectorAll("#page-content > section").forEach(section => {
+        const active = section.id === tabId;
+        section.classList.toggle("hidden", !active);
+        section.setAttribute("aria-hidden", String(!active));
     });
 
-    const targetSection = document.getElementById(tabId);
-    if (targetSection) targetSection.classList.remove("hidden");
-
-    document.querySelectorAll(".sidebar nav button").forEach(btn => {
-        btn.className = 'nav-item w-full flex items-center gap-3 px-4 py-3 rounded-xl text-left font-medium';
+    document.querySelectorAll("#sidebar-nav-container [data-tab]").forEach(button => {
+        const active = button.dataset.tab === tabId;
+        button.classList.toggle("active", active);
+        if (active) button.setAttribute("aria-current", "page");
+        else button.removeAttribute("aria-current");
     });
 
-    const activeBtn = Array.from(document.querySelectorAll(".sidebar nav button")).find(btn => {
-        return btn.getAttribute("onclick") && btn.getAttribute("onclick").includes(tabId);
-    });
+    const hadMobileNav = document.body.classList.contains("nav-open");
+    setProfileMenuOpen(false);
+    if (hadMobileNav) setSidebarOpen(false, false);
 
-    if (activeBtn) {
-        activeBtn.className = 'nav-item active w-full flex items-center gap-3 px-4 py-3 rounded-xl text-left font-medium';
-    }
+    const viewTitles = {
+        "tab-overview": "Dashboard",
+        "tab-case-register": "Register a case",
+        "tab-qr-scan": "Custody check-in",
+        "tab-courtrooms": "Hearing log",
+        "tab-dcr-console": "DCR review queue",
+        "tab-judge-docket": "Judge's docket",
+        "tab-ai-risk": "Experimental risk",
+        "tab-execution": "Execution work",
+        "tab-user-admin": "User management",
+        "tab-whatsapp": "WhatsApp activity"
+    };
+    const title = document.getElementById("view-title");
+    if (title) title.textContent = viewTitles[tabId] || "Registry workspace";
+    const pageContent = document.getElementById("page-content");
+    if (pageContent) pageContent.scrollTop = 0;
+    document.documentElement.scrollTop = 0;
+    document.body.scrollTop = 0;
+    if (hadMobileNav) title?.focus({ preventScroll: true });
 
-    // Auto-load data for AI Risk tab on first visit
-    if (tabId === 'tab-ai-risk' && typeof aiRiskData !== 'undefined' && aiRiskData.length === 0) {
+    if (tabId === "tab-ai-risk" && typeof aiRiskData !== "undefined" && aiRiskData.length === 0) {
         loadAIRiskData();
     }
     if (tabId === "tab-judge-docket" && ["Judge", "Chief Registrar"].includes(authenticatedUser?.role)) {
@@ -560,19 +716,6 @@ function switchTab(tabId) {
         loadWhatsAppStatus();
         loadWhatsAppLogs();
     }
-
-    const viewTitles = {
-        "tab-overview": "Registry Performance Hub",
-        "tab-qr-scan": "Sheriff Custody Check-In",
-        "tab-courtrooms": "Clerk Call-Over Logger",
-        "tab-dcr-console": "DCR Division Supervisor Hub",
-        "tab-judge-docket": "My Assigned Judicial Docket",
-        "tab-ai-risk": "Experimental Delay-Risk Prototype",
-        "tab-execution": "Post-Judgment Workflow Prototype",
-        "tab-user-admin": "Judiciary User Administration",
-        "tab-whatsapp": "WhatsApp Notifications"
-    };
-    document.getElementById("view-title").textContent = viewTitles[tabId] || "Registry Hub";
 }
 
 // ----------------- API INGESTION & DATA BINDING -----------------
@@ -741,31 +884,24 @@ async function handleWhatsAppTestSubmit(event) {
 // ----------------- RENDERING & DOM INJECTION -----------------
 
 function renderOverviewMetrics() {
-    // 1. Calculations
     const total = casesData.length;
     const highRisk = casesData.filter(c => c.risk_flag).length;
     const custodyAlerts = casesData.filter(c => c.custody_alert).length;
     const missingFiles = casesData.filter(isFileMissingRecord).length;
     const enforcementAlerts = casesData.filter(c => c.enforcement_non_compliant).length;
 
-    // 2. DOM updates
-    document.getElementById("stat-total-cases").textContent = total;
-    document.getElementById("stat-high-risk").textContent = highRisk;
-    document.getElementById("stat-custody-alerts").textContent = custodyAlerts;
-    document.getElementById("stat-missing-files").textContent = missingFiles;
-    document.getElementById("stat-enforcement-alerts").textContent = enforcementAlerts;
+    const setCount = (id, value) => {
+        const element = document.getElementById(id);
+        if (element) element.textContent = String(value);
+    };
+    setCount("stat-total-cases", total);
+    setCount("stat-high-risk", highRisk);
+    setCount("alert-count-custody", custodyAlerts);
+    setCount("alert-count-missing", missingFiles);
+    setCount("alert-count-enforcement", enforcementAlerts);
 
-    document.getElementById("alert-count-custody").textContent = custodyAlerts;
-    document.getElementById("alert-count-missing").textContent = missingFiles;
-    document.getElementById("alert-count-enforcement").textContent = enforcementAlerts;
-
-    // Toggle overall warning hub visibility
     const alertHub = document.getElementById("quick-alert-bar");
-    if (custodyAlerts > 0 || missingFiles > 0 || enforcementAlerts > 0) {
-        alertHub.classList.remove("hidden");
-    } else {
-        alertHub.classList.add("hidden");
-    }
+    if (alertHub) alertHub.classList.toggle("hidden", custodyAlerts + missingFiles + enforcementAlerts === 0);
 }
 
 function renderHeatmapTable(cases) {
@@ -830,6 +966,7 @@ function renderHeatmapTable(cases) {
 
         const activeUser = getActiveUser();
         const canRecordCustody = ["Sheriff", "Clerk", "Chief Registrar"].includes(activeUser.role);
+        const canLogHearing = ["Clerk", "Judge", "Chief Registrar"].includes(activeUser.role);
         const canAssignSheriff = ["Clerk", "Chief Registrar"].includes(activeUser.role);
         const canHandoverCustody = activeUser.role === "Sheriff" && c.assigned_sheriff_id === activeUser.user_id;
         const row = document.createElement("tr");
@@ -856,7 +993,7 @@ function renderHeatmapTable(cases) {
             <td class="py-3 px-4 text-right">
                 <div class="flex items-center justify-end gap-2">
                     ${canRecordCustody ? `<button data-case-action="scan" data-record-id="${c.case_id}" class="btn-secondary" style="padding:2px 8px;font-size:10px;" title="Record a custody check-in"><i class="fa-solid fa-location-dot mr-1"></i> Check-In</button>` : ''}
-                    ${activeUser.role !== 'Sheriff' ? `<button data-case-action="hearing" data-record-id="${c.case_id}" class="btn-secondary" style="padding:2px 8px;font-size:10px;" title="Log Hearing"><i class="fa-solid fa-gavel mr-1"></i> Log</button>` : ''}
+                    ${canLogHearing ? `<button data-case-action="hearing" data-record-id="${c.case_id}" class="btn-secondary" style="padding:2px 8px;font-size:10px;" title="Log a hearing outcome"><i class="fa-solid fa-gavel mr-1"></i> Hearing</button>` : ''}
                     ${canAssignSheriff ? `<button data-case-action="assignSheriff" data-record-id="${c.case_id}" class="btn-secondary" style="padding:2px 8px;font-size:10px; color:var(--accent)" title="Assign or reassign Sheriff custody"><i class="fa-solid fa-person-walking-arrow-right mr-1"></i> Custody</button>` : ''}
                     ${canHandoverCustody ? `<button data-case-action="handover" data-record-id="${c.case_id}" class="btn-secondary" style="padding:2px 8px;font-size:10px; color:var(--amber)" title="Hand over file custody"><i class="fa-solid fa-right-left mr-1"></i> Hand Over</button>` : ''}
                     ${activeUser.role === 'Chief Registrar' ? `<button data-case-action="assign" data-record-id="${c.case_id}" class="btn-secondary" style="padding:2px 8px;font-size:10px; color:var(--purple-400)" title="Assign Judge"><i class="fa-solid fa-scale-balanced mr-1"></i> Assign</button>` : ''}
@@ -874,6 +1011,7 @@ function renderExecutionTable() {
 
     try {
         const judgments = casesData.filter(c => c.judgment_status === "Delivered" || c.judgment_status === "Judgment Delivered");
+        const canCompileWrit = ["Sheriff", "Chief Registrar"].includes(getActiveUser().role);
 
         if (judgments.length === 0) {
             tableBody.innerHTML = `<tr><td colspan="6" class="text-center py-8" style="color:var(--text-muted)">No delivered judgments currently meet the prototype execution review trigger.</td></tr>`;
@@ -911,9 +1049,7 @@ function renderExecutionTable() {
                     </div>
                 </td>
                 <td class="py-3 px-3 text-right">
-                    <button data-case-action="writ" data-record-id="${c.case_id}" class="btn-primary" style="font-size:10px; padding:4px 12px;">
-                        Compile Writ
-                    </button>
+                    ${canCompileWrit ? `<button type="button" data-case-action="writ" data-record-id="${c.case_id}" class="btn-secondary">Open writ workflow</button>` : `<span class="text-xs text-muted-th">View only</span>`}
                 </td>
             `;
             tableBody.appendChild(row);
@@ -1204,9 +1340,14 @@ async function handleCreateCase(e) {
     const court = document.getElementById("new-case-court").value;
     const counsel_phone = document.getElementById("new-case-counsel").value.trim();
     const litigant_phone = document.getElementById("new-case-litigant").value.trim();
+    const submitButton = document.getElementById("btn-create-case");
 
     if (!case_id) return;
-
+    if (submitButton) {
+        submitButton.disabled = true;
+        submitButton.dataset.originalLabel = submitButton.innerHTML;
+        submitButton.innerHTML = '<i class="fa-solid fa-spinner fa-spin" aria-hidden="true"></i> Registering…';
+    }
     logger(`Creating case ${case_id}...`);
 
     try {
@@ -1217,17 +1358,25 @@ async function handleCreateCase(e) {
         });
 
         if (!response.ok) {
-            const err = await response.json();
-            alert(`Permission Denied / Case Failed: ${err.detail || "Server error"}`);
+            const err = await response.json().catch(() => ({}));
+            showToast(`Case was not registered: ${err.detail || "The server rejected the request."}`, "error");
             return;
         }
 
         document.getElementById("form-create-case").reset();
         syncCaseRegistrationDefaults(getActiveUser());
         await loadDashboardData();
-        alert(`Case file ${case_id} cataloged and initialized successfully!`);
+        switchTab("tab-overview");
+        showToast(`Case ${case_id} was registered by CourtLOG and is now in your worklist.`, "success");
     } catch (error) {
         logger(`Error creating case: ${error}`);
+        showToast("Connection error. The case was not confirmed; check the worklist before retrying.", "error");
+    } finally {
+        if (submitButton) {
+            submitButton.disabled = false;
+            submitButton.innerHTML = submitButton.dataset.originalLabel || '<i class="fa-solid fa-folder-plus" aria-hidden="true"></i> Register case';
+            delete submitButton.dataset.originalLabel;
+        }
     }
 }
 
@@ -2082,7 +2231,11 @@ function resetFilters() {
 function filterByAlert(type) {
     switchTab("tab-overview");
     const statusSelect = document.getElementById("filter-status");
-    statusSelect.value = "ALERTS";
+    if (statusSelect) statusSelect.value = "ALERTS";
+    const riskSelect = document.getElementById("filter-risk");
+    if (riskSelect) riskSelect.value = "ALL";
+    const search = document.getElementById("global-search");
+    if (search) search.value = "";
 
     // Filter specifically by alert type
     let filtered;
@@ -2113,25 +2266,25 @@ function filterByAlert(type) {
 async function triggerCronCompliance() {
     logger("Triggering manual prototype workflow sweep...");
     const cronIcon = document.getElementById("cron-icon");
+    const sweepButton = document.getElementById("btn-cron-sweep");
 
-    cronIcon.classList.add("animate-spin");
+    if (cronIcon) cronIcon.classList.add("animate-spin");
+    if (sweepButton) sweepButton.disabled = true;
 
     try {
         const response = await apiFetch(`${API_BASE}/cron`, { method: "POST", headers: getAuthHeaders() });
-        if (!response.ok) throw new Error("Cron sweep endpoint failed");
+        const result = await response.json().catch(() => ({}));
+        if (!response.ok) throw new Error(result.detail || "Workflow sweep was not completed.");
 
-        const result = await response.json();
         logger(`Workflow sweep complete. Idle custody prompts: ${result.stats.custody_alerts}; missing files: ${result.stats.missing_file_alerts}; 90-day execution review prompts: ${result.stats.execution_review_prompts}`);
-
         await loadDashboardData();
-
-        // Display summary dialog
-        alert(`Prototype Workflow Sweep Complete\n---------------------------------\nIdle Custody Prompts: ${result.stats.custody_alerts}\nOpen Missing-File Reports: ${result.stats.missing_file_alerts}\n90-Day Execution Review Prompts: ${result.stats.execution_review_prompts}\nExperimental Delay-Risk Flags: ${result.stats.high_risk_delay_cases}`);
-
+        showToast(`Prototype sweep complete: ${result.stats.custody_alerts} idle-custody prompts, ${result.stats.missing_file_alerts} open missing-file reports, and ${result.stats.execution_review_prompts} execution review prompts.`, "success");
     } catch (error) {
-        logger(`Error running cron sweep: ${error}`);
+        logger(`Error running workflow sweep: ${error}`);
+        showToast(error.message || "Workflow sweep failed. No completion was confirmed.", "error");
     } finally {
-        cronIcon.classList.remove("animate-spin");
+        if (cronIcon) cronIcon.classList.remove("animate-spin");
+        if (sweepButton) sweepButton.disabled = false;
     }
 }
 

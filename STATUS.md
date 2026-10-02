@@ -19,7 +19,7 @@ Use this file as the quick status index. The detailed task owner/decision list i
 ## Latest local verification
 
 - `.venv/bin/python -m pytest -q`: **70 passed**, with two existing FastAPI lifespan deprecation warnings.
-- `npm run test:frontend`: passed; build reports an outdated `caniuse-lite` advisory but no test failure.
+- `npm run test:frontend`: passed after the first UI refresh; security, session, PWA, role-aware navigation, menu, and dashboard-alert regressions pass. The build reports an outdated `caniuse-lite` advisory but no test failure. Manual browser viewport and device acceptance remain open.
 - `.venv/bin/python -m pip check`: no broken requirements; `.venv/bin/pip-audit -r requirements.txt`: no known vulnerabilities; `npm audit --audit-level=high`: 0 vulnerabilities.
 - `.venv/bin/python -m compileall -q backend tests scripts`, `node --check frontend/app.js`, and `git diff --check`: passed.
 - Isolated demo-seed smoke test created eight fictional cases/five demo users in a temporary `.local/` database and removed it. Tests did not write to tracked `data/courtlog.db`.
@@ -55,7 +55,7 @@ git diff --check
 |---|---|
 | [`README.md`](README.md) | Current setup, safety, behavior, integration limits, and verification commands; update when the code or scripts change. |
 | [`COURTLOG_COMPLETION_PLAN.md`](COURTLOG_COMPLETION_PLAN.md) | Current acceptance checklist and unresolved decisions; check a box only after its full criterion is verified. |
-| [`UI_UPGRADE_PLAN.md`](UI_UPGRADE_PLAN.md) | Screenshot-based UI improvement backlog; planning only, with no redesign implemented yet. |
+| [`UI_UPGRADE_PLAN.md`](UI_UPGRADE_PLAN.md) | Active screenshot-based UI task list; shell/dashboard/case-intake slice implemented, with manual browser/device acceptance still open. |
 | [`DEVELOPMENT_PROGRESS.md`](DEVELOPMENT_PROGRESS.md) | Dated implementation log; older entries are historical and do not override current gates. |
 | [`COURTLOG_Abstract.md`](COURTLOG_Abstract.md) | Current cautious prototype abstract; institutional and legal claims remain explicitly qualified. |
 | [`COURTLOG_FULL_AUDIT.md`](COURTLOG_FULL_AUDIT.md) | Historical audit of commit `723a583`, not the current branch. Its individual reproduced findings are not automatically current evidence. |
