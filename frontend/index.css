@@ -203,9 +203,10 @@ body::before {
     border-color: var(--accent);
 }
 
-/* Keep the login field text clear of its decorative leading icons. */
-.login-input.th-input {
-    padding: 0.625rem 0.75rem 0.625rem 2.5rem;
+/* Keep login text clear of the leading icons, even if a utility class sets padding. */
+#form-login #login-username,
+#form-login #login-password {
+    padding: 0.625rem 0.75rem 0.625rem 2.75rem !important;
 }
 
 /* Themed text */
