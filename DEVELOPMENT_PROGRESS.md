@@ -246,3 +246,16 @@ Verification:
 - `npm run test:frontend`: passed (security/XSS, session, PWA, and new role-aware UI/navigation/dashboard checks).
 - `node --check frontend/app.js`, HTML ID/label consistency check, manifest parsing, and `git diff --check`: passed.
 - No backend or legal-rule changes were made. Manual browser viewport, contrast review, and physical-device PWA acceptance remain open.
+
+## 3 October 2026 — Tailwind v4 toolchain security migration
+
+Implemented:
+- Replaced Tailwind CSS 3.4.19 with pinned Tailwind CSS and `@tailwindcss/cli` 4.3.0. The v4 CLI now builds the same checked-in frontend CSS asset through the existing `npm run build:frontend` workflow.
+- Migrated the input stylesheet to v4 `@import`, explicit source paths, `@source inline()` runtime utility safelisting, and an explicit compatibility config load. Preserved the custom fonts/timing/scale tokens and v3 border, placeholder, and button-cursor defaults.
+- Updated the legacy JS config to keep only supported theme extensions, refreshed the third-party notices, and bumped the PWA shell cache to v6 for the regenerated CSS.
+- Resolved the five high npm audit findings without `--force`: pinned the v4 CLI/engine at 4.3.0 and let `npm audit fix` select `@parcel/watcher` 2.6.0, outside the vulnerable range.
+
+Verification:
+- `npm ci`, `npm run test:frontend`, `npm audit --audit-level=high`, `npm audit --omit=dev`, `node --check frontend/app.js`, and `git diff --check`: passed; npm reports 0 vulnerabilities.
+- The PWA regression suite confirms the v4 input configuration, aligned CLI/engine versions, retained hidden/font utilities, and service-worker cache invalidation.
+- No backend, role-permission, or legal-rule changes were made. Manual browser screenshot/viewport acceptance remains open; Tailwind v4's minimum browser support must be checked against intended devices before production use.

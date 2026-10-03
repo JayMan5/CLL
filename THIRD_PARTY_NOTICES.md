@@ -4,7 +4,8 @@ The following pinned packages supply frontend code, CSS, icons, or fonts. Versio
 
 | Package | Pinned version | License |
 |---|---:|---|
-| Tailwind CSS | 3.4.19 | MIT |
+| Tailwind CSS | 4.3.0 | MIT |
+| `@tailwindcss/cli` | 4.3.0 | MIT |
 | Chart.js | 4.5.1 | MIT |
 | Font Awesome Free | 6.4.0 | Code: MIT; icons: CC BY 4.0; fonts: SIL OFL 1.1 |
 | Fontsource Outfit Variable | 5.3.0 | SIL OFL 1.1 |

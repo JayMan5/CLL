@@ -1,5 +1,6 @@
+// Loaded through @config from frontend/tailwind.input.css.
+// Source paths and runtime safelisting live in that CSS file for Tailwind v4.
 module.exports = {
-  content: ["./frontend/index.html", "./frontend/app.js", "./frontend/c2-pwa.js"],
   theme: {
     extend: {
       fontFamily: {
@@ -15,18 +16,4 @@ module.exports = {
       },
     },
   },
-  safelist: [
-    "hidden",
-    "badge-low",
-    "badge-mod",
-    "badge-high",
-    "badge-pulse",
-    "led-green",
-    "led-amber",
-    "led-red",
-    "toast-success",
-    "toast-error",
-    "toast-warning",
-    "toast-info",
-  ],
 };

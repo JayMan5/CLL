@@ -7,7 +7,19 @@ const { JSDOM } = require('jsdom');
 const QRCode = require('qrcode');
 
 const manifest = JSON.parse(fs.readFileSync('frontend/manifest.webmanifest', 'utf8'));
+const packageJson = JSON.parse(fs.readFileSync('package.json', 'utf8'));
+const tailwindInput = fs.readFileSync('frontend/tailwind.input.css', 'utf8');
+const tailwindOutput = fs.readFileSync('frontend/tailwind.css', 'utf8');
 const indexHtml = fs.readFileSync('frontend/index.html', 'utf8');
+const tailwindVersion = packageJson.devDependencies.tailwindcss;
+assert.match(tailwindVersion, /^4\./, 'the frontend toolchain uses Tailwind v4');
+assert.equal(packageJson.devDependencies['@tailwindcss/cli'], tailwindVersion, 'Tailwind engine and CLI are pinned to matching versions');
+assert.match(packageJson.scripts['build:frontend'], /tailwindcss -i frontend\/tailwind\.input\.css/);
+assert.match(tailwindInput, /@import "tailwindcss" source\(none\);/);
+assert.match(tailwindInput, /@source inline\("hidden\b/, 'runtime hidden-state utility remains safelisted');
+for (const utility of ['.hidden{', '.font-sans{', '.font-heading{']) {
+  assert.ok(tailwindOutput.includes(utility), `Tailwind v4 generated ${utility}`);
+}
 assert.doesNotMatch(indexHtml, /https:\/\/(?:cdn\.|fonts\.)/i, 'runtime frontend dependencies do not use external CDNs');
 for (const localAsset of [
   '/static/tailwind.css',
@@ -44,7 +56,7 @@ for (const localAsset of [
 for (const [, path] of serviceWorker.matchAll(/"(\/static\/[^\"]+)"/g)) {
   assert.ok(fs.existsSync(`frontend${path.replace('/static', '')}`), `cached asset exists: ${path}`);
 }
-assert.match(serviceWorker, /courtlog-shell-v5/, 'the refreshed app shell invalidates the earlier static cache');
+assert.match(serviceWorker, /courtlog-shell-v6/, 'the Tailwind v4 output invalidates the earlier static cache');
 assert.match(serviceWorker, /request\.method !== "GET"/);
 assert.match(serviceWorker, /url\.pathname\.startsWith\("\/api\/"\)/, 'API responses are bypassed by the shell cache');
 assert.match(serviceWorker, /does not queue custody scans/i);

@@ -1,6 +1,6 @@
 # CourtLOG — Current Verified Status
 
-**Verification date:** 2 October 2026
+**Verification date:** 3 October 2026
 
 **Project status:** competition-team prototype; **not pilot-ready or production-certified**. This status reflects code and local test evidence only. It is not legal approval, institutional endorsement, permission to use real records, or acceptance on a phone/printer/provider.
 
@@ -19,8 +19,8 @@ Use this file as the quick status index. The detailed task owner/decision list i
 ## Latest local verification
 
 - `.venv/bin/python -m pytest -q`: **70 passed**, with two existing FastAPI lifespan deprecation warnings.
-- `npm run test:frontend`: passed after the first UI refresh; security, session, PWA, role-aware navigation, menu, and dashboard-alert regressions pass. The build reports an outdated `caniuse-lite` advisory but no test failure. Manual browser viewport and device acceptance remain open.
-- `.venv/bin/python -m pip check`: no broken requirements; `.venv/bin/pip-audit -r requirements.txt`: no known vulnerabilities; `npm audit --audit-level=high`: 0 vulnerabilities.
+- `npm run test:frontend`: passed after the first UI refresh and Tailwind v4.3.0 migration; security, session, PWA, role-aware navigation, menu, dashboard-alert, and Tailwind build checks pass. Manual browser viewport and device acceptance remain open.
+- `.venv/bin/python -m pip check`: no broken requirements; `.venv/bin/pip-audit -r requirements.txt`: no known vulnerabilities; `npm audit --audit-level=high` and `npm audit --omit=dev`: 0 vulnerabilities after the Tailwind toolchain migration.
 - `.venv/bin/python -m compileall -q backend tests scripts`, `node --check frontend/app.js`, and `git diff --check`: passed.
 - Isolated demo-seed smoke test created eight fictional cases/five demo users in a temporary `.local/` database and removed it. Tests did not write to tracked `data/courtlog.db`.
 - The push-triggered [GitHub Actions run](https://github.com/JayMan5/CLL/actions/runs/36979457121) was created, but both jobs failed before starting because GitHub reports the account is locked due to a billing issue. No remote test step ran; the local results above are the available test evidence until the account owner resolves billing. Docker is not installed in the workspace, so the image has not been built.
