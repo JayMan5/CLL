@@ -5,7 +5,9 @@ const vm = require('node:vm');
 const { JSDOM } = require('jsdom');
 
 const html = fs.readFileSync('frontend/index.html', 'utf8');
+const css = fs.readFileSync('frontend/index.css', 'utf8');
 assert.match(html, /href="#main-content">Skip to main content/);
+assert.match(css, /\.login-input\.th-input\s*\{\s*padding:\s*0\.625rem\s+0\.75rem\s+0\.625rem\s+2\.5rem;/, 'login input padding leaves a clear icon gutter');
 assert.doesNotMatch(html, /id="role-switcher-select"/, 'the shell does not imply users can switch roles');
 assert.match(html, /browser controls the native confirmation/);
 assert.match(html, /COURTLOG Sheriff Custody Check-In/);
@@ -43,6 +45,9 @@ dom.window.fetch = async url => {
     const doc = dom.window.document;
     const run = code => vm.runInContext(code, context);
 
+    for (const id of ['login-username', 'login-password']) {
+        assert.ok(doc.getElementById(id).classList.contains('login-input'), `${id} reserves space for its leading icon`);
+    }
     assert.equal(doc.getElementById('profile-menu-toggle').getAttribute('aria-expanded'), 'false');
     assert.ok(doc.querySelectorAll('[data-nav-group]').length >= 3);
     assert.equal(doc.getElementById('tab-case-register').classList.contains('hidden'), true);

@@ -203,6 +203,11 @@ body::before {
     border-color: var(--accent);
 }
 
+/* Keep the login field text clear of its decorative leading icons. */
+.login-input.th-input {
+    padding: 0.625rem 0.75rem 0.625rem 2.5rem;
+}
+
 /* Themed text */
 .text-heading {
     color: var(--text-primary);
