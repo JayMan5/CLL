@@ -193,19 +193,19 @@
                                 <div class="attention-card-top"><span class="attention-icon" aria-hidden="true"><i class="fa-solid fa-box-archive"></i></span><span class="attention-tag">Custody</span></div>
                                 <h3>Idle-custody prompts</h3>
                                 <p><strong id="alert-count-custody">0</strong> physical files have not been checked in for over 7 days.</p>
-                                <button type="button" class="attention-action" onclick="filterByAlert('custody')">Review custody list <i class="fa-solid fa-arrow-right" aria-hidden="true"></i></button>
+                                <button type="button" class="attention-action" data-alert-filter="custody">Review custody list <i class="fa-solid fa-arrow-right" aria-hidden="true"></i></button>
                             </article>
                             <article class="attention-card attention-execution">
                                 <div class="attention-card-top"><span class="attention-icon" aria-hidden="true"><i class="fa-solid fa-scale-unbalanced"></i></span><span class="attention-tag">Prototype prompt</span></div>
                                 <h3>Execution review prompts</h3>
                                 <p><strong id="alert-count-enforcement">0</strong> delivered judgments have no execution log under the configured 90-day prototype clock.</p>
-                                <button type="button" class="attention-action" onclick="filterByAlert('enforcement')">Review execution list <i class="fa-solid fa-arrow-right" aria-hidden="true"></i></button>
+                                <button type="button" class="attention-action" data-alert-filter="enforcement">Review execution list <i class="fa-solid fa-arrow-right" aria-hidden="true"></i></button>
                             </article>
                             <article class="attention-card attention-missing">
                                 <div class="attention-card-top"><span class="attention-icon" aria-hidden="true"><i class="fa-solid fa-folder-minus"></i></span><span class="attention-tag">Open report</span></div>
                                 <h3>Missing-file reports</h3>
                                 <p><strong id="alert-count-missing">0</strong> files have an open, explicitly reported missing status.</p>
-                                <button type="button" class="attention-action" onclick="filterByAlert('missing')">Review open reports <i class="fa-solid fa-arrow-right" aria-hidden="true"></i></button>
+                                <button type="button" class="attention-action" data-alert-filter="missing">Review open reports <i class="fa-solid fa-arrow-right" aria-hidden="true"></i></button>
                             </article>
                         </div>
                     </section>
@@ -225,7 +225,7 @@
                         <div class="section-heading case-worklist-heading">
                             <div>
                                 <p class="page-kicker">Primary work area</p>
-                                <h2 id="cases-heading">Case worklist</h2>
+                                <h2 id="cases-heading" tabindex="-1">Case worklist</h2>
                                 <p id="case-worklist-note">Search and filter cases in your authorised scope. Experimental risk estimates are decision support only.</p>
                             </div>
                             <div class="case-filters" aria-label="Case filters">

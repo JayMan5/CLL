@@ -111,16 +111,45 @@ dom.window.fetch = async url => {
     assert.equal(navToggle.getAttribute('aria-expanded'), 'false');
     assert.equal(doc.body.classList.contains('nav-open'), false);
 
-    run(`casesData = [
-        { case_id: 'FICTIONAL/1', risk_flag: true, custody_alert: true, file_missing: false, enforcement_non_compliant: false },
-        { case_id: 'FICTIONAL/2', risk_flag: false, custody_alert: false, file_missing: true, enforcement_non_compliant: true }
-    ]; renderOverviewMetrics()`);
-    assert.equal(doc.getElementById('stat-total-cases').textContent, '2');
+    const alertCases = [
+        { case_id: 'FICTIONAL/CUSTODY', custody_alert: true, risk_flag: true },
+        { case_id: 'FICTIONAL/EXECUTION', enforcement_non_compliant: true },
+        { case_id: 'FICTIONAL/MISSING', file_missing: true },
+        { case_id: 'FICTIONAL/CLEAR' }
+    ].map(record => ({
+        case_type: 'Criminal', court: 'FHC Abuja Court 4', adjournment_count: 1,
+        days_since_filing: 7, delay_risk_score: 0.2, custody_alert: false,
+        file_missing: false, enforcement_non_compliant: false, risk_flag: false,
+        scan_events: [], ...record
+    }));
+    run(`casesData = ${JSON.stringify(alertCases)}; renderOverviewMetrics(); renderHeatmapTable(casesData)`);
+    assert.equal(doc.getElementById('stat-total-cases').textContent, '4');
     assert.equal(doc.getElementById('stat-high-risk').textContent, '1');
     assert.equal(doc.getElementById('alert-count-custody').textContent, '1');
     assert.equal(doc.getElementById('alert-count-missing').textContent, '1');
     assert.equal(doc.getElementById('alert-count-enforcement').textContent, '1');
     assert.equal(doc.getElementById('quick-alert-bar').classList.contains('hidden'), false);
+
+    const worklist = doc.getElementById('cases-directory');
+    const scrollRequests = [];
+    worklist.scrollIntoView = options => scrollRequests.push(options);
+    const visibleCaseIds = () => [...doc.querySelectorAll('#cases-table-body > tr > td:first-child')]
+        .map(cell => cell.textContent.trim());
+    for (const [type, expectedCaseId] of [
+        ['custody', 'FICTIONAL/CUSTODY'],
+        ['enforcement', 'FICTIONAL/EXECUTION'],
+        ['missing', 'FICTIONAL/MISSING']
+    ]) {
+        doc.querySelector(`[data-alert-filter="${type}"]`).click();
+        assert.deepEqual(visibleCaseIds(), [expectedCaseId], `${type} review action shows only its related cases`);
+        assert.equal(doc.getElementById('filter-status').value, 'ALERTS');
+        assert.equal(doc.getElementById('filter-risk').value, 'ALL');
+        assert.equal(doc.getElementById('global-search').value, '');
+        assert.equal(doc.activeElement.id, 'cases-heading', `${type} review action moves keyboard focus to the worklist`);
+    }
+    assert.equal(scrollRequests.length, 3, 'each review action scrolls the worklist into view');
+    assert.ok(scrollRequests.every(options => options.block === 'start'));
+
     run('casesData = []; renderOverviewMetrics()');
     assert.equal(doc.getElementById('quick-alert-bar').classList.contains('hidden'), true);
 

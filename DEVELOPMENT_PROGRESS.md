@@ -259,3 +259,14 @@ Verification:
 - `npm ci`, `npm run test:frontend`, `npm audit --audit-level=high`, `npm audit --omit=dev`, `node --check frontend/app.js`, and `git diff --check`: passed; npm reports 0 vulnerabilities.
 - The PWA regression suite confirms the v4 input configuration, aligned CLI/engine versions, retained hidden/font utilities, and service-worker cache invalidation.
 - No backend, role-permission, or legal-rule changes were made. Manual browser screenshot/viewport acceptance remains open; Tailwind v4's minimum browser support must be checked against intended devices before production use.
+
+## 3 October 2026 — priority alert review navigation
+
+Implemented:
+- Fixed the three dashboard review actions to filter cases by custody, execution-review, or open-missing status and scroll to the actual case worklist. The previous handler looked for a `.glass-panel` ancestor that the worklist no longer uses.
+- Replaced these inline handlers with delegated `data-alert-filter` click handling; the worklist heading receives keyboard focus, respects reduced-motion settings, and clears the sticky-header offset.
+- Bumped the PWA shell cache to v8 so installed clients receive the revised JavaScript/HTML.
+
+Verification:
+- `npm ci` and `npm run test:frontend`: passed; the UI suite clicks all three review actions and verifies the filtered fictional rows, scroll request, and focus target.
+- No backend, permission, or legal-rule changes were made. Manual browser acceptance remains open.

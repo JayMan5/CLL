@@ -1597,6 +1597,10 @@ body.nav-open {
     padding: clamp(1rem, 2vw, 1.5rem);
 }
 
+.case-worklist {
+    scroll-margin-top: 6rem;
+}
+
 .case-worklist-heading {
     align-items: flex-end;
     margin-bottom: 1rem;

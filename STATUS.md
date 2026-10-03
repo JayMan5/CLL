@@ -19,7 +19,7 @@ Use this file as the quick status index. The detailed task owner/decision list i
 ## Latest local verification
 
 - `.venv/bin/python -m pytest -q`: **70 passed**, with two existing FastAPI lifespan deprecation warnings.
-- `npm run test:frontend`: passed after the first UI refresh and Tailwind v4.3.0 migration; security, session, PWA, role-aware navigation, menu, dashboard-alert, and Tailwind build checks pass. Manual browser viewport and device acceptance remain open.
+- `npm run test:frontend`: passed after the UI refresh, Tailwind v4.3.0 migration, and dashboard alert-review navigation fix; security, session, PWA, role-aware navigation, menu, filtered alert actions, and Tailwind build checks pass. Manual browser viewport and device acceptance remain open.
 - `.venv/bin/python -m pip check`: no broken requirements; `.venv/bin/pip-audit -r requirements.txt`: no known vulnerabilities; `npm audit --audit-level=high` and `npm audit --omit=dev`: 0 vulnerabilities after the Tailwind toolchain migration.
 - `.venv/bin/python -m compileall -q backend tests scripts`, `node --check frontend/app.js`, and `git diff --check`: passed.
 - Isolated demo-seed smoke test created eight fictional cases/five demo users in a temporary `.local/` database and removed it. Tests did not write to tracked `data/courtlog.db`.

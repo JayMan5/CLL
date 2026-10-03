@@ -19,6 +19,12 @@ function isFileMissingRecord(caseRecord) {
 }
 // Never put user-controlled identifiers inside executable JavaScript attributes.
 document.addEventListener('click', event => {
+    const alertFilterButton = event.target.closest('[data-alert-filter]');
+    if (alertFilterButton) {
+        filterByAlert(alertFilterButton.dataset.alertFilter);
+        return;
+    }
+
     const button = event.target.closest('[data-case-action]');
     if (!button) return;
     const actions = {
@@ -2251,14 +2257,16 @@ function filterByAlert(type) {
 
     renderHeatmapTable(filtered);
 
-    // Scroll to the table
-    setTimeout(() => {
-        const table = document.getElementById("cases-table-body");
-        if (table) {
-            const panel = table.closest('.glass-panel');
-            if (panel) panel.scrollIntoView({ behavior: 'smooth', block: 'start' });
-        }
-    }, 150);
+    // The worklist is a content-card, not a glass-panel. Scroll to the actual section
+    // so the filtered rows are visible after the dashboard's priority cards.
+    const worklist = document.getElementById("cases-directory");
+    const heading = document.getElementById("cases-heading");
+    if (worklist) {
+        const reduceMotion = typeof window.matchMedia === "function" &&
+            window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+        worklist.scrollIntoView({ behavior: reduceMotion ? "auto" : "smooth", block: "start" });
+        heading?.focus({ preventScroll: true });
+    }
 }
 
 // ----------------- BACKGROUND SYNC DRIVER (CRON SIM) -----------------
