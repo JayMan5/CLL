@@ -281,5 +281,5 @@ Implemented and reviewed:
 
 Verification and remaining scope:
 - `COURTLOG_USE_SPARTICUZ=1 npm run test:viewport`: passed at all five target sizes, including phone/tablet registration-form checks, mobile navigation open/close, custody alert filtering, and no page errors.
-- Screenshots and measurements were inspected. They are local ignored outputs, not tracked court material; all API data was fictional. No backend/API permission, legal rule, training data, or WhatsApp provider behavior was changed by the viewport work.
+- Screenshots and measurements were inspected. Fresh test outputs stay ignored under `.local/viewport-pass/`; committed reference PNGs and `measurements.json` are in `docs/viewport-evidence/`. They contain fictional fixtures, not court material. No backend/API permission, legal rule, training data, or WhatsApp provider behavior was changed by the viewport work.
 - UI-17 is checked in `UI_UPGRADE_PLAN.md`. Actual-device/PWA install and camera acceptance, 200% zoom, broader accessibility and cross-role review, and C2 remain open. No phone/printer test or live provider delivery was attempted.

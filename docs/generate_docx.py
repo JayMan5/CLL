@@ -137,8 +137,9 @@ def build_document() -> Path:
         document,
         "For the responsive interface smoke test, install the Playwright Chromium browser "
         "once with `npx playwright install chromium`, then run `npm run test:viewport`. It uses "
-        "fictional API fixtures and records screenshots under the ignored .local/viewport-pass/ "
-        "directory for 1600×900, 1366×768, 1024×768, 768×1024, and 390×844. This headless check "
+        "fictional API fixtures and writes fresh output under the ignored .local/viewport-pass/ "
+        "directory for 1600×900, 1366×768, 1024×768, 768×1024, and 390×844. Reference PNGs and "
+        "measurements are committed in docs/viewport-evidence/. This headless check "
         "does not replace the actual phone, camera, printer, PWA-install, accessibility, or zoom tests.",
     )
     add_bullet(

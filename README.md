@@ -88,7 +88,7 @@ git diff --check
 npm audit --audit-level=high
 ```
 
-`npm run build:frontend` writes deployable static bundles and the limited static vendor assets under `frontend/`. The exact package versions are pinned in `package.json` and `package-lock.json`; `npm ci` installs the lockfile versions. `npm run test:viewport` serves the frontend with fictional API fixtures, checks five responsive sizes, and writes screenshots/measurements to ignored `.local/viewport-pass/`; it needs no backend, real court data, or provider credentials. This headless browser check does not replace real-device, PWA-install, accessibility, or zoom acceptance. The service worker's cache list must be kept in step with changed static assets and its cache name bumped when the shell changes.
+`npm run build:frontend` writes deployable static bundles and the limited static vendor assets under `frontend/`. The exact package versions are pinned in `package.json` and `package-lock.json`; `npm ci` installs the lockfile versions. `npm run test:viewport` serves the frontend with fictional API fixtures, checks five responsive sizes, and writes fresh screenshots/measurements to ignored `.local/viewport-pass/`; committed reference images and measurements are in [`docs/viewport-evidence/`](docs/viewport-evidence/). It needs no backend, real court data, or provider credentials. This headless browser check does not replace real-device, PWA-install, accessibility, or zoom acceptance. The service worker's cache list must be kept in step with changed static assets and its cache name bumped when the shell changes.
 
 ## WhatsApp Cloud API setup (optional; disabled by default)
 
