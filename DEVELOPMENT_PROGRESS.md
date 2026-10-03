@@ -283,3 +283,11 @@ Verification and remaining scope:
 - `COURTLOG_USE_SPARTICUZ=1 npm run test:viewport`: passed at all five target sizes, including phone/tablet registration-form checks, mobile navigation open/close, custody alert filtering, and no page errors.
 - Screenshots and measurements were inspected. Fresh test outputs stay ignored under `.local/viewport-pass/`; committed reference PNGs and `measurements.json` are in `docs/viewport-evidence/`. They contain fictional fixtures, not court material. No backend/API permission, legal rule, training data, or WhatsApp provider behavior was changed by the viewport work.
 - UI-17 is checked in `UI_UPGRADE_PLAN.md`. Actual-device/PWA install and camera acceptance, 200% zoom, broader accessibility and cross-role review, and C2 remain open. No phone/printer test or live provider delivery was attempted.
+
+## 3 October 2026 — login viewport and account-provisioning clarity
+
+- Added explicit username/password label associations and browser-autofill attributes to the login inputs, then added a standalone `tests/login_viewport_smoke.cjs` so login capture and geometry checks run independently of dashboard screenshots.
+- The login suite passed in headless Chromium at 390×844, 768×1024, 1024×768, 1366×768, and 1600×900. It asserts the login overlay, card, fields, and button stay within their viewport bounds; it also checks the label associations and browser runtime errors.
+- Committed login screenshots and measured geometry in `docs/viewport-evidence/`; `npm run test:viewport` now runs the login and dashboard suites in sequence, with a login-only command available as `npm run test:viewport:login`.
+- Documented the actual account flow in `README.md`: one-time live-mode Chief Registrar bootstrap, Chief Registrar-only User Management, scope requirements, password constraints, and first-sign-in password change. There is no public self-registration.
+- This work did not change roles, permissions, legal rules, account policy, or backend behavior. Visual browser coverage is not a substitute for real-device/accessibility acceptance.

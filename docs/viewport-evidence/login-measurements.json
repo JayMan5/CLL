@@ -1,0 +1,242 @@
+[
+  {
+    "name": "390x844",
+    "viewport": {
+      "width": 390,
+      "height": 844
+    },
+    "documentWidth": 390,
+    "overlay": {
+      "left": 0,
+      "top": 0,
+      "right": 390,
+      "bottom": 844,
+      "width": 390,
+      "height": 844
+    },
+    "card": {
+      "left": 16,
+      "top": 219,
+      "right": 374,
+      "bottom": 625,
+      "width": 358,
+      "height": 406
+    },
+    "username": {
+      "left": 49,
+      "top": 422,
+      "right": 341,
+      "bottom": 460,
+      "width": 292,
+      "height": 38
+    },
+    "password": {
+      "left": 49,
+      "top": 494,
+      "right": 341,
+      "bottom": 532,
+      "width": 292,
+      "height": 38
+    },
+    "submit": {
+      "left": 49,
+      "top": 548,
+      "right": 341,
+      "bottom": 592,
+      "width": 292,
+      "height": 44
+    }
+  },
+  {
+    "name": "768x1024",
+    "viewport": {
+      "width": 768,
+      "height": 1024
+    },
+    "documentWidth": 768,
+    "overlay": {
+      "left": 0,
+      "top": 0,
+      "right": 768,
+      "bottom": 1024,
+      "width": 768,
+      "height": 1024
+    },
+    "card": {
+      "left": 160,
+      "top": 309,
+      "right": 608,
+      "bottom": 715,
+      "width": 448,
+      "height": 406
+    },
+    "username": {
+      "left": 193,
+      "top": 512,
+      "right": 575,
+      "bottom": 550,
+      "width": 382,
+      "height": 38
+    },
+    "password": {
+      "left": 193,
+      "top": 584,
+      "right": 575,
+      "bottom": 622,
+      "width": 382,
+      "height": 38
+    },
+    "submit": {
+      "left": 193,
+      "top": 638,
+      "right": 575,
+      "bottom": 682,
+      "width": 382,
+      "height": 44
+    }
+  },
+  {
+    "name": "1024x768",
+    "viewport": {
+      "width": 1024,
+      "height": 768
+    },
+    "documentWidth": 1024,
+    "overlay": {
+      "left": 0,
+      "top": 0,
+      "right": 1024,
+      "bottom": 768,
+      "width": 1024,
+      "height": 768
+    },
+    "card": {
+      "left": 288,
+      "top": 181,
+      "right": 736,
+      "bottom": 587,
+      "width": 448,
+      "height": 406
+    },
+    "username": {
+      "left": 321,
+      "top": 384,
+      "right": 703,
+      "bottom": 422,
+      "width": 382,
+      "height": 38
+    },
+    "password": {
+      "left": 321,
+      "top": 456,
+      "right": 703,
+      "bottom": 494,
+      "width": 382,
+      "height": 38
+    },
+    "submit": {
+      "left": 321,
+      "top": 510,
+      "right": 703,
+      "bottom": 554,
+      "width": 382,
+      "height": 44
+    }
+  },
+  {
+    "name": "1366x768",
+    "viewport": {
+      "width": 1366,
+      "height": 768
+    },
+    "documentWidth": 1366,
+    "overlay": {
+      "left": 0,
+      "top": 0,
+      "right": 1366,
+      "bottom": 768,
+      "width": 1366,
+      "height": 768
+    },
+    "card": {
+      "left": 459,
+      "top": 181,
+      "right": 907,
+      "bottom": 587,
+      "width": 448,
+      "height": 406
+    },
+    "username": {
+      "left": 492,
+      "top": 384,
+      "right": 874,
+      "bottom": 422,
+      "width": 382,
+      "height": 38
+    },
+    "password": {
+      "left": 492,
+      "top": 456,
+      "right": 874,
+      "bottom": 494,
+      "width": 382,
+      "height": 38
+    },
+    "submit": {
+      "left": 492,
+      "top": 510,
+      "right": 874,
+      "bottom": 554,
+      "width": 382,
+      "height": 44
+    }
+  },
+  {
+    "name": "1600x900",
+    "viewport": {
+      "width": 1600,
+      "height": 900
+    },
+    "documentWidth": 1600,
+    "overlay": {
+      "left": 0,
+      "top": 0,
+      "right": 1600,
+      "bottom": 900,
+      "width": 1600,
+      "height": 900
+    },
+    "card": {
+      "left": 576,
+      "top": 247,
+      "right": 1024,
+      "bottom": 653,
+      "width": 448,
+      "height": 406
+    },
+    "username": {
+      "left": 609,
+      "top": 450,
+      "right": 991,
+      "bottom": 488,
+      "width": 382,
+      "height": 38
+    },
+    "password": {
+      "left": 609,
+      "top": 522,
+      "right": 991,
+      "bottom": 560,
+      "width": 382,
+      "height": 38
+    },
+    "submit": {
+      "left": 609,
+      "top": 576,
+      "right": 991,
+      "bottom": 620,
+      "width": 382,
+      "height": 44
+    }
+  }
+]
