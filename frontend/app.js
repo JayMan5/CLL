@@ -2756,6 +2756,13 @@ function showExplainability(caseId) {
     const c = aiRiskData.find(x => x.case_id === caseId);
     if (!c) return;
     const pct = (Number(c.delay_risk_score || 0) * 100).toFixed(1);
-    const msg = `═══ EXPERIMENTAL DELAY-RISK SCORE ═══\n\nCase: ${c.case_id}\nPrototype score: ${pct}%\nStatus: ${c.judgment_status}\n\n── Inputs used ──\nCase type: ${c.case_type}\nCourt: ${c.court}\nRecorded case-level adjournments: ${c.adjournment_count}\nDays since filing: ${c.days_since_filing}\n\nThis is a feature summary, not a causal or model-attribution explanation. The prototype uses a Logistic Regression artifact when available and a deterministic heuristic fallback otherwise. Training rows and labels are synthetic and rule-generated; the score has not been independently validated against real court outcomes.\n\nThe 70% display threshold is experimental only. This score is not a legal finding and must not determine a hearing, custody, enforcement, or judicial decision.`;
+    const sourceLabels = {
+        trained_pipeline: "Trained preprocessing pipeline",
+        legacy_model: "Legacy model and encoder artifact",
+        heuristic: "Deterministic heuristic fallback (no model loaded)",
+        heuristic_after_model_error: "Heuristic fallback after model inference error"
+    };
+    const source = sourceLabels[c.prediction_source] || "Source not recorded for this older score";
+    const msg = `═══ EXPERIMENTAL DELAY-RISK SCORE ═══\n\nCase: ${c.case_id}\nPrototype score: ${pct}%\nEstimate source: ${source}\nStatus: ${c.judgment_status}\n\n── Inputs used ──\nCase type: ${c.case_type}\nCourt: ${c.court}\nRecorded case-level adjournments: ${c.adjournment_count}\nDays since filing: ${c.days_since_filing}\n\nThis is a feature summary, not a causal or model-attribution explanation. Training rows and labels are synthetic and rule-generated; the score has not been independently validated against real court outcomes.\n\nThe 70% display threshold is experimental only. This score is not a legal finding and must not determine a hearing, custody, enforcement, or judicial decision.`;
     alert(msg);
 }

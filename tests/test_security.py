@@ -663,22 +663,62 @@ def test_whatsapp_signed_webhook_updates_status_and_honours_stop(monkeypatch):
     assert main.db.get_whatsapp_message(queued.json()['message_id'])['status'] == 'delivered'
     assert main.db.get_whatsapp_preference(hash_whatsapp_phone(phone))['status'] == 'opted_out'
 
-    # Invalid signatures are rejected, and a delayed earlier status cannot roll back delivery.
+    # Invalid signatures are rejected. Duplicated or out-of-order callbacks cannot
+    # roll confirmed delivery/read state backward, including a contradictory late failure.
     assert client.post('/api/whatsapp/webhook', content=raw, headers={
         'Content-Type':'application/json', 'X-Hub-Signature-256':'sha256=bad',
     }).status_code == 401
-    late_sent = {'entry':[{'changes':[{'value':{'statuses':[
-        {'id':'wamid.COURTLOG-WEBHOOK', 'status':'sent'}
-    ]}}]}]}
-    raw_late = json.dumps(late_sent, separators=(',', ':')).encode()
-    late_signature = 'sha256=' + hmac.new(b'fake-meta-app-secret-for-tests', raw_late, hashlib.sha256).hexdigest()
-    assert client.post('/api/whatsapp/webhook', content=raw_late, headers={
-        'Content-Type':'application/json', 'X-Hub-Signature-256':late_signature,
-    }).status_code == 200
-    assert main.db.get_whatsapp_message(queued.json()['message_id'])['status'] == 'delivered'
+    for status in ('read', 'failed', 'sent'):
+        late_event = {'entry':[{'changes':[{'value':{'statuses':[
+            {'id':'wamid.COURTLOG-WEBHOOK', 'status':status}
+        ]}}]}]}
+        raw_late = json.dumps(late_event, separators=(',', ':')).encode()
+        late_signature = 'sha256=' + hmac.new(
+            b'fake-meta-app-secret-for-tests', raw_late, hashlib.sha256,
+        ).hexdigest()
+        assert client.post('/api/whatsapp/webhook', content=raw_late, headers={
+            'Content-Type':'application/json', 'X-Hub-Signature-256':late_signature,
+        }).status_code == 200
+    assert main.db.get_whatsapp_message(queued.json()['message_id'])['status'] == 'read'
     assert client.post('/api/whatsapp/test-send', headers=headers('usr_cr_01'), json={
         'case_id': case_id, 'recipient_role': 'counsel',
     }).status_code == 409
+
+
+def test_whatsapp_terminal_provider_failure_cannot_be_rewritten_as_delivered(monkeypatch):
+    configure_whatsapp_cloud(monkeypatch)
+    case_id = 'SEC/WA-FAILED-TERMINAL'
+    phone = '+2348030009878'
+    case = fixture_case(case_id)
+    case['party_contact'] = {'counsel_phone': phone}
+    main.db.save_case(case_id, case)
+    record_opt_in(phone, evidence='FICTIONAL-FAILURE-CONSENT')
+
+    class FakeMetaResponse:
+        status_code = 200
+
+        def json(self):
+            return {'messages': [{'id': 'wamid.COURTLOG-FAILED-TERMINAL'}]}
+
+    with patch('backend.whatsapp.requests.post', return_value=FakeMetaResponse()):
+        message, inserted = create_manual_test_message(main.db, case_id, 'counsel')
+        assert inserted is True
+        assert deliver_whatsapp_message(main.db, message['message_id'])['status'] == 'accepted'
+
+    updated_at = datetime.now(timezone.utc).isoformat()
+    main.db.update_whatsapp_delivery_status(
+        'wamid.COURTLOG-FAILED-TERMINAL', 'failed', updated_at,
+        error_code='provider_rejected', error_message='Provider reported message failure.',
+    )
+    main.db.update_whatsapp_delivery_status(
+        'wamid.COURTLOG-FAILED-TERMINAL', 'delivered', updated_at,
+    )
+    main.db.update_whatsapp_delivery_status(
+        'wamid.COURTLOG-FAILED-TERMINAL', 'read', updated_at,
+    )
+    stored = main.db.get_whatsapp_message(message['message_id'])
+    assert stored['status'] == 'failed'
+    assert stored['error_code'] == 'provider_rejected'
 
 
 def test_whatsapp_uncertain_timeout_is_persisted_and_not_automatically_retried(monkeypatch):

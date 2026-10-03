@@ -197,21 +197,48 @@ whatsapp_logs = []
 
 # Paths for ML Model loading
 DATA_DIR = os.path.join(os.path.dirname(__file__), "..", "data")
-MODEL_PATH = os.path.join(DATA_DIR, "delay_model.joblib")
-ENCODERS_PATH = os.path.join(DATA_DIR, "label_encoders.joblib")
+MODEL_DIR = os.getenv("COURTLOG_MODEL_DIR", DATA_DIR)
+MODEL_PATH = os.path.join(MODEL_DIR, "delay_model.joblib")
+ENCODERS_PATH = os.path.join(MODEL_DIR, "label_encoders.joblib")  # legacy artifact compatibility
+MODEL_METADATA_PATH = os.path.join(MODEL_DIR, "delay_model_metadata.json")
 
-# Load ML model and encoders at module level
-model = None
-encoders = None
-if os.path.exists(MODEL_PATH) and os.path.exists(ENCODERS_PATH):
+def load_delay_model_artifacts(model_path: str, encoders_path: str, metadata_path: str, *, demo_mode: bool):
+    """Load only provenance-checked artifacts; legacy artifacts are demo-only."""
+    if not os.path.exists(model_path):
+        logger.warning("No trained delay-risk model artifact found; the disclosed heuristic fallback will be used.")
+        return None, None, None
     try:
-        model = joblib.load(MODEL_PATH)
-        encoders = joblib.load(ENCODERS_PATH)
-        logger.info("ML Delay model and encoders loaded successfully at module level.")
-    except Exception as e:
-        logger.error(f"Error loading ML model/encoders: {e}")
-else:
-    logger.warning("ML Model/encoders not found. Please train the model first by running train_model.py.")
+        loaded_model = joblib.load(model_path)
+        if os.path.exists(metadata_path):
+            with open(metadata_path, "r", encoding="utf-8") as metadata_file:
+                loaded_metadata = json.load(metadata_file)
+            if loaded_metadata.get("format_version") != 2:
+                raise ValueError("Unsupported delay-model artifact format")
+            provenance = loaded_metadata.get("data_provenance")
+            if provenance == "synthetic_demo" and not demo_mode:
+                raise ValueError("Synthetic demo artifacts are not loaded outside demo mode")
+            if provenance == "permissioned_real":
+                evaluation = loaded_metadata.get("evaluation", {})
+                if not loaded_metadata.get("permission_reference_present") or not str(evaluation.get("split", "")).startswith("forward_time"):
+                    raise ValueError("Real-data artifact is missing permission or forward-time evaluation metadata")
+            if provenance not in {"synthetic_demo", "permissioned_real"}:
+                raise ValueError("Delay-model artifact is missing a recognized data-provenance label")
+            logger.info("Versioned delay-risk preprocessing pipeline loaded.")
+            return loaded_model, None, loaded_metadata
+        if os.path.exists(encoders_path):
+            if not demo_mode:
+                raise ValueError("Unverified legacy model artifacts are loaded only in demo mode")
+            logger.warning("Loading a legacy delay model in demo mode only; its data provenance is unverified.")
+            return loaded_model, joblib.load(encoders_path), None
+        raise FileNotFoundError("Model metadata or legacy encoder file is missing")
+    except Exception as exc:
+        logger.error("Error loading delay-risk model artifacts; using heuristic fallback: %s", exc)
+        return None, None, None
+
+
+model, encoders, model_metadata = load_delay_model_artifacts(
+    MODEL_PATH, ENCODERS_PATH, MODEL_METADATA_PATH, demo_mode=DEMO_MODE_ENABLED,
+)
 
 # Use real current time instead of frozen simulation time
 def get_current_time():
@@ -852,64 +879,79 @@ def run_compliance_checks_sync():
         db.update_case(case_id, updates)
 
 # ----------------- INFERENCE HELPER -----------------
-def run_model_inference(case_data: Dict[str, Any]) -> Dict[str, Any]:
-    """Runs ML model inference to compute delay probability and sets the risk_flag."""
-    global model, encoders
-    if model is None or encoders is None:
-        # Fallback to simple deterministic heuristics if model is not loaded
-        logger.warning("ML Model not loaded. Running heuristic risk score calculation.")
-        adjournment_count = int(case_data.get("adjournment_count", 0))
-        days_since_filing = int(case_data.get("days_since_filing", 0))
-        
-        # Simple heuristic
-        score = min(0.99, 0.10 + (adjournment_count * 0.12) + (days_since_filing * 0.0005))
-        if case_data.get("case_type") == "Land Dispute":
-            score += 0.15
-        score = min(0.99, max(0.01, float(score)))
-        
-        return {
-            "delay_risk_score": round(score, 3),
-            "risk_flag": score > 0.70
-        }
-        
+def _heuristic_delay_estimate(case_data: Dict[str, Any], source: str) -> Dict[str, Any]:
+    """Preserve the documented prototype fallback and identify its source explicitly."""
     try:
-        # Prepare inputs
-        adjournment_count = int(case_data.get("adjournment_count", 0))
-        days_since_filing = int(case_data.get("days_since_filing", 0))
-        case_type = case_data.get("case_type", "Civil Debt")
-        court = case_data.get("court", "FHC Abuja Court 2")
-        
-        # Transform categorical with label encoding, handling unseen classes gracefully
-        if case_type in encoders["case_type_classes"]:
-            case_type_encoded = encoders["case_type"].transform([case_type])[0]
-        else:
-            case_type_encoded = 0  # fallback index
-            
-        if court in encoders["court_classes"]:
-            court_encoded = encoders["court"].transform([court])[0]
-        else:
-            court_encoded = 0  # fallback index
-            
-        # Run model prediction
+        adjournment_count = max(0, int(case_data.get("adjournment_count", 0)))
+        days_since_filing = max(0, int(case_data.get("days_since_filing", 0)))
+    except (TypeError, ValueError, OverflowError):
+        adjournment_count = 0
+        days_since_filing = 0
+    score = min(0.99, 0.10 + (adjournment_count * 0.12) + (days_since_filing * 0.0005))
+    if case_data.get("case_type") == "Land Dispute":
+        score += 0.15
+    score = min(0.99, max(0.01, float(score)))
+    return {
+        "delay_risk_score": round(score, 3),
+        "risk_flag": score > 0.70,
+        "prediction_source": source,
+    }
+
+
+def run_model_inference(case_data: Dict[str, Any]) -> Dict[str, Any]:
+    """Run a versioned preprocessing pipeline or legacy model with explicit fallback."""
+    global model, encoders, model_metadata
+    if model is None:
+        logger.warning("No trained delay-risk model is loaded; using the heuristic demo estimate.")
+        return _heuristic_delay_estimate(case_data, "heuristic")
+
+    try:
+        adjournment_count = max(0, int(case_data.get("adjournment_count", 0)))
+        days_since_filing = max(0, int(case_data.get("days_since_filing", 0)))
+        case_type = str(case_data.get("case_type", "Civil Debt") or "Civil Debt")
+        court = str(case_data.get("court", "FHC Abuja Court 2") or "FHC Abuja Court 2")
         import pandas as pd
-        features = pd.DataFrame([{
-            "adjournment_count": adjournment_count,
-            "days_since_filing": days_since_filing,
-            "case_type_encoded": case_type_encoded,
-            "court_encoded": court_encoded
-        }])
-        probability = model.predict_proba(features)[0][1]  # Prob of stalled (class 1)
-        
+
+        if model_metadata and model_metadata.get("format_version") == 2:
+            # Preprocessing is fitted inside the pipeline. Unseen categories are safely
+            # ignored rather than assigned an arbitrary ordinal category index.
+            features = pd.DataFrame([{
+                "adjournment_count": adjournment_count,
+                "days_since_filing": days_since_filing,
+                "case_type": case_type,
+                "court": court,
+            }])
+            prediction_source = "trained_pipeline"
+        else:
+            if encoders is None:
+                raise ValueError("Legacy model is missing its encoder artifact")
+            if case_type in encoders["case_type_classes"]:
+                case_type_encoded = encoders["case_type"].transform([case_type])[0]
+            else:
+                case_type_encoded = 0
+            if court in encoders["court_classes"]:
+                court_encoded = encoders["court"].transform([court])[0]
+            else:
+                court_encoded = 0
+            features = pd.DataFrame([{
+                "adjournment_count": adjournment_count,
+                "days_since_filing": days_since_filing,
+                "case_type_encoded": case_type_encoded,
+                "court_encoded": court_encoded,
+            }])
+            prediction_source = "legacy_model"
+
+        probability = float(model.predict_proba(features)[0][1])
+        if not 0 <= probability <= 1:
+            raise ValueError("Model returned a probability outside [0, 1]")
         return {
-            "delay_risk_score": round(float(probability), 3),
-            "risk_flag": bool(probability > 0.70)
+            "delay_risk_score": round(probability, 3),
+            "risk_flag": bool(probability > 0.70),
+            "prediction_source": prediction_source,
         }
-    except Exception as e:
-        logger.error(f"Error running model inference: {e}")
-        return {
-            "delay_risk_score": 0.50,
-            "risk_flag": False
-        }
+    except Exception:
+        logger.exception("Delay-risk model inference failed; using the disclosed heuristic fallback.")
+        return _heuristic_delay_estimate(case_data, "heuristic_after_model_error")
 
 
 # ----------------- ENDPOINTS -----------------
@@ -1113,6 +1155,7 @@ def create_case(req: CaseCreateRequest, auth: Dict[str, str] = Depends(get_curre
     pred = run_model_inference(new_case)
     new_case["delay_risk_score"] = pred["delay_risk_score"]
     new_case["risk_flag"] = pred["risk_flag"]
+    new_case["prediction_source"] = pred["prediction_source"]
     
     db.save_case(req.case_id, new_case)
     _record_audit_event(
@@ -1150,6 +1193,7 @@ def _record_case_scan(
         "days_since_filing": case["days_since_filing"],
         "delay_risk_score": prediction["delay_risk_score"],
         "risk_flag": prediction["risk_flag"],
+        "prediction_source": prediction["prediction_source"],
     })
     _record_audit_event(
         auth["user_id"], "case.scan", "case", case_id,
@@ -1352,7 +1396,8 @@ def log_hearing_outcome(case_id: CaseIdentifier, req: HearingRequest, background
     db.update_case(case_id, {
         "days_since_filing": case["days_since_filing"],
         "delay_risk_score": pred["delay_risk_score"],
-        "risk_flag": pred["risk_flag"]
+        "risk_flag": pred["risk_flag"],
+        "prediction_source": pred["prediction_source"],
     })
     _record_audit_event(
         auth["user_id"], "case.hearing.record", "case", case_id,
@@ -1962,17 +2007,19 @@ def predict_case_risk(case_id: CaseIdentifier, auth: Dict[str, str] = Depends(ge
     db.update_case(case_id, {
         "days_since_filing": case["days_since_filing"],
         "delay_risk_score": pred["delay_risk_score"],
-        "risk_flag": pred["risk_flag"]
+        "risk_flag": pred["risk_flag"],
+        "prediction_source": pred["prediction_source"],
     })
     _record_audit_event(
         auth["user_id"], "case.predict", "case", case_id,
-        metadata={"source": "on_demand"},
+        metadata={"source": "on_demand", "prediction_source": pred["prediction_source"]},
     )
     
     return {
         "case_id": case_id,
         "delay_risk_score": pred["delay_risk_score"],
-        "risk_flag": pred["risk_flag"]
+        "risk_flag": pred["risk_flag"],
+        "prediction_source": pred["prediction_source"],
     }
 
 @app.get("/api/predict/batch", response_model=List[Dict[str, Any]])
@@ -1993,7 +2040,8 @@ def batch_predict_all_cases(auth: Dict[str, str] = Depends(get_current_user)):
         db.update_case(case["case_id"], {
             "days_since_filing": case["days_since_filing"],
             "delay_risk_score": pred["delay_risk_score"],
-            "risk_flag": pred["risk_flag"]
+            "risk_flag": pred["risk_flag"],
+            "prediction_source": pred["prediction_source"],
         })
         results.append({
             "case_id": case["case_id"],
@@ -2004,6 +2052,7 @@ def batch_predict_all_cases(auth: Dict[str, str] = Depends(get_current_user)):
             "days_since_filing": case["days_since_filing"],
             "delay_risk_score": pred["delay_risk_score"],
             "risk_flag": pred["risk_flag"],
+            "prediction_source": pred["prediction_source"],
             "judgment_status": case.get("judgment_status", "Pending"),
             "assigned_judge_id": case.get("assigned_judge_id", ""),
             "filing_date": case.get("filing_date", "")

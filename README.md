@@ -72,6 +72,10 @@ npm run build:frontend
 # Frontend regression suites; the command rebuilds local assets first
 npm run test:frontend
 
+# One-time browser install for responsive viewport regression
+npx playwright install chromium
+npm run test:viewport
+
 # Backend API/security tests use isolated temporary databases
 .venv/bin/python -m pytest -q
 
@@ -84,7 +88,7 @@ git diff --check
 npm audit --audit-level=high
 ```
 
-`npm run build:frontend` writes deployable static bundles and the limited static vendor assets under `frontend/`. The exact package versions are pinned in `package.json` and `package-lock.json`; `npm ci` installs the lockfile versions. The service worker's cache list must be kept in step with changed static assets and its cache name bumped when the shell changes.
+`npm run build:frontend` writes deployable static bundles and the limited static vendor assets under `frontend/`. The exact package versions are pinned in `package.json` and `package-lock.json`; `npm ci` installs the lockfile versions. `npm run test:viewport` serves the frontend with fictional API fixtures, checks five responsive sizes, and writes screenshots/measurements to ignored `.local/viewport-pass/`; it needs no backend, real court data, or provider credentials. This headless browser check does not replace real-device, PWA-install, accessibility, or zoom acceptance. The service worker's cache list must be kept in step with changed static assets and its cache name bumped when the shell changes.
 
 ## WhatsApp Cloud API setup (optional; disabled by default)
 
@@ -110,7 +114,7 @@ The service worker caches the static app shell and `offline.html` only. `/api/` 
 
 - The hearing endpoint currently applies a **case-level application trigger** when `adjournment_count >= 4` and no override reason exists. It does not implement a validated per-party legal count and must not be presented as an ACJA/ACJL finding. The threshold and workflow remain unchanged pending Law Lead sign-off.
 - A DCR/Chief Registrar acknowledgement records a note but does not approve or unblock the case. More than 24 hours after a pending review is requested, the scheduled workflow sweep records an in-app escalation state; it sends no external notification.
-- Delay-risk scores use a synthetic prototype training set with rule-generated labels, or a deterministic heuristic fallback when a trained artifact is not present. There is no independent validation against real court outcomes; scores are not legal findings or a basis for decisions.
+- Delay-risk scores are experimental. The legacy tracked training CSV contains rule-generated labels calibrated from real-derived distributions with unverified permission; the trainer never selects it by default and refuses to treat it as synthetic. New training requires an explicit dataset, binary target and provenance; real-data evaluation requires documented permission plus a case-grouped forward-time split. Preprocessing is fitted within a one-hot pipeline, and outputs identify the trained-model or heuristic source. There is no independent validation against real court outcomes; scores are not legal findings or a basis for decisions. See [`docs/ML_EVALUATION_READINESS.md`](docs/ML_EVALUATION_READINESS.md).
 - WhatsApp now has a configurable Meta Cloud API adapter, a persistent privacy-minimized delivery log, signed webhook/status handling, and explicit opt-in/opt-out checks. It is disabled by default; `DEMO_MODE=true` can never send real messages. Live delivery still requires a Meta account, server-side secrets, a Meta-approved generic template, a public HTTPS webhook, a documented recipient opt-in, and a consented test. No live account/credentials were supplied for this code change, so real delivery remains unverified.
 
 ## Pilot and legal gates

@@ -955,7 +955,15 @@ class SQLiteDatabase(BaseDatabase):
             if not row:
                 return False
             current = row[0]
-            # Out-of-order callbacks must not roll a message back from delivered/read.
+            # Delivery callbacks can be duplicated or arrive out of order. Preserve the
+            # furthest successful state; a terminal failure cannot later become sent,
+            # delivered, or read, and a late failure cannot undo confirmed delivery.
+            if current == "read" and status != "read":
+                return True
+            if current == "delivered" and status in {"accepted", "sent", "failed"}:
+                return True
+            if current == "failed" and status != "failed":
+                return True
             if status != "failed" and current in ranks and ranks[current] > ranks[status]:
                 return True
             cursor = self.conn.execute(

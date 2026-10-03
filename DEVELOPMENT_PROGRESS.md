@@ -270,3 +270,16 @@ Implemented:
 Verification:
 - `npm ci` and `npm run test:frontend`: passed; the UI suite clicks all three review actions and verifies the filtered fictional rows, scroll request, and focus target.
 - No backend, permission, or legal-rule changes were made. Manual browser acceptance remains open.
+
+## 3 October 2026 — responsive browser viewport pass
+
+Implemented and reviewed:
+- Added pinned Playwright 1.63.0 as a development dependency and `npm run test:viewport`. The test serves the real frontend locally, intercepts API calls with fictional fixtures, exercises alert filtering, mobile navigation, and case-registration forms, and saves repeatable screenshots plus geometry measurements under ignored `.local/viewport-pass/`.
+- Exercised 1600×900, 1366×768, 1024×768, 768×1024, and 390×844. No page-wide horizontal overflow was found; the wider case table stays in its own horizontal scroll wrapper. The mobile drawer and phone/tablet form controls remained within the viewport.
+- The form screenshots exposed required-field asterisks being forced onto a separate line by grid-styled labels. Changed the custom label layout to normal block flow and added browser assertions that required marks stay inline; the revised screenshots show the fixed layout.
+- Playwright browser downloads failed in this sandbox with TLS `ECONNRESET`; the actual run used temporary, unsaved `@sparticuz/chromium` 153.0.0 with its bundled Amazon Linux libraries. That package is not an application dependency. The standard repeat command is `npx playwright install chromium` followed by `npm run test:viewport`.
+
+Verification and remaining scope:
+- `COURTLOG_USE_SPARTICUZ=1 npm run test:viewport`: passed at all five target sizes, including phone/tablet registration-form checks, mobile navigation open/close, custody alert filtering, and no page errors.
+- Screenshots and measurements were inspected. They are local ignored outputs, not tracked court material; all API data was fictional. No backend/API permission, legal rule, training data, or WhatsApp provider behavior was changed by the viewport work.
+- UI-17 is checked in `UI_UPGRADE_PLAN.md`. Actual-device/PWA install and camera acceptance, 200% zoom, broader accessibility and cross-role review, and C2 remain open. No phone/printer test or live provider delivery was attempted.

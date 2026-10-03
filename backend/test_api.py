@@ -2,6 +2,8 @@
 import os
 import secrets
 import hashlib
+import json
+import joblib
 import re
 import sys
 import tempfile
@@ -22,6 +24,8 @@ from fastapi.testclient import TestClient
 from backend import main
 from backend.auth import create_access_token, REFRESH_TOKEN_EXPIRE_DAYS
 from backend.database import get_password_hash
+from backend.train_model import train_and_evaluate
+import pandas as pd
 
 # A local TestClient database never reads or writes the committed application DB.
 main.COOKIE_SECURE = False
@@ -448,13 +452,113 @@ def test_prediction_is_authenticated_scoped_and_persisted():
     assert response.status_code == 200
     prediction = response.json()
     assert 0.0 <= prediction["delay_risk_score"] <= 1.0
+    assert prediction["prediction_source"] in {
+        "trained_pipeline", "legacy_model", "heuristic", "heuristic_after_model_error",
+    }
     assert prediction["case_id"] == case["case_id"]
     stored = client.get(f"/api/cases/{case['case_id']}", headers=auth_headers("smoke_clerk"))
     assert stored.status_code == 200
     assert stored.json()["delay_risk_score"] == prediction["delay_risk_score"]
+    assert stored.json()["prediction_source"] == prediction["prediction_source"]
+
+
+def test_versioned_pipeline_handles_unseen_demo_categories_and_reports_heuristic_model_errors(monkeypatch):
+    rows = []
+    for index in range(100):
+        adjournments = index % 8
+        days = (index * 71) % 1200
+        rows.append({
+            "case_id": f"FICTIONAL/MODEL-{index}",
+            "adjournment_count": adjournments,
+            "days_since_filing": days,
+            "case_type": "Fictional Civil" if index % 2 else "Fictional Criminal",
+            "court": "Demo Court A" if index % 3 else "Demo Court B",
+            "target": int(adjournments >= 4 or days >= 700),
+        })
+    pipeline, _metrics = train_and_evaluate(
+        pd.DataFrame(rows), target_column="target", data_provenance="synthetic_demo",
+    )
+    monkeypatch.setattr(main, "model", pipeline)
+    monkeypatch.setattr(main, "encoders", None)
+    monkeypatch.setattr(main, "model_metadata", {"format_version": 2})
+
+    estimate = main.run_model_inference({
+        "adjournment_count": 2,
+        "days_since_filing": 220,
+        "case_type": "Previously Unseen Fictional Type",
+        "court": "Previously Unseen Fictional Court",
+    })
+    assert estimate["prediction_source"] == "trained_pipeline"
+    assert 0.0 <= estimate["delay_risk_score"] <= 1.0
+
+    class BrokenModel:
+        def predict_proba(self, _features):
+            raise RuntimeError("synthetic inference error")
+
+    monkeypatch.setattr(main, "model", BrokenModel())
+    fallback = main.run_model_inference({
+        "adjournment_count": 4, "days_since_filing": 1000, "case_type": "Fictional Civil",
+    })
+    assert fallback["prediction_source"] == "heuristic_after_model_error"
+    assert fallback["delay_risk_score"] == 0.99
+
+
+def test_model_artifact_loader_enforces_demo_and_permission_provenance(tmp_path):
+    model_path = tmp_path / "delay_model.joblib"
+    encoders_path = tmp_path / "label_encoders.joblib"
+    metadata_path = tmp_path / "delay_model_metadata.json"
+    joblib.dump({"fictional": "model"}, model_path)
+    metadata_path.write_text(json.dumps({
+        "format_version": 2,
+        "data_provenance": "synthetic_demo",
+        "evaluation": {"split": "stratified_group_holdout_5fold_by_case_id"},
+    }), encoding="utf-8")
+
+    assert main.load_delay_model_artifacts(
+        str(model_path), str(encoders_path), str(metadata_path), demo_mode=False,
+    ) == (None, None, None)
+    loaded, encoders, metadata = main.load_delay_model_artifacts(
+        str(model_path), str(encoders_path), str(metadata_path), demo_mode=True,
+    )
+    assert loaded == {"fictional": "model"}
+    assert encoders is None
+    assert metadata["data_provenance"] == "synthetic_demo"
+
+    metadata_path.write_text(json.dumps({
+        "format_version": 2,
+        "data_provenance": "permissioned_real",
+        "permission_reference_present": True,
+        "evaluation": {"split": "stratified_group_holdout_5fold_by_case_id"},
+    }), encoding="utf-8")
+    assert main.load_delay_model_artifacts(
+        str(model_path), str(encoders_path), str(metadata_path), demo_mode=False,
+    ) == (None, None, None)
+    metadata_path.write_text(json.dumps({
+        "format_version": 2,
+        "data_provenance": "permissioned_real",
+        "permission_reference_present": True,
+        "evaluation": {"split": "forward_time_by_case_id:2025-01-01T00:00:00+00:00"},
+    }), encoding="utf-8")
+    loaded, encoders, metadata = main.load_delay_model_artifacts(
+        str(model_path), str(encoders_path), str(metadata_path), demo_mode=False,
+    )
+    assert loaded == {"fictional": "model"}
+    assert encoders is None
+    assert metadata["data_provenance"] == "permissioned_real"
+
+    metadata_path.unlink()
+    joblib.dump({"fictional": "legacy encoders"}, encoders_path)
+    assert main.load_delay_model_artifacts(
+        str(model_path), str(encoders_path), str(metadata_path), demo_mode=False,
+    ) == (None, None, None)
+    assert main.load_delay_model_artifacts(
+        str(model_path), str(encoders_path), str(metadata_path), demo_mode=True,
+    )[1] == {"fictional": "legacy encoders"}
 
 
 def test_execution_uses_authenticated_actor_and_completes_delivered_case():
+
+
     case = add_case("EXECUTION", judgment_status="Delivered")
     response = client.post(f"/api/cases/{case['case_id']}/execution", headers=auth_headers("smoke_sheriff"), json={
         "action": "Writ of Fi Fa Completed", "sheriff_id": "forged-client-id",

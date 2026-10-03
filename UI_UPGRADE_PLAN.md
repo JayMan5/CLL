@@ -2,9 +2,9 @@
 
 **Created:** 2 October 2026
 
-**Status:** active — the first shell, dashboard, case-intake, and install-guidance slice is implemented; real-browser and device acceptance remain open.
+**Status:** active — the first shell, dashboard, case-intake, and install-guidance slice is implemented; the automated viewport/browser regression (UI-17) passed. Cross-role review, accessibility/zoom review, and physical-device acceptance remain open.
 
-**Evidence:** the two supplied desktop screenshots of the Chief Registrar dashboard and browser install prompt.
+**Evidence:** the supplied desktop screenshots of the Chief Registrar dashboard and browser install prompt, plus fictional-data Chromium screenshots in the ignored `.local/viewport-pass/` directory (recreated by `npm run test:viewport`).
 
 **Goal:** make the next action, current role, and case state obvious without hiding important information or changing permissions/legal workflow.
 
@@ -59,7 +59,7 @@ This is a starting layout recommendation, not a final design mockup. Confirm it 
 
 ## P2 — Responsive and visual acceptance
 
-- [ ] **UI-17 — Add viewport regression coverage.** Record repeatable screenshots or browser checks for 1600×900, 1366×768, 1024×768, 768×1024, and 390×844. Ensure the header, navigation, cards, forms, alerts, and tables do not overlap or create unintended page-wide horizontal scrolling.
+- [x] **UI-17 — Add viewport regression coverage.** `npm run test:viewport` passed in headless Chromium at 1600×900, 1366×768, 1024×768, 768×1024, and 390×844 using fictional API fixtures. The dashboard, attention cards, case table, mobile drawer, and case-registration form were checked; there was no page-wide horizontal overflow, and the table overflow stayed inside its scroll wrapper. Screenshots/measurements are reproducible under ignored `.local/viewport-pass/`. This is not real-device or full accessibility acceptance.
 - [ ] **UI-18 — Test role-specific screens.** Review Clerk, Sheriff, Judge, DCR, and Chief Registrar using fictional records. Confirm each sees the right controls, correct status copy, and useful empty/error states; UI changes must not widen API access.
 - [ ] **UI-19 — Test the real PWA install path.** On the approved HTTPS test origin, test install/dismiss/reopen behavior on supported desktop and mobile browsers. Keep this separate from the native install-dialog styling and from final phone/printer acceptance.
 - [ ] **UI-20 — Capture design review and sign-off.** Compare before/after screenshots with the team, resolve confusing labels, and record any deferred changes. Do not treat this review as legal or device acceptance.

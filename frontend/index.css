@@ -1806,8 +1806,7 @@ body.nav-open {
 
 .form-stack > label,
 .field-grid > label {
-    display: grid;
-    gap: 0.42rem;
+    display: block;
     color: var(--text-secondary);
     font-size: 0.74rem;
     font-weight: 650;
@@ -1821,14 +1820,18 @@ body.nav-open {
 
 .form-stack .th-input,
 .field-grid .th-input {
+    display: block;
     width: 100%;
     min-height: 2.8rem;
+    margin-top: 0.42rem;
     padding: 0.65rem 0.75rem;
     border-radius: 0.65rem;
     font-size: 0.82rem;
 }
 
 .form-stack small {
+    display: block;
+    margin-top: 0.42rem;
     color: var(--text-muted);
     font-size: 0.68rem;
     font-weight: 450;
