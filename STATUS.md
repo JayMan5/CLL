@@ -24,7 +24,7 @@ Use this file as the quick status index. The detailed task owner/decision list i
 - `.venv/bin/python -m pip check`: no broken requirements; `.venv/bin/pip-audit -r requirements.txt`: no known vulnerabilities; `npm audit --audit-level=high` and `npm audit --omit=dev`: 0 vulnerabilities after the Tailwind toolchain migration.
 - `.venv/bin/python -m compileall -q backend tests scripts`, `node --check frontend/app.js`, and `git diff --check`: passed.
 - Isolated demo-seed smoke test created eight fictional cases/five demo users in a temporary `.local/` database and removed it. Tests did not write to tracked `data/courtlog.db`.
-- The push-triggered [GitHub Actions run](https://github.com/JayMan5/CLL/actions/runs/36979457121) was created, but both jobs failed before starting because GitHub reports the account is locked due to a billing issue. No remote test step ran; the local results above are the available test evidence until the account owner resolves billing. Docker is not installed in the workspace, so the image has not been built.
+- The latest push-triggered [GitHub Actions run](https://github.com/JayMan5/CLL/actions/runs/37117532278) failed within seconds before a runner or any job step started; both jobs report empty step lists. This is consistent with the previously reported account billing lock. No remote test step ran; the local results above are the available test evidence until the account owner resolves the lock. Docker is not installed in the workspace, so the image has not been built.
 
 Re-run the commands below to reproduce the checks. Tests must never write to the tracked `data/courtlog.db`.
 
