@@ -5,8 +5,8 @@ const vm = require('node:vm');
 const { JSDOM } = require('jsdom');
 
 const profile = {
-    user_id: 'usr_clerk_01', username: 'clerk', name: 'Registry Clerk',
-    role: 'Clerk', badge: 'Registry Staff', court: 'FHC Abuja Court 4',
+    user_id: 'usr_clerk_01', username: 'clerk', name: 'Pilot Filing Clerk',
+    role: 'Filing Clerk', badge: 'Filing and case registration', court: 'FHC Abuja Court 4',
     division: 'Criminal', must_change_password: true
 };
 const calls = [];
@@ -69,10 +69,15 @@ dom.window.fetch = async (url, options = {}) => {
     const registerPanel = dom.window.document.getElementById('register-case-panel');
     const courtSelect = dom.window.document.getElementById('new-case-court');
     assert.equal(registerPanel.classList.contains('hidden'), false);
-    assert.equal(courtSelect.value, 'FHC Abuja Court 4', 'case registration defaults to the signed-in Clerk\'s court');
-    assert.equal(courtSelect.disabled, true, 'a Clerk cannot change the assigned court in the form');
-    assert.equal(courtSelect.options[1].disabled, true, 'other court options are disabled for the Clerk');
-    assert.equal(dom.window.document.getElementById('new-case-type').value, 'Criminal');
+    assert.equal(courtSelect.value, 'FHC Abuja Court 4', 'case registration defaults to the signed-in Filing Clerk\'s court');
+    assert.equal(courtSelect.disabled, true, 'a Filing Clerk cannot change the assigned court in the form');
+    assert.equal(courtSelect.options[1].disabled, true, 'other court options are disabled for the Filing Clerk');
+    const caseTypeSelect = dom.window.document.getElementById('new-case-type');
+    assert.equal(caseTypeSelect.value, 'Criminal');
+    assert.equal(caseTypeSelect.querySelector('option[value="Civil Debt"]').disabled, true, 'a division-scoped Filing Clerk cannot select a different division');
+    const courtClerkOption = dom.window.document.querySelector('#new-user-role option[value="Court Clerk"]');
+    assert.equal(courtClerkOption.disabled, true, 'Court Clerk stays unassignable without the server entitlement');
+    assert.match(dom.window.document.getElementById('court-clerk-entitlement-notice').textContent, /no billing or payment integration/);
     assert.equal(dom.window.document.getElementById('report-missing-tools').classList.contains('hidden'), true);
     assert.equal(dom.window.document.getElementById('resolve-missing-tools').classList.contains('hidden'), true);
     vm.runInContext('authenticatedUser.role = "Sheriff"; updateRoleUI()', context);
@@ -80,11 +85,19 @@ dom.window.fetch = async (url, options = {}) => {
     assert.equal(dom.window.document.getElementById('report-missing-tools').classList.contains('hidden'), false);
     assert.equal(dom.window.document.getElementById('resolve-missing-tools').classList.contains('hidden'), false);
     vm.runInContext('authenticatedUser.role = "Chief Registrar"; updateRoleUI()', context);
-    assert.equal(registerPanel.classList.contains('hidden'), false);
-    assert.equal(courtSelect.disabled, false, 'the Chief Registrar can select a court');
+    assert.equal(registerPanel.classList.contains('hidden'), true, 'Chief Registrar is oversight/user-admin rather than case-entry staff');
+    assert.equal(courtSelect.disabled, false, 'the non-registering form keeps an editable default');
     assert.equal(courtSelect.value, 'FHC Abuja Court 4', 'the available court is a safe default for an all-courts profile');
-    assert.equal(dom.window.document.getElementById('resolve-missing-tools').classList.contains('hidden'), false);
-    vm.runInContext('authenticatedUser.role = "Clerk"; updateRoleUI()', context);
+    assert.equal(dom.window.document.getElementById('resolve-missing-tools').classList.contains('hidden'), true);
+    vm.runInContext('authenticatedUser.role = "Court Clerk"; updateRoleUI()', context);
+    assert.equal(dom.window.document.getElementById('nav-courtrooms').classList.contains('hidden'), true);
+    assert.equal(dom.window.document.getElementById('nav-qr-scan').classList.contains('hidden'), true);
+    vm.runInContext('paidFeatures.court_clerk = true; updateCourtClerkEntitlementUI(); updateRoleUI()', context);
+    assert.equal(courtClerkOption.disabled, false);
+    assert.equal(dom.window.document.getElementById('nav-courtrooms').classList.contains('hidden'), false);
+    assert.equal(dom.window.document.getElementById('nav-qr-scan').classList.contains('hidden'), false);
+    vm.runInContext('paidFeatures.court_clerk = false; updateCourtClerkEntitlementUI(); authenticatedUser.role = "Filing Clerk"; updateRoleUI()', context);
+    assert.equal(courtClerkOption.disabled, true);
     assert.equal(registerPanel.classList.contains('hidden'), false);
     assert.equal(courtSelect.value, 'FHC Abuja Court 4');
     assert.equal(courtSelect.disabled, true);
@@ -103,7 +116,7 @@ dom.window.fetch = async (url, options = {}) => {
     await vm.runInContext('apiFetch("/api/password-required")', context);
     assert.equal(dom.window.document.getElementById('password-change-overlay').classList.contains('hidden'), false);
 
-    vm.runInContext('authenticatedUser.role = "Judge"', context);
+    vm.runInContext('authenticatedUser.role = "Presiding Judge"', context);
     await vm.runInContext('fetchJudgeAlerts()', context);
     const alertList = dom.window.document.getElementById('judge-alert-list');
     assert.equal(alertList.querySelector('img, svg'), null, 'API alert content is inserted as text, not markup');
@@ -111,7 +124,7 @@ dom.window.fetch = async (url, options = {}) => {
     assert.match(alertList.textContent, /<svg onload=/);
     assert.equal(dom.window.document.getElementById('judge-alert-count').textContent, '1');
     assert.equal(dom.window.document.getElementById('judge-alert-banner').classList.contains('hidden'), false);
-    vm.runInContext('authenticatedUser.role = "Clerk"', context);
+    vm.runInContext('authenticatedUser.role = "Filing Clerk"', context);
 
     vm.runInContext('loadDashboardData = async () => {}', context);
     await vm.runInContext('openAssignSheriffModal("SAFE/ASSIGN")', context);

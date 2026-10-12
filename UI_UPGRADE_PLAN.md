@@ -25,13 +25,13 @@
 3. **At-a-glance metrics:** a compact row with non-duplicated counts; explain prototype/experimental measures in their labels.
 4. **Primary work area:** a searchable, filterable case/work queue with useful empty/loading/error states.
 5. **Secondary analysis:** charts and experimental risk explanation below the work queue or in the existing analysis view.
-6. **Case creation:** a clearly named, dedicated form view/modal/drawer instead of a competing dashboard card. Preserve the authenticated Clerk court default already added.
+6. **Case creation:** a clearly named, dedicated form view/modal/drawer instead of a competing dashboard card. Preserve the authenticated Filing Clerk's court/division scope already enforced.
 
 This is a starting layout recommendation, not a final design mockup. Confirm it with a short role-by-role walkthrough before implementation.
 
 ## P0 — Clarify roles, navigation, and the application shell
 
-- [ ] **UI-01 — Map the top tasks for each role.** Document the first three tasks and permitted views for Sheriff, Clerk, Judge, DCR, and Chief Registrar. Use this map to decide what belongs in the sidebar and what belongs in page actions.
+- [ ] **UI-01 — Map the top tasks for each role.** Document the first three tasks and permitted views for Chief Judge, Chief Registrar, Deputy Chief Registrar, Registrar, Filing Clerk, Registry Clerk, Court Clerk (when entitled), Bailiff, Sheriff, and optional read-only Presiding Judge. Use this map to decide what belongs in the sidebar and what belongs in page actions.
 - [x] **UI-02 — Simplify the global header.** Show the authenticated role/scope once as non-editable information; keep account/profile and sign-out together; move Registry Clock and secondary actions out of the primary action cluster. Do not display a role control that implies staff can switch identity.
 - [x] **UI-03 — Reorganize navigation.** Group work queues (custody, hearings, review, execution), insights, and administration. Shorten labels, retain accessible names, mark the current destination, and use a keyboard-accessible mobile drawer. Do not rely on hidden UI as an authorization boundary; keep API permission checks unchanged.
 - [x] **UI-04 — Establish page layout and spacing rules.** Use a consistent content max-width, spacing scale, heading hierarchy, card padding, button sizes, and responsive grid. Reduce excess visual effects where they compete with text or controls.
@@ -41,7 +41,7 @@ This is a starting layout recommendation, not a final design mockup. Confirm it 
 - [x] **UI-05 — Prioritize one attention area.** Replace the duplicated alert-card/KPI presentation with a concise “Needs attention” area whose actions navigate to the relevant filtered list. Keep each count tied to a defined status.
 - [x] **UI-06 — Reduce and clarify dashboard metrics.** Limit the first metric row to a small set of non-duplicated values. Give experimental risk and configured workflow prompts explicit prototype wording; never present them as approved legal conclusions.
 - [x] **UI-07 — Give the case worklist priority.** Put search, filters, and the case table/work queue before secondary analytics. At narrow widths, reflow rows into readable cards or a controlled horizontal table region rather than shrinking text.
-- [x] **UI-08 — Separate case registration from analytics.** Move “Register a Case File” to a dedicated view or an accessible drawer/modal with a clear open/close path. Keep the authenticated Clerk's court default and API validation. Do not change phone-field requiredness, consent policy, hearing rules, or execution rules as part of a visual redesign without the relevant review.
+- [x] **UI-08 — Separate case registration from analytics.** Move “Register a Case File” to a dedicated view or an accessible drawer/modal with a clear open/close path. Keep the authenticated Filing Clerk's court/division scope and API validation. Do not change phone-field requiredness, consent policy, hearing rules, or execution rules as part of a visual redesign without the relevant review.
 - [x] **UI-09 — Normalize alert presentation.** Use a consistent icon, label, explanation, and action for each alert. Do not use color alone to communicate severity. Preserve the distinction between an idle-custody prompt and an explicitly reported missing file.
 
 ## P1 — Make the installable PWA easier to understand
@@ -60,7 +60,7 @@ This is a starting layout recommendation, not a final design mockup. Confirm it 
 ## P2 — Responsive and visual acceptance
 
 - [x] **UI-17 — Add viewport regression coverage.** `npm run test:viewport` passed in headless Chromium at 1600×900, 1366×768, 1024×768, 768×1024, and 390×844 using fictional API fixtures. The login overlay/card/fields/button, dashboard, attention cards, case table, mobile drawer, and case-registration form were checked; there was no page-wide horizontal overflow, and the table overflow stayed inside its scroll wrapper. Screenshots/measurements are committed in `docs/viewport-evidence/` and reproducible under ignored `.local/viewport-pass/`. This is not real-device or full accessibility acceptance.
-- [ ] **UI-18 — Test role-specific screens.** Review Clerk, Sheriff, Judge, DCR, and Chief Registrar using fictional records. Confirm each sees the right controls, correct status copy, and useful empty/error states; UI changes must not widen API access.
+- [ ] **UI-18 — Test role-specific screens.** Review Chief Judge, Chief Registrar, Deputy Chief Registrar, Registrar, Filing Clerk, Registry Clerk, entitlement-enabled Court Clerk, Bailiff, Sheriff, and optional Presiding Judge using fictional records. Confirm each sees the right controls, correct status copy, and useful empty/error states; UI changes must not widen API access.
 - [ ] **UI-19 — Test the real PWA install path.** On the approved HTTPS test origin, test install/dismiss/reopen behavior on supported desktop and mobile browsers. Keep this separate from the native install-dialog styling and from final phone/printer acceptance.
 - [ ] **UI-20 — Capture design review and sign-off.** Compare before/after screenshots with the team, resolve confusing labels, and record any deferred changes. Do not treat this review as legal or device acceptance.
 

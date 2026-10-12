@@ -56,7 +56,7 @@ for (const localAsset of [
 for (const [, path] of serviceWorker.matchAll(/"(\/static\/[^\"]+)"/g)) {
   assert.ok(fs.existsSync(`frontend${path.replace('/static', '')}`), `cached asset exists: ${path}`);
 }
-assert.match(serviceWorker, /courtlog-shell-v8/, 'the alert-navigation update invalidates the earlier static cache');
+assert.match(serviceWorker, /courtlog-shell-v9/, 'the role-aware UI update invalidates the earlier static cache');
 assert.match(serviceWorker, /request\.method !== "GET"/);
 assert.match(serviceWorker, /url\.pathname\.startsWith\("\/api\/"\)/, 'API responses are bypassed by the shell cache');
 assert.match(serviceWorker, /does not queue custody scans/i);
@@ -135,7 +135,7 @@ function response(status, body = {}) {
   assert.match(dom.window.document.getElementById('scan-checkin-status').textContent, /^Check-in confirmed by CourtLOG/i);
   assert.equal(calls.at(-1).url, '/api/scan/qr');
 
-  run(`authenticatedUser = { user_id: 'clerk-test', role: 'Clerk', name: 'Fictional Clerk' };`);
+  run(`authenticatedUser = { user_id: 'clerk-test', role: 'Filing Clerk', name: 'Fictional Filing Clerk' };`);
   const caseSelect = dom.window.document.getElementById('scan-case-id');
   caseSelect.replaceChildren(new dom.window.Option('Fictional case', 'FICTIONAL/CASE'));
   caseSelect.value = 'FICTIONAL/CASE';

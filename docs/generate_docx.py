@@ -41,6 +41,15 @@ def build_document() -> Path:
     )
     add_bullet(
         document,
+        "The approved first-pilot role model covers Chief Judge, Chief Registrar, Deputy Chief Registrar, "
+        "Registrar, Filing Clerk, Registry Clerk, Court Clerk, Bailiff, and Sheriff; optional Presiding Judge "
+        "access is read-only. Court Clerk requires a server-side organization/deployment entitlement, which "
+        "does not process or verify payment. Legacy Clerk accounts are blocked from sign-in until a Chief "
+        "Registrar explicitly remaps them; Cashier/Fees Clerk, Counsel, and Counsel's Clerk remain unavailable "
+        "until separately approved. See docs/COURTLOG_ROLE_ACCESS_MATRIX.md.",
+    )
+    add_bullet(
+        document,
         "Experimental delay-risk code can load a provenance-checked versioned model artifact "
         "or use a disclosed deterministic heuristic fallback; the prediction source is reported. "
         "The legacy tracked CSV has rule-generated labels calibrated from real-derived distributions "

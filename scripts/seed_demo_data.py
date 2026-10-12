@@ -29,10 +29,10 @@ from backend.database import SQLiteDatabase, format_date  # noqa: E402
 
 DEMO_USERS = {
     "usr_sheriff_01": ("Sheriff", "FHC Abuja Court 4", "Criminal"),
-    "usr_clerk_01": ("Clerk", "FHC Abuja Court 4", "Criminal"),
-    "usr_dcr_01": ("DCR", "FHC Abuja", "Criminal"),
+    "usr_clerk_01": ("Filing Clerk", "FHC Abuja Court 4", "Criminal"),
+    "usr_dcr_01": ("Deputy Chief Registrar", "FHC Abuja Court 4", "All Divisions"),
     "usr_cr_01": ("Chief Registrar", "All Courts", "All Divisions"),
-    "usr_judge_01": ("Judge", "FHC Abuja Court 4", "Criminal"),
+    "usr_judge_01": ("Presiding Judge", "FHC Abuja Court 4", "Criminal"),
 }
 
 

@@ -21,6 +21,7 @@ os.environ['JWT_PRIVATE_KEY_PATH'] = str(Path(_runtime.name) / 'private.pem')
 os.environ['JWT_PUBLIC_KEY_PATH'] = str(Path(_runtime.name) / 'public.pem')
 os.environ['DEMO_MODE'] = 'false'
 os.environ['COOKIE_SECURE'] = 'false'  # TestClient uses HTTP; production must set this true.
+os.environ['COURTLOG_PAID_FEATURES'] = 'court_clerk'  # Isolated tests exercise the entitled role.
 
 from fastapi.testclient import TestClient
 import pytest
@@ -42,10 +43,15 @@ main.COOKIE_SECURE = False
 # Explicit fictional fixtures; production startup never receives these default credentials.
 _TEST_USERS = [
     ('usr_sheriff_01', 'sheriff', 'Sheriff', 'FHC Abuja Court 4', 'Criminal', '123'),
-    ('usr_clerk_01', 'clerk', 'Clerk', 'FHC Abuja Court 4', 'Criminal', '123'),
-    ('usr_dcr_01', 'dcr', 'DCR', 'FHC Abuja', 'Criminal', '123'),
+    ('usr_clerk_01', 'clerk', 'Filing Clerk', 'FHC Abuja Court 4', 'Criminal', '123'),
+    ('usr_registry_clerk_01', 'registry.clerk', 'Registry Clerk', 'FHC Abuja Court 4', 'Criminal', '123'),
+    ('usr_court_clerk_01', 'court.clerk', 'Court Clerk', 'FHC Abuja Court 4', 'Criminal', '123'),
+    ('usr_bailiff_01', 'bailiff', 'Bailiff', 'FHC Abuja Court 4', 'Criminal', '123'),
+    ('usr_registrar_01', 'registrar', 'Registrar', 'FHC Abuja Court 4', 'All Divisions', '123'),
+    ('usr_dcr_01', 'dcr', 'Deputy Chief Registrar', 'FHC Abuja Court 4', 'All Divisions', '123'),
     ('usr_cr_01', 'cr', 'Chief Registrar', 'All Courts', 'All Divisions', '12345'),
-    ('usr_judge_01', 'judge', 'Judge', 'FHC Abuja Court 4', 'Criminal', '123'),
+    ('usr_chief_judge_01', 'chief.judge', 'Chief Judge', 'FHC Abuja Court 4', 'All Divisions', '123'),
+    ('usr_judge_01', 'judge', 'Presiding Judge', 'FHC Abuja Court 4', 'Criminal', '123'),
 ]
 for user_id, username, role, court, division, password in _TEST_USERS:
     main.db.save_user(user_id, {
@@ -99,21 +105,37 @@ def test_cross_court_read_and_write_denied():
     assert client.get('/api/cases/SEC/OTHER', headers=h).status_code == 403
     assert client.post('/api/scan', headers=h, json={'case_id':'SEC/OTHER', 'location':'Desk', 'staff_id':'forged'}).status_code == 403
     assert client.post('/api/cases/SEC/OTHER/predict', headers=h).status_code == 403
-    assert all(c['case_id'] != 'SEC/OTHER' for c in client.get('/api/predict/batch', headers=h).json())
+    assert client.get('/api/predict/batch', headers=h).status_code == 403
 
     # A stale/mis-scoped explicit Sheriff assignment does not bypass the court boundary.
     sheriff_headers = headers('usr_sheriff_01')
     assert client.get('/api/cases/SEC/OTHER', headers=sheriff_headers).status_code == 403
     assert all(c['case_id'] != 'SEC/OTHER' for c in client.get('/api/cases', headers=sheriff_headers).json())
 
-def test_dcr_cannot_reassign_a_case_outside_their_division():
+def test_deputy_chief_registrar_correction_is_court_scoped_and_audited():
     case = fixture_case('SEC/DCR-REASSIGN')
     response = client.post(
         '/api/cases/SEC/DCR-REASSIGN/reassign', headers=headers('usr_dcr_01'),
-        json={'new_division':'Civil', 'reason':'Attempted cross-division move'},
+        json={'new_division':'Civil', 'reason':'Corrected division entry'},
     )
-    assert response.status_code == 403
-    assert main.db.get_case(case['case_id'])['assigned_division'] == 'Criminal'
+    assert response.status_code == 200
+    assert main.db.get_case(case['case_id'])['assigned_division'] == 'Civil'
+    correction = next(
+        event for event in main.db.list_audit_events(100)
+        if event['action'] == 'case.reassign' and event['entity_id'] == case['case_id']
+    )
+    assert correction['actor_user_id'] == 'usr_dcr_01'
+    assert correction['reason'] == 'Corrected division entry'
+    assert correction['metadata'] == {
+        'before': {'assigned_division':'Criminal'},
+        'after': {'assigned_division':'Civil'},
+    }
+
+    cross_court = client.post(
+        '/api/cases/SEC/DCR-REASSIGN/reassign', headers=headers('usr_dcr_01'),
+        json={'new_court':'Other Court', 'reason':'Cross court correction'},
+    )
+    assert cross_court.status_code == 403
 
 
 def test_judge_case_reads_and_alerts_are_court_scoped():
@@ -123,8 +145,13 @@ def test_judge_case_reads_and_alerts_are_court_scoped():
     main.db.save_case(case['case_id'], case)
     main.db.save_user('usr_judge_other', {
         'user_id':'usr_judge_other', 'username':'judge.other', 'password':get_password_hash('123'),
-        'name':'Other Court Judge', 'role':'Judge', 'badge':'Fictional Test Account',
+        'name':'Other Court Judge', 'role':'Presiding Judge', 'badge':'Fictional Test Account',
         'court':'Other Court', 'division':'Criminal',
+    })
+    main.db.save_user('usr_registrar_other', {
+        'user_id':'usr_registrar_other', 'username':'registrar.other', 'password':get_password_hash('123'),
+        'name':'Other Court Registrar', 'role':'Registrar', 'badge':'Fictional Test Account',
+        'court':'Other Court', 'division':'All Divisions',
     })
 
     current_judge_headers = headers('usr_judge_01')
@@ -133,7 +160,7 @@ def test_judge_case_reads_and_alerts_are_court_scoped():
     assert alerts.status_code == 200
     assert all(item.get('case_id') != case['case_id'] for item in alerts.json()['alerts'])
 
-    registrar_headers = headers('usr_cr_01')
+    registrar_headers = headers('usr_registrar_other')
     wrong_court = client.post(
         f"/api/cases/{case['case_id']}/assign-judge", headers=registrar_headers,
         json={'judge_id':'usr_judge_01', 'reason':'Wrong court'},
@@ -151,6 +178,53 @@ def test_judge_case_reads_and_alerts_are_court_scoped():
     assert client.get(f"/api/cases/{case['case_id']}", headers=other_judge_headers).status_code == 200
     other_alerts = client.get('/api/judge/alerts', headers=other_judge_headers)
     assert any(item.get('case_id') == case['case_id'] for item in other_alerts.json()['alerts'])
+
+
+def test_chief_and_presiding_judges_receive_minimal_read_only_case_views():
+    assigned = fixture_case('SEC/JUDGE-READ-ONLY')
+    assigned.update({
+        'case_title':'Fictional Party v Fictional Party',
+        'party_contact':{'counsel_phone':'+2348011111111', 'litigant_phone':'+2348022222222'},
+        'hearing_log':[{'outcome':'Adjourned', 'reason_code':'Fictional private note'}],
+        'execution_log':[{'action':'Fictional enforcement detail'}],
+        'documents':[{'filename':'fictional-record.pdf'}],
+    })
+    main.db.save_case(assigned['case_id'], assigned)
+    outside_assignment = fixture_case('SEC/JUDGE-UNASSIGNED')
+    outside_assignment['assigned_judge_id'] = 'another_judge'
+    main.db.save_case(outside_assignment['case_id'], outside_assignment)
+
+    chief_headers = headers('usr_chief_judge_01')
+    chief_view = client.get(f"/api/cases/{assigned['case_id']}", headers=chief_headers)
+    assert chief_view.status_code == 200
+    assert chief_view.json()['case_id'] == assigned['case_id']
+    assert not ({'case_title', 'party_contact', 'hearing_log', 'execution_log', 'documents', 'scan_events'}
+                & set(chief_view.json()))
+    directory = client.get('/api/cases', headers=chief_headers)
+    assert directory.status_code == 200
+    assert all(not ({'party_contact', 'hearing_log', 'execution_log'} & set(case)) for case in directory.json())
+
+    for method, path, payload in (
+        ('post', '/api/cases', {
+            'case_id':'SEC/JUDGE-CANNOT-REGISTER', 'case_type':'Civil',
+            'court':'FHC Abuja Court 4', 'counsel_phone':'+2348031111111',
+            'litigant_phone':'+2348042222222',
+        }),
+        ('post', '/api/scan', {'case_id':assigned['case_id'], 'location':'Fictional Courtroom'}),
+        ('post', f"/api/cases/{assigned['case_id']}/assign-judge", {
+            'judge_id':'usr_judge_01', 'reason':'Fictional test assignment',
+        }),
+    ):
+        assert getattr(client, method)(path, headers=chief_headers, json=payload).status_code == 403
+
+    presiding_headers = headers('usr_judge_01')
+    presiding_view = client.get(f"/api/cases/{assigned['case_id']}", headers=presiding_headers)
+    assert presiding_view.status_code == 200
+    assert 'party_contact' not in presiding_view.json()
+    assert client.get(f"/api/cases/{outside_assignment['case_id']}", headers=presiding_headers).status_code == 403
+    assert client.post(f"/api/cases/{assigned['case_id']}/hearings", headers=presiding_headers, json={
+        'outcome':'Heard', 'reason_code':'Fictional ruling',
+    }).status_code == 403
 
 
 def test_scan_identity_comes_from_token():
@@ -171,21 +245,21 @@ def test_registry_assigns_case_to_court_sheriff_and_receipt_uses_session_identit
     assert client.get('/api/cases/SEC/SHERIFF-ASSIGNMENT', headers=sheriff_headers).status_code == 403
     assert all(item['case_id'] != case['case_id'] for item in client.get('/api/cases', headers=sheriff_headers).json())
 
-    clerk_headers = headers('usr_clerk_01')
-    candidates = client.get('/api/cases/SEC/SHERIFF-ASSIGNMENT/sheriffs', headers=clerk_headers)
+    registrar_headers = headers('usr_registrar_01')
+    candidates = client.get('/api/cases/SEC/SHERIFF-ASSIGNMENT/sheriffs', headers=registrar_headers)
     assert candidates.status_code == 200
     assert [item['user_id'] for item in candidates.json()] == ['usr_sheriff_01']
     assert all('password' not in item for item in candidates.json())
 
     assigned = client.post(
-        '/api/cases/SEC/SHERIFF-ASSIGNMENT/assign-sheriff', headers=clerk_headers,
+        '/api/cases/SEC/SHERIFF-ASSIGNMENT/assign-sheriff', headers=registrar_headers,
         json={'sheriff_id':'usr_sheriff_01', 'reason':'Registry dispatch'},
     )
     assert assigned.status_code == 200
     body = assigned.json()
     assert body['assigned_sheriff_id'] == 'usr_sheriff_01'
     assert body['custody_history'][-1]['action'] == 'assigned'
-    assert body['custody_history'][-1]['actor_user_id'] == 'usr_clerk_01'
+    assert body['custody_history'][-1]['actor_user_id'] == 'usr_registrar_01'
     assert body['custody_history'][-1]['reason'] == 'Registry dispatch'
     assert client.get('/api/cases/SEC/SHERIFF-ASSIGNMENT', headers=sheriff_headers).status_code == 200
 
@@ -197,7 +271,7 @@ def test_registry_assigns_case_to_court_sheriff_and_receipt_uses_session_identit
     assert receipt.json()['scan_events'][-1]['staff_id'] == 'usr_sheriff_01'
 
     audit = [event for event in main.db.list_audit_events(100) if event['entity_id'] == case['case_id']]
-    assert any(event['action'] == 'case.sheriff.assign' and event['actor_user_id'] == 'usr_clerk_01' for event in audit)
+    assert any(event['action'] == 'case.sheriff.assign' and event['actor_user_id'] == 'usr_registrar_01' for event in audit)
     assert any(event['action'] == 'case.scan' and event['actor_user_id'] == 'usr_sheriff_01' for event in audit)
 
 
@@ -216,13 +290,13 @@ def test_sheriff_assignment_is_court_scoped_and_handover_revokes_previous_custod
         'court':'Other Court', 'division':'Criminal',
     })
 
-    clerk_headers = headers('usr_clerk_01')
-    candidates = client.get('/api/cases/SEC/SHERIFF-HANDOVER/sheriffs', headers=clerk_headers)
+    registrar_headers = headers('usr_registrar_01')
+    candidates = client.get('/api/cases/SEC/SHERIFF-HANDOVER/sheriffs', headers=registrar_headers)
     assert candidates.status_code == 200
     candidate_ids = {item['user_id'] for item in candidates.json()}
     assert candidate_ids == {'usr_sheriff_02'}
     invalid_assignment = client.post(
-        '/api/cases/SEC/SHERIFF-HANDOVER/assign-sheriff', headers=clerk_headers,
+        '/api/cases/SEC/SHERIFF-HANDOVER/assign-sheriff', headers=registrar_headers,
         json={'sheriff_id':'usr_sheriff_other', 'reason':'Wrong court'},
     )
     assert invalid_assignment.status_code == 422
@@ -265,26 +339,26 @@ def test_deleted_account_cannot_use_or_refresh_token():
 def test_admin_self_deletion_denied():
     assert client.delete('/api/users/usr_cr_01', headers=headers('usr_cr_01')).status_code == 409
 
-def test_dcr_export_is_scoped():
-    fixture_case('SEC/CIVIL')['assigned_division'] = 'Civil'
-    case = main.db.get_case('SEC/CIVIL'); case['assigned_division'] = 'Civil'
+def test_deputy_chief_registrar_exports_are_court_scoped():
+    case = fixture_case('SEC/CIVIL')
+    case['assigned_division'] = 'Civil'
     main.db.save_case('SEC/CIVIL', case)
     response = client.get('/api/export/prototype-summary', headers=headers('usr_dcr_01'))
     assert response.status_code == 200
     payload = response.json()
-    assert payload['scope'] == 'Criminal'
-    assert 'SEC/CIVIL' not in {item['case_id'] for item in payload['case_summaries']}
+    assert payload['scope'] == 'FHC Abuja Court 4 — All Divisions'
+    assert 'SEC/CIVIL' in {item['case_id'] for item in payload['case_summaries']}
     assert 'audited_cases' not in payload
 
     dcr = main.db.get_user('usr_dcr_01')
-    original_division = dcr['division']
+    original_court = dcr['court']
     try:
-        dcr['division'] = 'All Divisions'
+        dcr['court'] = 'All Courts'
         main.db.save_user('usr_dcr_01', dcr)
         assert client.get('/api/export/dcr-weekly', headers=headers('usr_dcr_01')).status_code == 403
         assert client.get('/api/export/prototype-summary', headers=headers('usr_dcr_01')).status_code == 403
     finally:
-        dcr['division'] = original_division
+        dcr['court'] = original_court
         main.db.save_user('usr_dcr_01', dcr)
 
 def test_hostile_case_identifiers_rejected():
@@ -331,7 +405,7 @@ def test_login_uses_httponly_refresh_cookie_and_logout_revokes_access():
 def test_disabled_user_cannot_login():
     user = {
         'user_id':'usr_disabled', 'username':'disabled', 'password':get_password_hash('Temporary-Password-1!'),
-        'role':'Clerk', 'court':'FHC Abuja Court 4', 'division':'Criminal', 'disabled':True,
+        'role':'Filing Clerk', 'court':'FHC Abuja Court 4', 'division':'Criminal', 'disabled':True,
     }
     main.db.save_user(user['user_id'], user)
     response = client.post('/api/login', json={'username':'disabled', 'password':'Temporary-Password-1!'})
@@ -348,7 +422,7 @@ def test_admin_creates_unique_account_and_initial_password_is_mandatory():
         admin_headers = headers('usr_cr_01')
         payload = {
             'username':'new.clerk', 'initial_password':'Temporary-Password-1!',
-            'name':'New Registry Clerk', 'role':'Clerk', 'badge':'Registry Staff',
+            'name':'New Filing Clerk', 'role':'Filing Clerk', 'badge':'Case registration',
             'court':'FHC Abuja Court 4', 'division':'Criminal',
         }
         assert account_client.post('/api/users', headers=admin_headers, json={**payload, 'role':'Root'}).status_code == 422
@@ -401,19 +475,151 @@ def test_admin_creates_unique_account_and_initial_password_is_mandatory():
         assert account_client.get('/api/cases', headers={'Authorization': f"Bearer {reset_login.json()['access_token']}"}).status_code == 403
 
 
+def test_legacy_clerk_is_blocked_until_explicit_audited_role_remap():
+    user_id = 'legacy_clerk_remap'
+    main.db.save_user(user_id, {
+        'user_id':user_id, 'username':'legacy.remap',
+        'password':get_password_hash('Legacy-Password-2026!'),
+        'name':'Fictional Legacy Account', 'role':'Clerk',
+        'court':'FHC Abuja Court 4', 'division':'Criminal', 'disabled':False,
+    })
+    legacy_session = headers(user_id)
+    login = client.post('/api/login', json={
+        'username':'legacy.remap', 'password':'Legacy-Password-2026!',
+    })
+    assert login.status_code == 403
+    assert 'explicit role assignment' in login.json()['detail']
+    assert client.get('/api/cases', headers=legacy_session).status_code == 403
+
+    visible = next(user for user in client.get('/api/users', headers=headers('usr_cr_01')).json()
+                   if user['user_id'] == user_id)
+    assert visible['role'] == 'Role Assignment Required'
+    assert visible['legacy_role'] == 'Clerk'
+    assert visible['role_remap_required'] is True
+
+    remapped = client.patch(
+        f'/api/users/{user_id}/role', headers=headers('usr_cr_01'),
+        json={'role':'Filing Clerk', 'reason':'Verified filing duties'},
+    )
+    assert remapped.status_code == 200, remapped.text
+    assert remapped.json()['role'] == 'Filing Clerk'
+    assert 'legacy_role' not in remapped.json()
+    assert client.get('/api/cases', headers=legacy_session).status_code == 401
+    relogin = client.post('/api/login', json={
+        'username':'legacy.remap', 'password':'Legacy-Password-2026!',
+    })
+    assert relogin.status_code == 200
+    role_event = next(
+        event for event in main.db.list_audit_events(100)
+        if event['action'] == 'user.role.remap' and event['entity_id'] == user_id
+    )
+    assert role_event['reason'] == 'Verified filing duties'
+    assert role_event['metadata'] == {'previous_role':'Clerk', 'current_role':'Filing Clerk'}
+
+
+def test_court_clerk_requires_server_entitlement_for_creation_login_and_workflow(monkeypatch):
+    case = fixture_case('SEC/COURT-CLERK-ENTITLEMENT')
+    monkeypatch.delenv('COURTLOG_PAID_FEATURES', raising=False)
+    config = client.get('/api/config').json()
+    assert config['paid_features']['court_clerk'] is False
+    assert 'Court Clerk' not in config['assignable_roles']
+    assert not set(main.PILOT_ROLES) - {'Court Clerk'} - set(config['assignable_roles'])
+
+    create_payload = {
+        'username':'court.clerk.unlicensed', 'initial_password':'Temporary-Court-Password-1!',
+        'name':'Fictional Court Clerk', 'role':'Court Clerk', 'badge':'Courtroom records',
+        'court':'FHC Abuja Court 4', 'division':'Criminal',
+    }
+    denied_creation = client.post('/api/users', headers=headers('usr_cr_01'), json=create_payload)
+    assert denied_creation.status_code == 403
+    legacy_target_id = 'legacy_court_clerk_target'
+    main.db.save_user(legacy_target_id, {
+        'user_id':legacy_target_id, 'username':'legacy.court.clerk.target',
+        'password':get_password_hash('Legacy-Password-2026!'), 'role':'Clerk',
+        'court':'FHC Abuja Court 4', 'division':'Criminal', 'disabled':False,
+    })
+    denied_remap = client.patch(
+        f'/api/users/{legacy_target_id}/role', headers=headers('usr_cr_01'),
+        json={'role':'Court Clerk', 'reason':'Verified courtroom assignment'},
+    )
+    assert denied_remap.status_code == 403
+    assert main.db.get_user(legacy_target_id)['role'] == 'Clerk'
+    for deferred_role in ('Cashier / Fees Clerk', 'Counsel', "Counsel's Clerk", 'Appellate Justice'):
+        denied_deferred = client.post(
+            '/api/users', headers=headers('usr_cr_01'), json={**create_payload, 'role':deferred_role},
+        )
+        assert denied_deferred.status_code == 422
+    assert client.post('/api/login', json={'username':'court.clerk', 'password':'123'}).status_code == 403
+
+    existing_session = headers('usr_court_clerk_01')
+    assert client.get('/api/cases', headers=existing_session).status_code == 403
+
+    monkeypatch.setenv('COURTLOG_PAID_FEATURES', 'court_clerk')
+    assert client.get('/api/config').json()['paid_features']['court_clerk'] is True
+    created = client.post('/api/users', headers=headers('usr_cr_01'), json=create_payload)
+    assert created.status_code == 201, created.text
+    assert client.post('/api/login', json={'username':'court.clerk', 'password':'123'}).status_code == 200
+
+    entitled_session = headers('usr_court_clerk_01')
+    hearing = client.post(
+        f"/api/cases/{case['case_id']}/hearings", headers=entitled_session,
+        json={'outcome':'Heard', 'reason_code':'Trial Continued'},
+    )
+    assert hearing.status_code == 200
+    judgment = client.post(
+        f"/api/cases/{case['case_id']}/hearings", headers=entitled_session,
+        json={'outcome':'Heard', 'reason_code':'Judgment Delivered'},
+    )
+    assert judgment.status_code == 403
+    assert main.db.get_case(case['case_id'])['judgment_status'] == 'Pending'
+    assert client.post('/api/cases', headers=entitled_session, json={
+        'case_id':'SEC/COURT-CLERK-REG', 'case_type':'Civil',
+        'court':'FHC Abuja Court 4', 'counsel_phone':'+2348031234567',
+        'litigant_phone':'+2348037654321',
+    }).status_code == 403
+
+
 def test_legacy_user_table_migrates_username_index_and_session_store(tmp_path, monkeypatch):
     legacy_path = tmp_path / 'legacy.db'
     connection = sqlite3.connect(legacy_path)
     connection.execute('CREATE TABLE users (user_id TEXT PRIMARY KEY, data TEXT NOT NULL)')
-    connection.execute('INSERT INTO users (user_id, data) VALUES (?, ?)', (
-        'legacy_user', json.dumps({'user_id':'legacy_user', 'username':'Legacy.User', 'password':'hash', 'role':'Clerk'}),
-    ))
+    connection.execute('''CREATE TABLE auth_sessions (
+        session_id TEXT PRIMARY KEY, user_id TEXT NOT NULL, refresh_jti TEXT NOT NULL,
+        expires_at INTEGER NOT NULL, created_at INTEGER NOT NULL, revoked_at INTEGER
+    )''')
+    for user_id, username, role, court, division in (
+        ('legacy_user', 'Legacy.User', 'Clerk', 'FHC Abuja Court 4', 'Criminal'),
+        ('legacy_dcr', 'Legacy.DCR', 'DCR', 'FHC Abuja Court 4', 'All Divisions'),
+        ('legacy_judge', 'Legacy.Judge', 'Judge', 'FHC Abuja Court 4', 'Criminal'),
+    ):
+        connection.execute('INSERT INTO users (user_id, data) VALUES (?, ?)', (
+            user_id, json.dumps({
+                'user_id':user_id, 'username':username, 'password':'hash', 'role':role,
+                'court':court, 'division':division,
+            }),
+        ))
+        connection.execute(
+            'INSERT INTO auth_sessions (session_id, user_id, refresh_jti, expires_at, created_at) VALUES (?, ?, ?, ?, ?)',
+            (f'legacy-session-{user_id}', user_id, f'legacy-refresh-{user_id}', 2_000_000_000, 1_700_000_000),
+        )
     connection.commit()
     connection.close()
 
     monkeypatch.setenv('COURTLOG_DB_PATH', str(legacy_path))
     migrated = SQLiteDatabase()
-    assert migrated.get_user('legacy_user')['username'] == 'Legacy.User'
+    legacy_clerk = migrated.get_user('legacy_user')
+    assert legacy_clerk['username'] == 'Legacy.User'
+    assert legacy_clerk['role'] == 'Role Assignment Required'
+    assert legacy_clerk['legacy_role'] == 'Clerk'
+    assert legacy_clerk['role_remap_required'] is True
+    assert migrated.get_user('legacy_dcr')['role'] == 'Deputy Chief Registrar'
+    assert migrated.get_user('legacy_judge')['role'] == 'Presiding Judge'
+    revoked_sessions = migrated.conn.execute(
+        'SELECT revoked_at FROM auth_sessions ORDER BY user_id'
+    ).fetchall()
+    assert len(revoked_sessions) == 3 and all(row[0] is not None for row in revoked_sessions)
+    role_migrations = [event for event in migrated.list_audit_events(20) if event['action'] == 'user.role.migration']
+    assert len(role_migrations) == 3
     migrated_tables = {
         row[0] for row in migrated.conn.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()
     }
@@ -437,7 +643,8 @@ def test_live_bootstrap_is_env_driven_and_demo_accounts_are_disabled(tmp_path, m
     monkeypatch.setenv('DEMO_MODE', 'true')
     demo_db = SQLiteDatabase()
     demo_users = demo_db.list_users()
-    assert len(demo_users) == 5
+    assert len(demo_users) == len(main.PILOT_ROLES)
+    assert {user['role'] for user in demo_users} == set(main.PILOT_ROLES)
     assert all(user.get('demo_only') and not user.get('disabled') for user in demo_users)
     demo_db.conn.close()
 
@@ -461,7 +668,10 @@ def test_live_bootstrap_is_env_driven_and_demo_accounts_are_disabled(tmp_path, m
 
 
 def test_live_mode_does_not_send_whatsapp_without_database_or_configuration():
-    assert client.get('/api/config').json() == {'demo_mode':False}
+    config = client.get('/api/config').json()
+    assert config['demo_mode'] is False
+    assert config['paid_features']['court_clerk'] is True
+    assert 'Court Clerk' in config['assignable_roles']
     with patch('backend.whatsapp.requests.post') as send:
         result = send_adjournment_broadcast('SEC/NO-SEND', '2026-10-02', 'Test only')
         send.assert_not_called()
@@ -527,7 +737,7 @@ def test_whatsapp_phone_normalizer_rejects_letters_and_unsupported_characters(ph
 
 
 def record_opt_in(phone, *, evidence='CONSENT-TEST-01'):
-    response = client.post('/api/whatsapp/preferences', headers=headers('usr_cr_01'), json={
+    response = client.post('/api/whatsapp/preferences', headers=headers('usr_registrar_01'), json={
         'phone': phone,
         'status': 'opted_in',
         'consent_source': 'test recipient written permission',
@@ -540,7 +750,7 @@ def record_opt_in(phone, *, evidence='CONSENT-TEST-01'):
 def test_whatsapp_preferences_require_consent_and_do_not_return_raw_phone(monkeypatch):
     configure_whatsapp_cloud(monkeypatch, enabled=False)
     phone = '+2348031234567'
-    response = client.post('/api/whatsapp/preferences', headers=headers('usr_cr_01'), json={
+    response = client.post('/api/whatsapp/preferences', headers=headers('usr_registrar_01'), json={
         'phone': phone, 'status': 'opted_in', 'consent_source': 'signed form',
         'evidence_reference': 'FICTIONAL-CONSENT-01',
     })
@@ -551,7 +761,7 @@ def test_whatsapp_preferences_require_consent_and_do_not_return_raw_phone(monkey
     assert preference['status'] == 'opted_in'
     assert preference['evidence_reference'] == 'FICTIONAL-CONSENT-01'
 
-    missing_evidence = client.post('/api/whatsapp/preferences', headers=headers('usr_cr_01'), json={
+    missing_evidence = client.post('/api/whatsapp/preferences', headers=headers('usr_registrar_01'), json={
         'phone': phone, 'status': 'opted_in', 'consent_source': 'signed form',
     })
     assert missing_evidence.status_code == 422
@@ -560,7 +770,7 @@ def test_whatsapp_preferences_require_consent_and_do_not_return_raw_phone(monkey
     })
     assert forbidden.status_code == 403
 
-    opted_out = client.post('/api/whatsapp/preferences', headers=headers('usr_cr_01'), json={
+    opted_out = client.post('/api/whatsapp/preferences', headers=headers('usr_registrar_01'), json={
         'phone': phone, 'status': 'opted_out', 'consent_source': 'recipient request',
     })
     assert opted_out.status_code == 200
@@ -585,10 +795,14 @@ def test_whatsapp_adjournment_sends_only_generic_template_to_opted_in_party_once
 
     with patch('backend.whatsapp.requests.post', return_value=FakeMetaResponse()) as send:
         response = client.post(
-            f'/api/cases/{case_id}/hearings', headers=headers('usr_clerk_01'),
+            f'/api/cases/{case_id}/hearings', headers=headers('usr_court_clerk_01'),
             json={'outcome':'Adjourned', 'reason_code':'Counsel Absent', 'next_date':'2026-10-20'},
         )
         assert response.status_code == 200, response.text
+        assert send.call_count == 0, "the Court Clerk's log entry must not send a Registrar notice"
+        event_id = response.json()['hearing_log'][-1]['event_id']
+        notice = client.post(f'/api/cases/{case_id}/hearing-notice', headers=headers('usr_registrar_01'))
+        assert notice.status_code == 202, notice.text
         assert send.call_count == 1
         request = send.call_args.kwargs
         assert request['timeout'] == (5, 20)
@@ -637,7 +851,7 @@ def test_whatsapp_signed_webhook_updates_status_and_honours_stop(monkeypatch):
             return {'messages': [{'id': 'wamid.COURTLOG-WEBHOOK'}]}
 
     with patch('backend.whatsapp.requests.post', return_value=FakeMetaResponse()) as send:
-        queued = client.post('/api/whatsapp/test-send', headers=headers('usr_cr_01'), json={
+        queued = client.post('/api/whatsapp/test-send', headers=headers('usr_registrar_01'), json={
             'case_id': case_id, 'recipient_role': 'counsel',
         })
         assert queued.status_code == 202, queued.text
@@ -680,7 +894,7 @@ def test_whatsapp_signed_webhook_updates_status_and_honours_stop(monkeypatch):
             'Content-Type':'application/json', 'X-Hub-Signature-256':late_signature,
         }).status_code == 200
     assert main.db.get_whatsapp_message(queued.json()['message_id'])['status'] == 'read'
-    assert client.post('/api/whatsapp/test-send', headers=headers('usr_cr_01'), json={
+    assert client.post('/api/whatsapp/test-send', headers=headers('usr_registrar_01'), json={
         'case_id': case_id, 'recipient_role': 'counsel',
     }).status_code == 409
 
@@ -867,7 +1081,7 @@ def test_demo_mode_never_sends_real_whatsapp_even_with_cloud_credentials(monkeyp
     main.db.save_case(case_id, case)
     record_opt_in(phone, evidence='FICTIONAL-DEMO-CONSENT')
     with patch('backend.whatsapp.requests.post') as send:
-        response = client.post('/api/whatsapp/test-send', headers=headers('usr_cr_01'), json={
+        response = client.post('/api/whatsapp/test-send', headers=headers('usr_registrar_01'), json={
             'case_id': case_id, 'recipient_role': 'counsel',
         })
         send.assert_not_called()
@@ -932,7 +1146,7 @@ def test_case_creation_normalizes_nigerian_phones_and_rejects_invalid_values():
 
 def test_hearing_dates_are_iso_valid_and_adjournments_require_a_date():
     fixture_case('SEC/DATE')
-    h = headers('usr_clerk_01')
+    h = headers('usr_court_clerk_01')
     endpoint = '/api/cases/SEC/DATE/hearings'
 
     for next_date in ('2026-02-30', 'not-a-date', ''):
@@ -978,7 +1192,7 @@ def test_required_text_inputs_reject_whitespace_only_values():
     })
     assert scan.status_code == 422
 
-    hearing = client.post('/api/cases/SEC/BLANK/hearings', headers=clerk_headers, json={
+    hearing = client.post('/api/cases/SEC/BLANK/hearings', headers=headers('usr_court_clerk_01'), json={
         'outcome':'Adjourned', 'reason_code':'   ', 'next_date':'2026-10-02',
     })
     assert hearing.status_code == 422
@@ -1040,7 +1254,7 @@ def test_login_rate_limit_window_and_success_reservation_release():
 def test_hearing_outcome_rejects_values_outside_current_ui_choices():
     fixture_case('SEC/ENUM')
     response = client.post(
-        '/api/cases/SEC/ENUM/hearings', headers=headers('usr_clerk_01'),
+        '/api/cases/SEC/ENUM/hearings', headers=headers('usr_court_clerk_01'),
         json={'outcome':'Unknown Workflow State', 'reason_code':'Other'},
     )
     assert response.status_code == 422
@@ -1122,7 +1336,7 @@ def test_audit_log_attributes_case_creation_and_is_chief_registrar_only():
 def test_audit_records_hearing_and_override_actor_time_and_reason():
     fixture_case('SEC/AUDIT-HEARING')
     hearing = client.post(
-        '/api/cases/SEC/AUDIT-HEARING/hearings', headers=headers('usr_clerk_01'),
+        '/api/cases/SEC/AUDIT-HEARING/hearings', headers=headers('usr_court_clerk_01'),
         json={'outcome':'Adjourned', 'reason_code':'Counsel Absent', 'next_date':'2026-10-20'},
     )
     assert hearing.status_code == 200
@@ -1140,7 +1354,7 @@ def test_audit_records_hearing_and_override_actor_time_and_reason():
 
     events = main.db.list_audit_events(200)
     hearing_event = next(e for e in events if e['action'] == 'case.hearing.record' and e['entity_id'] == 'SEC/AUDIT-HEARING')
-    assert hearing_event['actor_user_id'] == 'usr_clerk_01'
+    assert hearing_event['actor_user_id'] == 'usr_court_clerk_01'
     assert hearing_event['reason'] == 'Counsel Absent'
     assert hearing_event['metadata']['outcome'] == 'Adjourned'
     assert hearing_event['occurred_at']
@@ -1156,7 +1370,7 @@ def test_user_password_audit_events_exclude_credentials():
     main.db.save_user(target_id, {
         'user_id':target_id, 'username':'audit-target',
         'password':get_password_hash('Initial-Password-41!'),
-        'role':'Clerk', 'court':'FHC Abuja Court 4', 'division':'Criminal',
+        'role':'Filing Clerk', 'court':'FHC Abuja Court 4', 'division':'Criminal',
         'disabled':False,
     })
     temporary = 'Temporary-Password-42!'

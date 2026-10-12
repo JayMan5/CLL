@@ -30,9 +30,11 @@ document.addEventListener('click', event => {
     const actions = {
         scan: shortcutQRScan, hearing: shortcutHearingLog, assign: openAssignJudgeModal,
         assignSheriff: openAssignSheriffModal, handover: openSheriffHandoverModal,
+        recordExecution: recordSheriffExecutionAction, sendNotice: sendHearingNotice,
+        recordJudgment: recordJudgmentDelivery,
         writ: selectCaseForWrit, override: openDCROverrideModal, acknowledgeDCR: acknowledgeDCRReview,
         ruling: logJudicialRuling, deleteUser: deleteUserAccount, resetPassword: resetUserPassword,
-        explain: showExplainability
+        remapUser: remapLegacyUserRole, explain: showExplainability
     };
     const action = actions[button.dataset.caseAction];
     if (action) action(button.dataset.recordId);
@@ -49,6 +51,11 @@ let authenticatedUser = null;
 let refreshPromise = null;
 let sessionExpiryHandled = false;
 let demoMode = false;
+let paidFeatures = { court_clerk: false };
+const PILOT_ROLE_OPTIONS = [
+    "Chief Judge", "Chief Registrar", "Deputy Chief Registrar", "Registrar",
+    "Filing Clerk", "Registry Clerk", "Court Clerk", "Bailiff", "Sheriff", "Presiding Judge"
+];
 let distributionChart = null;
 let currentHearingOutcome = "Adjourned";
 let activeOverrideCaseId = null;
@@ -56,13 +63,18 @@ let selectedWritCaseId = null;
 let activeSheriffCustodyCaseId = null;
 let activeSheriffCustodyMode = null;
 
-// ===== USER PROFILES (5-Level Access Hierarchy) =====
+// ===== FICTIONAL PILOT USER PROFILES =====
 const USER_PROFILES = {
-    "usr_sheriff_01": { user_id: "usr_sheriff_01", name: "Level 1: Sheriff", role: "Sheriff", badge: "Physical File Custodian", court: "FHC Abuja Court 4", division: "Criminal", initials: "SH" },
-    "usr_clerk_01": { user_id: "usr_clerk_01", name: "Level 2: Clerk", role: "Clerk", badge: "Data Entry & Event Logger", court: "FHC Abuja Court 4", division: "Criminal", initials: "CL" },
-    "usr_dcr_01": { user_id: "usr_dcr_01", name: "Level 3: Deputy Chief Registrar", role: "DCR", badge: "Division Supervisor", court: "FHC Abuja", division: "Criminal", initials: "DC" },
-    "usr_cr_01": { user_id: "usr_cr_01", name: "Level 4: Chief Registrar", role: "Chief Registrar", badge: "Court Administrator & Compliance Officer", court: "All Courts", division: "All Divisions", initials: "CR" },
-    "usr_judge_01": { user_id: "usr_judge_01", name: "Level 5: Judge", role: "Judge", badge: "Decision Maker & Accountability Owner", court: "FHC Abuja Court 4", division: "Criminal", initials: "JG" },
+    "usr_sheriff_01": { user_id: "usr_sheriff_01", name: "Pilot Sheriff", role: "Sheriff", badge: "Execution and service records", court: "FHC Abuja Court 4", division: "Criminal", initials: "SH" },
+    "usr_clerk_01": { user_id: "usr_clerk_01", name: "Pilot Filing Clerk", role: "Filing Clerk", badge: "Filing and case registration", court: "FHC Abuja Court 4", division: "Criminal", initials: "FC" },
+    "usr_registry_clerk_01": { user_id: "usr_registry_clerk_01", name: "Pilot Registry Clerk", role: "Registry Clerk", badge: "Registry file custody", court: "FHC Abuja Court 4", division: "Criminal", initials: "RC" },
+    "usr_court_clerk_01": { user_id: "usr_court_clerk_01", name: "Pilot Court Clerk", role: "Court Clerk", badge: "Courtroom and hearing records", court: "FHC Abuja Court 4", division: "Criminal", initials: "CC" },
+    "usr_bailiff_01": { user_id: "usr_bailiff_01", name: "Pilot Bailiff", role: "Bailiff", badge: "Service and process records", court: "FHC Abuja Court 4", division: "Criminal", initials: "BA" },
+    "usr_dcr_01": { user_id: "usr_dcr_01", name: "Pilot Deputy Chief Registrar", role: "Deputy Chief Registrar", badge: "Court-wide supervision", court: "FHC Abuja Court 4", division: "All Divisions", initials: "DC" },
+    "usr_registrar_01": { user_id: "usr_registrar_01", name: "Pilot Registrar", role: "Registrar", badge: "Registry operations", court: "FHC Abuja Court 4", division: "All Divisions", initials: "RG" },
+    "usr_cr_01": { user_id: "usr_cr_01", name: "Pilot Chief Registrar", role: "Chief Registrar", badge: "Court administration and read-only oversight", court: "All Courts", division: "All Divisions", initials: "CR" },
+    "usr_chief_judge_01": { user_id: "usr_chief_judge_01", name: "Pilot Chief Judge", role: "Chief Judge", badge: "Court-level oversight", court: "FHC Abuja Court 4", division: "All Divisions", initials: "CJ" },
+    "usr_judge_01": { user_id: "usr_judge_01", name: "Pilot Presiding Judge", role: "Presiding Judge", badge: "Assigned-case judicial view", court: "FHC Abuja Court 4", division: "Criminal", initials: "PJ" },
 };
 
 // ===== AUTH & SESSION MANAGEMENT =====
@@ -83,11 +95,40 @@ async function loadAppConfig() {
         if (!response.ok) return;
         const config = await response.json();
         demoMode = config.demo_mode === true;
+        paidFeatures = {
+            court_clerk: config.paid_features?.court_clerk === true
+        };
+        updateCourtClerkEntitlementUI();
     } catch (_) {
         demoMode = false; // Fail closed: hide simulator-only UI if config cannot be read.
+        paidFeatures = { court_clerk: false };
+        updateCourtClerkEntitlementUI();
     }
     const status = document.getElementById("whatsapp-mode-status");
     if (status) status.textContent = demoMode ? "DEMO SIMULATION — NOT LIVE" : "CHECKING SERVER CONFIGURATION";
+}
+
+function updateCourtClerkEntitlementUI() {
+    const enabled = paidFeatures.court_clerk === true;
+    const roleOption = document.querySelector('#new-user-role option[value="Court Clerk"]');
+    if (roleOption) {
+        roleOption.disabled = !enabled;
+        roleOption.title = enabled
+            ? "Court Clerk is enabled by this deployment's server-side entitlement."
+            : "Unavailable: the Court Clerk entitlement is not enabled for this deployment.";
+        const roleSelect = document.getElementById("new-user-role");
+        if (!enabled && roleSelect?.value === "Court Clerk") roleSelect.value = "Filing Clerk";
+    }
+    const notice = document.getElementById("court-clerk-entitlement-notice");
+    if (notice) {
+        notice.textContent = enabled
+            ? "Court Clerk is enabled by a server-side deployment entitlement. This prototype does not process payments or subscriptions."
+            : "Court Clerk is unavailable: no server-side deployment entitlement is enabled. This prototype has no billing or payment integration.";
+        notice.classList.toggle("text-emerald-300", enabled);
+        notice.classList.toggle("text-amber-300", !enabled);
+    }
+    const status = document.getElementById("court-clerk-entitlement-status");
+    if (status) status.textContent = enabled ? "Court Clerk entitlement enabled" : "Court Clerk entitlement disabled";
 }
 
 function getTheme() {
@@ -507,13 +548,13 @@ function syncCaseRegistrationDefaults(user = getActiveUser()) {
     const panel = document.getElementById("register-case-panel");
     const courtSelect = document.getElementById("new-case-court");
     const typeSelect = document.getElementById("new-case-type");
-    const canRegister = user.role === "Chief Registrar" || (user.role === "Clerk" && Boolean(user.court));
+    const canRegister = user.role === "Filing Clerk" && Boolean(user.court);
 
     if (panel) panel.classList.toggle("hidden", !canRegister);
     if (!courtSelect) return;
 
     const options = Array.from(courtSelect.options);
-    if (user.role === "Clerk" && user.court) {
+    if (user.role === "Filing Clerk" && user.court) {
         let assignedOption = options.find(option => option.value === user.court);
         if (!assignedOption) {
             assignedOption = new Option(user.court, user.court);
@@ -522,7 +563,7 @@ function syncCaseRegistrationDefaults(user = getActiveUser()) {
         for (const option of courtSelect.options) option.disabled = option !== assignedOption;
         courtSelect.value = user.court;
         courtSelect.disabled = true;
-        courtSelect.title = "Clerks can register cases only in their assigned court.";
+        courtSelect.title = "Filing Clerks can register cases only in their assigned court.";
     } else {
         courtSelect.disabled = false;
         courtSelect.title = "Select the court for this case.";
@@ -535,9 +576,19 @@ function syncCaseRegistrationDefaults(user = getActiveUser()) {
         }
     }
 
-    if (typeSelect && user.role === "Clerk" && user.division === "Criminal"
-        && Array.from(typeSelect.options).some(option => option.value === "Criminal")) {
-        typeSelect.value = "Criminal";
+    if (typeSelect) {
+        const hasCriminalOption = Array.from(typeSelect.options).some(option => option.value === "Criminal");
+        const divisionBoundFilingClerk = user.role === "Filing Clerk"
+            && user.division && user.division !== "All Divisions";
+        for (const option of typeSelect.options) {
+            option.disabled = divisionBoundFilingClerk
+                && (user.division === "Criminal" ? option.value !== "Criminal" : option.value === "Criminal");
+        }
+        if (divisionBoundFilingClerk && user.division === "Criminal" && hasCriminalOption) {
+            typeSelect.value = "Criminal";
+        } else if (divisionBoundFilingClerk && typeSelect.selectedOptions[0]?.disabled) {
+            typeSelect.value = Array.from(typeSelect.options).find(option => !option.disabled)?.value || "";
+        }
     }
 }
 
@@ -555,18 +606,25 @@ function updateNavGroups() {
     });
 }
 
+function canUseCustodyScan(role = authenticatedUser?.role) {
+    return ["Filing Clerk", "Registry Clerk", "Bailiff", "Sheriff"].includes(role)
+        || (role === "Court Clerk" && paidFeatures.court_clerk === true);
+}
+
 function canAccessTab(tabId, user = authenticatedUser) {
     if (!user) return tabId === "tab-overview";
     const role = user.role;
+    const entitledCourtClerk = role === "Court Clerk" && paidFeatures.court_clerk === true;
     const roleAccess = {
-        "tab-case-register": role === "Chief Registrar" || (role === "Clerk" && Boolean(user.court)),
-        "tab-qr-scan": ["Sheriff", "Clerk", "Chief Registrar"].includes(role),
-        "tab-courtrooms": ["Clerk", "Judge", "Chief Registrar"].includes(role),
-        "tab-execution": ["Sheriff", "Chief Registrar"].includes(role),
-        "tab-dcr-console": ["DCR", "Chief Registrar"].includes(role),
-        "tab-judge-docket": ["Judge", "Chief Registrar"].includes(role),
+        "tab-case-register": role === "Filing Clerk",
+        "tab-qr-scan": canUseCustodyScan(role),
+        "tab-courtrooms": entitledCourtClerk,
+        "tab-execution": ["Registrar", "Sheriff"].includes(role),
+        "tab-dcr-console": role === "Deputy Chief Registrar",
+        "tab-judge-docket": ["Chief Judge", "Presiding Judge"].includes(role),
         "tab-user-admin": role === "Chief Registrar",
-        "tab-whatsapp": role === "Chief Registrar"
+        "tab-whatsapp": role === "Registrar",
+        "tab-ai-risk": role === "Deputy Chief Registrar"
     };
     return Object.prototype.hasOwnProperty.call(roleAccess, tabId) ? roleAccess[tabId] : true;
 }
@@ -593,6 +651,7 @@ function updateRoleUI() {
             item.setAttribute("aria-hidden", String(item.dataset.tab !== "tab-overview"));
         });
         registerPanel?.classList.add("hidden");
+        document.getElementById("form-upload-doc")?.closest("details")?.classList.add("hidden");
         ["btn-register-case", "btn-prototype-summary", "btn-cron-sweep"].forEach(id => {
             const button = document.getElementById(id);
             if (button) button.hidden = true;
@@ -616,26 +675,31 @@ function updateRoleUI() {
     if (profileToggle) profileToggle.disabled = false;
 
     const role = user.role;
-    const canRegister = role === "Chief Registrar" || (role === "Clerk" && Boolean(user.court));
+    const canRegister = role === "Filing Clerk" && Boolean(user.court);
+    const canRecordDocumentMetadata = ["Filing Clerk", "Registry Clerk"].includes(role);
+    const entitledCourtClerk = role === "Court Clerk" && paidFeatures.court_clerk === true;
+    const canScanQr = canUseCustodyScan(role);
+    document.getElementById("form-upload-doc")?.closest("details")
+        ?.classList.toggle("hidden", !canRecordDocumentMetadata);
     const navVisibility = {
         "nav-overview": true,
         "nav-case-register": canRegister,
-        "nav-qr-scan": ["Sheriff", "Clerk", "Chief Registrar"].includes(role),
-        "nav-courtrooms": ["Clerk", "Judge", "Chief Registrar"].includes(role),
-        "nav-execution": ["Sheriff", "Chief Registrar"].includes(role),
-        "nav-dcr-console": ["DCR", "Chief Registrar"].includes(role),
-        "nav-judge-docket": ["Judge", "Chief Registrar"].includes(role),
-        "nav-ai-risk": true,
+        "nav-qr-scan": canScanQr,
+        "nav-courtrooms": entitledCourtClerk,
+        "nav-execution": ["Registrar", "Sheriff"].includes(role),
+        "nav-dcr-console": role === "Deputy Chief Registrar",
+        "nav-judge-docket": ["Chief Judge", "Presiding Judge"].includes(role),
+        "nav-ai-risk": role === "Deputy Chief Registrar",
         "nav-user-admin": role === "Chief Registrar",
-        "nav-whatsapp": role === "Chief Registrar"
+        "nav-whatsapp": role === "Registrar"
     };
     Object.entries(navVisibility).forEach(([id, visible]) => setNavItemVisible(id, visible));
     updateNavGroups();
 
     const buttonVisibility = {
         "btn-register-case": canRegister,
-        "btn-prototype-summary": ["Chief Registrar", "DCR"].includes(role),
-        "btn-cron-sweep": role === "Chief Registrar"
+        "btn-prototype-summary": ["Chief Registrar", "Deputy Chief Registrar"].includes(role),
+        "btn-cron-sweep": role === "Deputy Chief Registrar"
     };
     Object.entries(buttonVisibility).forEach(([id, visible]) => {
         const button = document.getElementById(id);
@@ -649,9 +713,9 @@ function updateRoleUI() {
     const qrLabelTools = document.getElementById("qr-label-tools");
     const reportMissingTools = document.getElementById("report-missing-tools");
     const resolveMissingTools = document.getElementById("resolve-missing-tools");
-    const canManageMissingFiles = ["Sheriff", "Chief Registrar"].includes(role);
-    if (sheriffQrTools) sheriffQrTools.classList.toggle("hidden", role !== "Sheriff");
-    if (qrLabelTools) qrLabelTools.classList.toggle("hidden", !["Clerk", "Chief Registrar"].includes(role));
+    const canManageMissingFiles = ["Registry Clerk", "Sheriff"].includes(role) || entitledCourtClerk;
+    if (sheriffQrTools) sheriffQrTools.classList.toggle("hidden", !canScanQr);
+    if (qrLabelTools) qrLabelTools.classList.toggle("hidden", role !== "Filing Clerk");
     if (reportMissingTools) reportMissingTools.classList.toggle("hidden", !canManageMissingFiles);
     if (resolveMissingTools) resolveMissingTools.classList.toggle("hidden", !canManageMissingFiles);
     window.CourtLogPwa?.setRole(role);
@@ -715,10 +779,10 @@ function switchTab(tabId) {
     if (tabId === "tab-ai-risk" && typeof aiRiskData !== "undefined" && aiRiskData.length === 0) {
         loadAIRiskData();
     }
-    if (tabId === "tab-judge-docket" && ["Judge", "Chief Registrar"].includes(authenticatedUser?.role)) {
+    if (tabId === "tab-judge-docket" && ["Chief Judge", "Presiding Judge"].includes(authenticatedUser?.role)) {
         fetchJudgeAlerts();
     }
-    if (tabId === "tab-whatsapp" && authenticatedUser?.role === "Chief Registrar") {
+    if (tabId === "tab-whatsapp" && authenticatedUser?.role === "Registrar") {
         loadWhatsAppStatus();
         loadWhatsAppLogs();
     }
@@ -743,7 +807,7 @@ async function loadDashboardData() {
         populateDropdowns();
         renderExecutionTable();
         renderChart();
-        if (["Judge", "Chief Registrar"].includes(getActiveUser().role)) {
+        if (["Chief Judge", "Presiding Judge"].includes(getActiveUser().role)) {
             await fetchJudgeAlerts();
         } else {
             const alertBanner = document.getElementById("judge-alert-banner");
@@ -752,7 +816,7 @@ async function loadDashboardData() {
             const alertCount = document.getElementById("judge-alert-count");
             if (alertCount) alertCount.textContent = "0";
         }
-        if (authenticatedUser?.role === "Chief Registrar") {
+        if (authenticatedUser?.role === "Registrar") {
             populateWhatsAppTestCases();
             loadWhatsAppStatus();
             loadWhatsAppLogs();
@@ -827,6 +891,60 @@ function populateWhatsAppTestCases() {
     });
     if (previous && Array.from(select.options).some(option => option.value === previous)) {
         select.value = previous;
+    }
+}
+
+async function recordJudgmentDelivery(caseId) {
+    if (authenticatedUser?.role !== "Registrar") {
+        showToast("Only a Registrar may enter a judgment delivery date.", "error");
+        return;
+    }
+    const defaultDate = new Date().toISOString().slice(0, 10);
+    const deliveredDate = prompt(`Enter the judgment delivery date for ${caseId} (YYYY-MM-DD). No judgment text or legal reasons are stored.`, defaultDate);
+    if (!deliveredDate) return;
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(deliveredDate.trim()) || Number.isNaN(Date.parse(`${deliveredDate.trim()}T12:00:00Z`))) {
+        alert("Enter a valid date in YYYY-MM-DD format.");
+        return;
+    }
+    try {
+        const response = await apiFetch(`${API_BASE}/cases/${caseId}/judgment-delivery`, {
+            method: "POST", headers: getAuthHeaders(),
+            body: JSON.stringify({ delivered_at: `${deliveredDate.trim()}T12:00:00Z` })
+        });
+        const result = await response.json().catch(() => ({}));
+        if (!response.ok) {
+            showToast(`Judgment delivery was not recorded: ${result.detail || "Permission denied"}`, "error");
+            return;
+        }
+        await loadDashboardData();
+        showToast(`Judgment delivery date recorded for ${caseId}.`, "success");
+    } catch (error) {
+        logger(`Judgment delivery entry error: ${error}`);
+        showToast("Network error while recording the judgment delivery date.", "error");
+    }
+}
+
+async function sendHearingNotice(caseId) {
+    if (authenticatedUser?.role !== "Registrar") {
+        showToast("Only a Registrar may request a hearing notice.", "error");
+        return;
+    }
+    if (!confirm(`Queue a generic template notice for the latest adjournment in ${caseId}? Only contacts with a recorded active opt-in will be considered.`)) return;
+    try {
+        const response = await apiFetch(`${API_BASE}/cases/${caseId}/hearing-notice`, {
+            method: "POST", headers: getAuthHeaders()
+        });
+        const result = await response.json().catch(() => ({}));
+        if (!response.ok) {
+            showToast(`Notice was not queued: ${result.detail || "Permission denied"}`, "error");
+            return;
+        }
+        showToast("Generic notice queued for active opted-in contacts. Check WhatsApp Activity for delivery status.", "success");
+        await loadWhatsAppStatus();
+        await loadWhatsAppLogs();
+    } catch (error) {
+        logger(`Hearing notice request error: ${error}`);
+        showToast("Network error while queuing the hearing notice.", "error");
     }
 }
 
@@ -971,9 +1089,13 @@ function renderHeatmapTable(cases) {
             : `<span style="color:var(--text-muted); font-weight:600">-</span>`;
 
         const activeUser = getActiveUser();
-        const canRecordCustody = ["Sheriff", "Clerk", "Chief Registrar"].includes(activeUser.role);
-        const canLogHearing = ["Clerk", "Judge", "Chief Registrar"].includes(activeUser.role);
-        const canAssignSheriff = ["Clerk", "Chief Registrar"].includes(activeUser.role);
+        const canRecordCustody = canUseCustodyScan(activeUser.role);
+        const canLogHearing = activeUser.role === "Court Clerk" && paidFeatures.court_clerk === true;
+        const canAssignSheriff = activeUser.role === "Registrar";
+        const canSendNotice = activeUser.role === "Registrar"
+            && Array.isArray(c.hearing_log) && c.hearing_log.length > 0
+            && c.hearing_log[c.hearing_log.length - 1]?.outcome === "Adjourned";
+        const canRecordJudgment = activeUser.role === "Registrar" && c.judgment_status === "Pending";
         const canHandoverCustody = activeUser.role === "Sheriff" && c.assigned_sheriff_id === activeUser.user_id;
         const row = document.createElement("tr");
         row.innerHTML = `
@@ -1002,7 +1124,9 @@ function renderHeatmapTable(cases) {
                     ${canLogHearing ? `<button data-case-action="hearing" data-record-id="${c.case_id}" class="btn-secondary" style="padding:2px 8px;font-size:10px;" title="Log a hearing outcome"><i class="fa-solid fa-gavel mr-1"></i> Hearing</button>` : ''}
                     ${canAssignSheriff ? `<button data-case-action="assignSheriff" data-record-id="${c.case_id}" class="btn-secondary" style="padding:2px 8px;font-size:10px; color:var(--accent)" title="Assign or reassign Sheriff custody"><i class="fa-solid fa-person-walking-arrow-right mr-1"></i> Custody</button>` : ''}
                     ${canHandoverCustody ? `<button data-case-action="handover" data-record-id="${c.case_id}" class="btn-secondary" style="padding:2px 8px;font-size:10px; color:var(--amber)" title="Hand over file custody"><i class="fa-solid fa-right-left mr-1"></i> Hand Over</button>` : ''}
-                    ${activeUser.role === 'Chief Registrar' ? `<button data-case-action="assign" data-record-id="${c.case_id}" class="btn-secondary" style="padding:2px 8px;font-size:10px; color:var(--purple-400)" title="Assign Judge"><i class="fa-solid fa-scale-balanced mr-1"></i> Assign</button>` : ''}
+                    ${activeUser.role === 'Registrar' ? `<button data-case-action="assign" data-record-id="${c.case_id}" class="btn-secondary" style="padding:2px 8px;font-size:10px; color:var(--purple-400)" title="Record Judge assignment based on a Chief Judge decision"><i class="fa-solid fa-scale-balanced mr-1"></i> Assign Judge</button>` : ''}
+                    ${canSendNotice ? `<button data-case-action="sendNotice" data-record-id="${c.case_id}" class="btn-secondary" style="padding:2px 8px;font-size:10px; color:var(--emerald)" title="Send a generic notice to active opted-in contacts"><i class="fa-brands fa-whatsapp mr-1"></i> Notice</button>` : ''}
+                    ${canRecordJudgment ? `<button data-case-action="recordJudgment" data-record-id="${c.case_id}" class="btn-secondary" style="padding:2px 8px;font-size:10px; color:var(--purple-400)" title="Record judgment delivery date only"><i class="fa-solid fa-file-circle-check mr-1"></i> Judgment</button>` : ''}
                 </div>
             </td>
         `;
@@ -1017,7 +1141,8 @@ function renderExecutionTable() {
 
     try {
         const judgments = casesData.filter(c => c.judgment_status === "Delivered" || c.judgment_status === "Judgment Delivered");
-        const canCompileWrit = ["Sheriff", "Chief Registrar"].includes(getActiveUser().role);
+        const activeUser = getActiveUser();
+        const canCompileWrit = activeUser.role === "Registrar";
 
         if (judgments.length === 0) {
             tableBody.innerHTML = `<tr><td colspan="6" class="text-center py-8" style="color:var(--text-muted)">No delivered judgments currently meet the prototype execution review trigger.</td></tr>`;
@@ -1055,7 +1180,7 @@ function renderExecutionTable() {
                     </div>
                 </td>
                 <td class="py-3 px-3 text-right">
-                    ${canCompileWrit ? `<button type="button" data-case-action="writ" data-record-id="${c.case_id}" class="btn-secondary">Open writ workflow</button>` : `<span class="text-xs text-muted-th">View only</span>`}
+                    ${canCompileWrit ? `<button type="button" data-case-action="writ" data-record-id="${c.case_id}" class="btn-secondary">Open writ workflow</button>` : activeUser.role === "Sheriff" && c.assigned_sheriff_id === activeUser.user_id ? `<button type="button" data-case-action="recordExecution" data-record-id="${c.case_id}" class="btn-secondary">Record execution return</button>` : `<span class="text-xs text-muted-th">View only</span>`}
                 </td>
             `;
             tableBody.appendChild(row);
@@ -1063,6 +1188,41 @@ function renderExecutionTable() {
     } catch (error) {
         console.error("Error in renderExecutionTable:", error);
         tableBody.innerHTML = `<tr><td colspan="6" class="text-center py-8" style="color:red">Error: ${escapeHTML(error.message)}</td></tr>`;
+    }
+}
+
+async function recordSheriffExecutionAction(caseId) {
+    if (authenticatedUser?.role !== "Sheriff") {
+        showToast("Only the assigned Sheriff may record an execution action.", "error");
+        return;
+    }
+    const choices = [
+        "Levy completed", "Attachment completed", "Possession delivered",
+        "Garnishee Order Executed", "Writ of Fi Fa Completed",
+        "Enforcement Completed", "Returned unexecuted"
+    ];
+    const selected = prompt(`Choose the execution action or return status for ${caseId}:\n\n${choices.join("\n")}`);
+    if (!selected) return;
+    const action = choices.find(value => value.toLowerCase() === selected.trim().toLowerCase());
+    if (!action) {
+        alert("Select one of the listed execution actions or return statuses.");
+        return;
+    }
+    try {
+        const response = await apiFetch(`${API_BASE}/cases/${caseId}/execution`, {
+            method: "POST", headers: getAuthHeaders(),
+            body: JSON.stringify({ action, sheriff_id: authenticatedUser.user_id })
+        });
+        const result = await response.json().catch(() => ({}));
+        if (!response.ok) {
+            alert(`Execution return was not recorded: ${result.detail || "Permission denied"}`);
+            return;
+        }
+        await loadDashboardData();
+        showToast(`Execution action recorded for ${caseId}.`, "success");
+    } catch (error) {
+        logger(`Execution return submission error: ${error}`);
+        showToast("Network error while recording the execution return.", "error");
     }
 }
 
@@ -1395,6 +1555,12 @@ function setCustodyCheckinStatus(message, state = "info") {
 }
 
 async function submitCustodyScan(endpoint, body, expectedLocation) {
+    if (!canUseCustodyScan(authenticatedUser?.role)) {
+        const message = "Custody check-in requires an authorized pilot role and, for Court Clerks, an active deployment entitlement.";
+        setCustodyCheckinStatus(message, "error");
+        showToast(message, "error");
+        return false;
+    }
     if (navigator.onLine === false) {
         const message = "Not submitted: this device is offline. CourtLOG does not queue scans; reconnect and scan again.";
         setCustodyCheckinStatus(message, "error");
@@ -1482,8 +1648,8 @@ async function handleQrPayloadFromCamera(payload) {
 }
 
 function startQrCamera() {
-    if (authenticatedUser?.role !== "Sheriff") {
-        setCustodyCheckinStatus("Camera check-in requires a signed-in Sheriff account.", "error");
+    if (!canUseCustodyScan(authenticatedUser?.role)) {
+        setCustodyCheckinStatus("Camera check-in requires an authorized pilot role and, for Court Clerks, an active deployment entitlement.", "error");
         return false;
     }
     return window.CourtLogPwa?.startCamera();
@@ -1573,7 +1739,7 @@ function renderDCRTable() {
         const actionButtons = reviewPending
             ? `<div class="flex flex-col items-end gap-1">
                 <button data-case-action="acknowledgeDCR" data-record-id="${c.case_id}" class="btn-secondary text-xs py-1 px-3">${c.dcr_acknowledged_at ? 'Update acknowledgement' : 'Acknowledge'}</button>
-                <button data-case-action="override" data-record-id="${c.case_id}" class="btn-primary bg-amber-600 hover:bg-amber-700 text-xs py-1 px-3"><i class="fa-solid fa-shield-halved mr-1"></i> Record decision</button>
+                <button data-case-action="override" data-record-id="${c.case_id}" class="btn-primary bg-amber-600 hover:bg-amber-700 text-xs py-1 px-3"><i class="fa-solid fa-shield-halved mr-1"></i> Resolve flag</button>
             </div>`
             : `<span class="text-xs text-body">No action pending</span>`;
 
@@ -1625,7 +1791,7 @@ async function submitDCROverride() {
 
         closeDCROverrideModal();
         await loadDashboardData();
-        showToast(`Decision recorded for case ${caseId}; review request closed.`, "success");
+        showToast(`Deputy Chief Registrar flag resolution recorded for case ${caseId}.`, "success");
     } catch (error) {
         logger(`DCR review decision error: ${error}`);
         showToast("Network error while recording the DCR review decision.", "error");
@@ -1663,10 +1829,10 @@ function renderJudgeDocketTable() {
     tableBody.innerHTML = "";
 
     const user = getActiveUser();
-    const judgeCases = casesData.filter(c => user.role === "Chief Registrar" || c.assigned_judge_id === user.user_id);
+    const judgeCases = casesData.filter(c => user.role === "Chief Judge" || c.assigned_judge_id === user.user_id);
 
     if (judgeCases.length === 0) {
-        tableBody.innerHTML = `<tr><td colspan="6" class="text-center py-8" style="color:var(--text-muted)">No active cases assigned to your judicial docket.</td></tr>`;
+        tableBody.innerHTML = `<tr><td colspan="6" class="text-center py-8" style="color:var(--text-muted)">No active cases in this read-only judicial view.</td></tr>`;
         return;
     }
 
@@ -1678,9 +1844,7 @@ function renderJudgeDocketTable() {
             <td class="py-3 px-4 text-center font-bold text-heading">${c.adjournment_count}</td>
             <td class="py-3 px-4 text-center font-mono">${c.days_since_filing} d</td>
             <td class="py-3 px-4 text-center"><span class="badge ${c.risk_flag ? 'badge-high' : 'badge-low'}">${(c.delay_risk_score * 100).toFixed(0)}%</span></td>
-            <td class="py-3 px-4 text-right">
-                <button data-case-action="ruling" data-record-id="${c.case_id}" class="btn-primary text-xs py-1 px-3"><i class="fa-solid fa-gavel mr-1"></i> Deliver Ruling</button>
-            </td>
+            <td class="py-3 px-4 text-right"><span class="text-xs text-body">Read-only judicial view</span></td>
         `;
         tableBody.appendChild(row);
     });
@@ -1731,10 +1895,14 @@ function renderUsersAdminTable() {
             <td class="py-3 px-4 font-mono text-heading">${u.user_id}</td>
             <td class="py-3 px-4 font-mono">${u.username || "—"}</td>
             <td class="py-3 px-4 font-bold text-heading">${u.name}</td>
-            <td class="py-3 px-4"><span class="badge badge-low">${u.role}</span></td>
-            <td class="py-3 px-4" style="color:var(--text-secondary)">${u.badge}</td>
+            <td class="py-3 px-4">
+                <span class="badge ${u.role_remap_required ? 'badge-mod' : 'badge-low'}">${u.role}</span>
+                ${u.role_remap_required ? `<div class="text-[10px] text-amber-300 mt-1">Legacy ${u.legacy_role || 'Clerk'} — sign-in blocked until explicitly remapped</div>` : ""}
+            </td>
+            <td class="py-3 px-4" style="color:var(--text-secondary)">${u.badge || "—"}</td>
             <td class="py-3 px-4">${u.division || 'All'}</td>
             <td class="py-3 px-4 text-right whitespace-nowrap">
+                ${u.role_remap_required ? `<button data-case-action="remapUser" data-record-id="${u.user_id}" title="Explicitly assign this legacy account to a pilot role" class="btn-primary text-xs py-1 px-2.5">Remap role</button>` : ""}
                 ${u.user_id !== currentUserId ? `<button data-case-action="resetPassword" data-record-id="${u.user_id}" title="Issue temporary password" class="btn-secondary text-xs py-1 px-2.5"><i class="fa-solid fa-key"></i></button>` : ""}
                 <button data-case-action="deleteUser" data-record-id="${u.user_id}" class="btn-secondary text-xs text-rose hover:bg-rose-900/20 py-1 px-2.5"><i class="fa-solid fa-trash"></i></button>
             </td>
@@ -1743,9 +1911,35 @@ function renderUsersAdminTable() {
     });
 }
 
+function syncNewUserScope() {
+    const role = document.getElementById("new-user-role")?.value;
+    const court = document.getElementById("new-user-court");
+    const division = document.getElementById("new-user-division");
+    if (!court || !division) return;
+
+    if (role === "Chief Registrar") {
+        court.value = "All Courts";
+        division.value = "All Divisions";
+        court.disabled = true;
+        division.disabled = true;
+        return;
+    }
+    court.disabled = false;
+    if (court.value === "All Courts") court.value = "FHC Abuja Court 4";
+
+    if (["Chief Judge", "Deputy Chief Registrar", "Registrar"].includes(role)) {
+        division.value = "All Divisions";
+        division.disabled = true;
+    } else {
+        if (division.value === "All Divisions") division.value = "Criminal";
+        division.disabled = false;
+    }
+}
+
 function openAddUserModal() {
     const overlay = document.getElementById("add-user-overlay");
     if (overlay) overlay.classList.remove("hidden");
+    syncNewUserScope();
     document.getElementById("new-user-name")?.focus();
 }
 
@@ -1789,6 +1983,42 @@ async function submitAddUserForm(event) {
         logger(`Error adding user: ${error}`);
     } finally {
         button.disabled = false;
+    }
+}
+
+async function remapLegacyUserRole(userId) {
+    const choices = PILOT_ROLE_OPTIONS.filter(role => role !== "Court Clerk" || paidFeatures.court_clerk);
+    const roleText = prompt(
+        `Explicitly choose the new role for legacy Clerk account ${userId}.\n\n${choices.join("\n")}`
+    );
+    if (!roleText) return;
+    const role = choices.find(option => option.toLowerCase() === roleText.trim().toLowerCase());
+    if (!role) {
+        alert("Choose one of the listed, currently assignable first-pilot roles.");
+        return;
+    }
+    const reason = prompt(`Record why ${userId} is being assigned the ${role} role (required for the audit trail):`);
+    if (!reason || reason.trim().length < 5) {
+        alert("A role-remapping reason of at least five characters is required.");
+        return;
+    }
+    if (!confirm(`Assign ${userId} to ${role}? Existing sessions will be revoked.`)) return;
+
+    try {
+        const response = await apiFetch(`${API_BASE}/users/${encodeURIComponent(userId)}/role`, {
+            method: "PATCH", headers: getAuthHeaders(),
+            body: JSON.stringify({ role, reason: reason.trim() })
+        });
+        const result = await response.json().catch(() => ({}));
+        if (!response.ok) {
+            alert(`Role remapping failed: ${result.detail || "Permission denied"}`);
+            return;
+        }
+        await loadUsersData();
+        showToast(`${userId} explicitly remapped to ${role}; all previous sessions were revoked.`, "success");
+    } catch (error) {
+        logger(`Error remapping legacy account: ${error}`);
+        alert("Connection error while remapping the legacy account.");
     }
 }
 
@@ -1933,8 +2163,8 @@ function updateQRDisplay() {
 async function generateQrLabel() {
     const caseId = document.getElementById("scan-case-id")?.value || "";
     const role = authenticatedUser?.role;
-    if (!["Clerk", "Chief Registrar"].includes(role)) {
-        showToast("QR labels can only be issued by registry staff.", "error");
+    if (role !== "Filing Clerk") {
+        showToast("QR labels can only be issued by a Filing Clerk.", "error");
         return false;
     }
     if (!caseId) {
@@ -2029,6 +2259,10 @@ function selectCaseForWrit(caseId) {
 
 async function generateWritForm() {
     const caseId = selectedWritCaseId;
+    if (authenticatedUser?.role !== "Registrar") {
+        showToast("Only a Registrar may issue a writ.", "error");
+        return;
+    }
     if (!caseId) return;
 
     const writType = document.getElementById("writ-type").value;
@@ -2036,7 +2270,7 @@ async function generateWritForm() {
     const extraDetails = document.getElementById("writ-extra-details").value.trim();
 
     if (!sheriffId) {
-        alert("Please enter sheriff staff identifier ID.");
+        alert("Enter the account ID of an active Sheriff assigned to this court.");
         return;
     }
 
@@ -2051,7 +2285,10 @@ async function generateWritForm() {
             body: JSON.stringify({ action, sheriff_id: sheriffId })
         });
 
-        if (!response.ok) throw new Error("Execution check-in failed");
+        if (!response.ok) {
+            const errorBody = await response.json().catch(() => ({}));
+            throw new Error(errorBody.detail || "The writ was not recorded by CourtLOG.");
+        }
 
         await loadDashboardData();
 
@@ -2573,9 +2810,13 @@ async function submitSheriffCustody(event) {
     }
 }
 
-// Record document metadata (Clerk); binary file storage is not implemented yet.
+// Record document metadata for Filing/Registry Clerks; binary file storage is not implemented yet.
 async function handleUploadDocument(e) {
     e.preventDefault();
+    if (!["Filing Clerk", "Registry Clerk"].includes(authenticatedUser?.role)) {
+        showToast("Document metadata entry requires Filing Clerk or Registry Clerk authority.", "error");
+        return false;
+    }
     const caseId = document.getElementById("upload-case-id").value.trim();
     const docType = document.getElementById("upload-doc-type").value;
     const title = document.getElementById("upload-title").value.trim();

@@ -90,7 +90,7 @@ function mockApi(route) {
     if (pathname === '/api/cases') return { status: 200, body: fictionalCases };
     if (pathname === '/api/users') return { status: 200, body: [
         { user_id: 'usr_cr_01', name: 'Fictional Chief Registrar', role: 'Chief Registrar', court: 'All Courts', division: 'All Divisions' },
-        { user_id: 'usr_clerk_01', name: 'Fictional Clerk', role: 'Clerk', court: 'Demo Court A', division: 'Criminal' },
+        { user_id: 'usr_clerk_01', name: 'Fictional Filing Clerk', role: 'Filing Clerk', court: 'Demo Court A', division: 'Criminal' },
         { user_id: 'usr_sheriff_01', name: 'Fictional Sheriff', role: 'Sheriff', court: 'Demo Court A', division: 'Criminal' }
     ] };
     if (pathname === '/api/judge/alerts') return { status: 200, body: { alerts: [], total_alerts: 0 } };

@@ -1,6 +1,6 @@
 # Development progress
 
-> **Current status — 2 October 2026:** The latest local tranche adds a verified synthetic-only demo seeder, court-aware registration defaults, threshold/concurrency/notification-failure tests, and a first screenshot-driven UI refresh: grouped role-aware navigation, a quieter header, a prioritized worklist, and a dedicated case-intake view. Frontend tests pass locally; manual browser/device acceptance remains open. GitHub Actions and the Docker image have not yet been verified remotely/built. WhatsApp remains disabled by default; real delivery is untested. This is a competition-team prototype, not a government service, and government approval does not block feature development. Older checkpoints below are historical and are superseded where the latest entry or completion plan says so.
+> **Current status — 12 October 2026:** The approved first-pilot role model is now enforced server-side, with role-aware UI, explicit legacy `Clerk` remapping, and a deployment entitlement gate for Court Clerk (not a billing integration). The role/access matrix and PWA acceptance guides are aligned with current code. Full local Python tests pass (82 passed, 10 deprecation warnings), as do the frontend regression suites; physical-device/staging acceptance, legal review beyond the approved role model, and production gates remain open. This is a competition-team prototype, not a government service, and government approval does not block feature development. Older checkpoints below are historical and are superseded where the latest entry or completion plan says so.
 
 ## 1 October 2026 — first security tranche
 
@@ -291,3 +291,17 @@ Verification and remaining scope:
 - Committed login screenshots and measured geometry in `docs/viewport-evidence/`; `npm run test:viewport` now runs the login and dashboard suites in sequence, with a login-only command available as `npm run test:viewport:login`.
 - Documented the actual account flow in `README.md`: one-time live-mode Chief Registrar bootstrap, Chief Registrar-only User Management, scope requirements, password constraints, and first-sign-in password change. There is no public self-registration.
 - This work did not change roles, permissions, legal rules, account policy, or backend behavior. Visual browser coverage is not a substitute for real-device/accessibility acceptance.
+
+## 12 October 2026 — approved pilot role model and scope enforcement
+
+Implemented:
+- Added a server-owned pilot role vocabulary and assignability rules for Chief Judge, Chief Registrar, Deputy Chief Registrar, Registrar, Filing Clerk, Registry Clerk, Court Clerk, Bailiff, and Sheriff. Presiding Judge remains optional/read-only. Cashier / Fees Clerk, Counsel, Counsel's Clerk, and appellate roles remain unavailable.
+- Enforced route-level permissions and court/division/Judge/current-Sheriff case scopes, including restricted judicial responses, Filing Clerk-only QR-label issuance, Court Clerk-only hearing entry, and the authorized Registrar/DCR/Sheriff/registry operations described in [`docs/COURTLOG_ROLE_ACCESS_MATRIX.md`](docs/COURTLOG_ROLE_ACCESS_MATRIX.md).
+- Added explicit legacy `Clerk` handling: migrated accounts are marked “Role Assignment Required,” existing sessions are revoked, sign-in is blocked, and a Chief Registrar must select the new role and provide an audited reason. No automatic Clerk-to-Court-Clerk mapping is performed. Legacy DCR/Judge names are migrated to their one-to-one successor roles.
+- Gated Court Clerk account creation, login, refresh, and authenticated requests behind the server-side `COURTLOG_PAID_FEATURES=court_clerk` entitlement. This setting is deployment provisioning only; CourtLOG has no payment/billing provider or payment-verification flow.
+- Updated role-aware UI, demo accounts, access/acceptance documentation, and generated overview. QR-label instructions now name Filing Clerk—not a generic Clerk or Chief Registrar—as the issuer. No unrelated legal threshold or rule was changed; no real court data or external device/provider acceptance was used.
+
+Verification:
+- `.venv/bin/python -m pytest -q`: **82 passed**, with 10 existing FastAPI/SciPy deprecation warnings.
+- `npm run test:frontend`: passed, including security, session, PWA, and role-aware UI suites.
+- Physical phone/printer testing, legal review beyond the approved role model, staging, live billing/payment, and production acceptance remain open. The Court Clerk environment entitlement is not evidence of payment.

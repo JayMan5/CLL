@@ -1,6 +1,6 @@
 # CourtLOG — Current Verified Status
 
-**Verification date:** 3 October 2026
+**Verification date:** 12 October 2026
 
 **Project status:** competition-team prototype; **not pilot-ready or production-certified**. This status reflects code and local test evidence only. It is not legal approval, institutional endorsement, permission to use real records, or acceptance on a phone/printer/provider.
 
@@ -8,7 +8,7 @@ Use this file as the quick status index. The detailed task owner/decision list i
 
 ## Implemented in code (not equivalent to acceptance)
 
-- **Authentication and access controls:** the API uses JWT-backed sessions, current stored user profiles, role/court/division scoping, protected routes, and password-hash filtering. The local automated suite exercises isolated databases and fictional users. This is not an independent security assessment.
+- **Authentication and access controls:** the API uses JWT-backed sessions, current stored user profiles, role/court/division scoping, protected routes, and password-hash filtering. The approved pilot roles are Chief Judge, Chief Registrar, Deputy Chief Registrar, Registrar, Filing Clerk, Registry Clerk, Court Clerk, Bailiff, and Sheriff; optional Presiding Judge access is read-only. Deferred Cashier/Fees Clerk, Counsel, and Counsel's Clerk are not assignable. Existing generic `Clerk` accounts are blocked from sign-in until a Chief Registrar explicitly assigns a new pilot role; they are never automatically granted Court Clerk access. Court Clerk access requires the server-side `COURTLOG_PAID_FEATURES=court_clerk` organization/deployment entitlement. This setting enables the feature but does not process or verify payment; there is no billing integration. The local automated suite exercises isolated databases and fictional users. This is not an independent security assessment. See [`docs/COURTLOG_ROLE_ACCESS_MATRIX.md`](docs/COURTLOG_ROLE_ACCESS_MATRIX.md).
 - **Physical custody:** authenticated Sheriff assignment, handover, QR-token validation, server-attributed check-in, and separate missing/found history are implemented. The installable PWA provides local QR generation and camera/USB/manual paths; phone/browser/printer acceptance remains open.
 - **Hearings and review:** hearing events, scoped case history, and a separate in-app DCR review/acknowledgement/escalation workflow exist. The current case-level adjournment trigger at four recorded adjournments and its override workflow are prototype settings, not approved legal rules or per-party statutory counting.
 - **Delay-risk experiment:** the app can use a versioned one-hot Logistic Regression pipeline or a deterministic heuristic fallback, with the prediction source identified. The legacy tracked training CSV contains rule-generated labels calibrated from real-derived distributions with unverified permission; the trainer now requires explicit data/provenance and blocks treating that file as synthetic. Synthetic-only pipeline tests pass, but no independent validation against real outcomes has been performed. Scores are not legal findings.
@@ -18,8 +18,8 @@ Use this file as the quick status index. The detailed task owner/decision list i
 
 ## Latest local verification
 
-- Latest targeted backend run, `.venv/bin/python -m pytest tests/test_model_training.py backend/test_api.py tests/test_security.py -q`: **74 passed**, with 10 FastAPI/SciPy deprecation warnings. Tests use fictional or synthetic fixtures; no model was trained and no tracked court dataset was used.
-- `npm run test:frontend`: passed after the UI refresh, Tailwind v4.3.0 migration, and dashboard alert-review navigation fix; security, session, PWA, role-aware navigation, menu, filtered alert actions, and Tailwind build checks pass.
+- Full `.venv/bin/python -m pytest -q`: **82 passed**, with 10 existing FastAPI/SciPy deprecation warnings. This run includes the pilot-role, legacy-role-remapping, Court Clerk entitlement, and server-side access tests. Tests use isolated databases and fictional/synthetic fixtures; no model was trained and no tracked court dataset was used.
+- `npm run test:frontend`: passed after building local assets; security, session, PWA, role-aware navigation, accessible menus, dashboard hierarchy, and alert-count checks pass.
 - `npm run test:viewport`: the dashboard and login viewport suites pass in headless Chromium for 1600×900, 1366×768, 1024×768, 768×1024, and 390×844. Login card/fields/buttons stay within the viewport; dashboard checks include mobile/tablet registration forms, navigation, and contained table scrolling, with no page-wide horizontal overflow. Committed reference screenshots/measurements are in [`docs/viewport-evidence/`](docs/viewport-evidence/). Manual accessibility/zoom and physical-device acceptance remain open.
 - `.venv/bin/python -m pip check`: no broken requirements; `.venv/bin/pip-audit -r requirements.txt`: no known vulnerabilities; `npm audit --audit-level=high` and `npm audit --omit=dev`: 0 vulnerabilities after the Tailwind toolchain migration.
 - `.venv/bin/python -m compileall -q backend tests scripts`, `node --check frontend/app.js`, and `git diff --check`: passed.
@@ -58,6 +58,7 @@ git diff --check
 |---|---|
 | [`README.md`](README.md) | Current setup, safety, behavior, integration limits, and verification commands; update when the code or scripts change. |
 | [`COURTLOG_COMPLETION_PLAN.md`](COURTLOG_COMPLETION_PLAN.md) | Current acceptance checklist and unresolved decisions; check a box only after its full criterion is verified. |
+| [`docs/COURTLOG_ROLE_ACCESS_MATRIX.md`](docs/COURTLOG_ROLE_ACCESS_MATRIX.md), [`docs/PILOT_ROLE_QUICK_GUIDE.md`](docs/PILOT_ROLE_QUICK_GUIDE.md) | Current server-permission reference and staff walkthrough for the approved first-pilot roles; not a legal rulebook or proof of user acceptance. |
 | [`UI_UPGRADE_PLAN.md`](UI_UPGRADE_PLAN.md) | Active UI task list; UI-17 headless viewport regression passed; cross-role, accessibility/zoom, and physical-device acceptance remain open. |
 | [`DEVELOPMENT_PROGRESS.md`](DEVELOPMENT_PROGRESS.md) | Dated implementation log; older entries are historical and do not override current gates. |
 | [`COURTLOG_Abstract.md`](COURTLOG_Abstract.md) | Current cautious prototype abstract; institutional and legal claims remain explicitly qualified. |
@@ -65,6 +66,6 @@ git diff --check
 | [`project_audit.md`](project_audit.md), [`project_analysis.md`](project_analysis.md), [`Report.md`](Report.md) | Historical snapshots with supersession warnings; do not use their former completion percentages, seed descriptions, or implementation claims as current status. |
 | [`COURTLOG_Project_Update_TeamBrief.md`](COURTLOG_Project_Update_TeamBrief.md) | Team briefing with caveats; earlier institutional-review/proposal assertions are not verified approval evidence. |
 | [`walkthrough.md`](walkthrough.md) | Current prototype walkthrough; the former inaccurate architecture description has been replaced. |
-| [`docs/CourtLOG_Overview.docx`](docs/CourtLOG_Overview.docx) and other tracked `.docx` / `.pptx` | The overview is regenerated from `docs/generate_docx.py` and reflects current ML provenance/limitations and viewport-test scope. Other binary documents were not revalidated; review them against this status before external use. |
+| [`docs/CourtLOG_Overview.docx`](docs/CourtLOG_Overview.docx) and other tracked `.docx` / `.pptx` | The overview is regenerated from `docs/generate_docx.py` and reflects the current role scope, ML provenance/limitations, and acceptance limits. `CourtLOG_RBAC_Mismatches.docx` is a historical role snapshot superseded by the current role matrix. Other binary documents and the pitch deck were not revalidated; review them against this status before external use. |
 
 **Claims that must not be made:** government/institutional endorsement or deployment; legally approved hearing/execution rules or forms; validated real-world AI performance; real WhatsApp delivery; functional offline scans; or completed phone/printer/staging/pilot acceptance.

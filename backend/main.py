@@ -32,6 +32,13 @@ from backend.auth import (
     REFRESH_TOKEN_EXPIRE_DAYS, create_access_token,
     create_refresh_token, verify_token, get_current_user,
 )
+from backend.roles import (
+    BAILIFF, CHIEF_JUDGE, CHIEF_REGISTRAR, COURT_CLERK,
+    DEPUTY_CHIEF_REGISTRAR, FILING_CLERK, PILOT_ROLES,
+    PRESIDING_JUDGE, REGISTRAR, REGISTRY_CLERK, ROLE_ASSIGNMENT_REQUIRED,
+    SHERIFF, enabled_paid_features, required_feature_for_role,
+    role_is_assignable, role_is_licensed,
+)
 
 # Setup logging
 logging.basicConfig(level=logging.INFO)
@@ -153,22 +160,22 @@ def case_file_is_missing(case: Dict[str, Any]) -> bool:
 def can_access_case(case: Dict[str, Any], auth: Dict[str, str]) -> bool:
     """Fail closed; use the current stored profile, never client-supplied scope."""
     user = db.get_user(auth["user_id"])
-    if not user or user.get("disabled"):
+    if not user or user.get("disabled") or user.get("role_remap_required"):
         return False
     role = user.get("role")
-    if role == "Chief Registrar":
+    if role == CHIEF_REGISTRAR:
         return True
-    if role == "Judge":
-        return (bool(user.get("court"))
-                and case.get("assigned_judge_id") == user["user_id"]
-                and case.get("court") == user["court"])
-    if role == "DCR":
-        return bool(user.get("division")) and case.get("assigned_division") == user["division"]
-    if role == "Clerk":
-        return bool(user.get("court")) and case.get("court") == user["court"]
-    if role == "Sheriff":
-        if not user.get("court") or case.get("court") != user["court"]:
-            return False
+
+    user_court = user.get("court")
+    case_court = case.get("court")
+    if not user_court or user_court == "All Courts" or case_court != user_court:
+        return False
+
+    if role in {CHIEF_JUDGE, DEPUTY_CHIEF_REGISTRAR, REGISTRAR}:
+        return True
+    if role == PRESIDING_JUDGE:
+        return case.get("assigned_judge_id") == user.get("user_id")
+    if role == SHERIFF:
         # Once custody has an explicit assignee, that assignment is authoritative:
         # old scan history or a prior missing-file report must not preserve access
         # after a handover. Legacy cases without an assignment retain their existing
@@ -180,6 +187,14 @@ def can_access_case(case: Dict[str, Any], auth: Dict[str, str]) -> bool:
         missing = case.get("file_missing_report") or {}
         return (bool(scans and scans[-1].get("staff_id") == user["user_id"])
                 or (not missing.get("resolved") and missing.get("reported_by") == user["user_id"]))
+
+    if role in {FILING_CLERK, REGISTRY_CLERK, COURT_CLERK, BAILIFF}:
+        division = user.get("division")
+        return bool(division) and (
+            division == "All Divisions" or case.get("assigned_division") == division
+        )
+    # Legacy Clerk accounts remain signed in only long enough to receive an
+    # explicit role assignment; the role has no case access.
     return False
 
 
@@ -190,6 +205,20 @@ def authorize_case(case: Dict[str, Any], auth: Dict[str, str]) -> None:
 
 def scoped_cases(auth: Dict[str, str]) -> List[Dict[str, Any]]:
     return [case for case in db.list_cases() if can_access_case(case, auth)]
+
+
+def case_view_for_role(case: Dict[str, Any], role: str) -> Dict[str, Any]:
+    """Keep judicial dashboards to their approved read-only scope, not full registry records."""
+    if role not in {CHIEF_JUDGE, PRESIDING_JUDGE}:
+        return case
+    dashboard_fields = {
+        "case_id", "case_type", "court", "assigned_division", "assigned_judge_id",
+        "filing_date", "days_since_filing", "adjournment_count", "judgment_status",
+        "judgment_delivery_at", "delay_risk_score", "risk_flag", "custody_alert",
+        "enforcement_non_compliant", "dcr_approval_required", "adjournment_blocked",
+        "file_missing",
+    }
+    return {key: value for key, value in case.items() if key in dashboard_fields}
 
 
 # In-memory storage for the simulated WhatsApp broadcasts log
@@ -370,6 +399,24 @@ class HearingRequest(BaseModel):
         return self
 
 
+class JudgmentDeliveryRequest(BaseModel):
+    delivered_at: datetime
+
+    @field_validator("delivered_at", mode="before")
+    @classmethod
+    def parse_delivery_datetime(cls, value):
+        if isinstance(value, datetime):
+            parsed = value
+        elif isinstance(value, str):
+            try:
+                parsed = datetime.fromisoformat(value.strip().replace("Z", "+00:00"))
+            except ValueError as exc:
+                raise ValueError("delivered_at must be a valid ISO 8601 date or datetime") from exc
+        else:
+            raise ValueError("delivered_at must be a valid ISO 8601 date or datetime")
+        return parsed if parsed.tzinfo else parsed.replace(tzinfo=timezone.utc)
+
+
 class ExecutionRequest(BaseModel):
     action: str = Field(min_length=3, max_length=300, pattern=r"\S")
     sheriff_id: str = Field(min_length=1, max_length=64, pattern=r"\S")
@@ -488,7 +535,7 @@ class ReassignRequest(BaseModel):
 
 class AssignJudgeRequest(BaseModel):
     judge_id: str = Field(min_length=1, max_length=64, pattern=r"\S")
-    reason: Optional[str] = Field(default="Balloting assignment", max_length=500)
+    reason: str = Field(min_length=5, max_length=500, pattern=r"\S")
 
     @field_validator("judge_id")
     @classmethod
@@ -498,11 +545,9 @@ class AssignJudgeRequest(BaseModel):
     @field_validator("reason")
     @classmethod
     def trim_assignment_reason(cls, value):
-        if value is None:
-            return None
         value = value.strip()
-        if not value:
-            raise ValueError("reason cannot be blank")
+        if len(value) < 5:
+            raise ValueError("A Chief Judge decision reference is required")
         return value
 
 
@@ -548,10 +593,29 @@ class UserCreateRequest(BaseModel):
     username: str = Field(min_length=3, max_length=32, pattern=r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
     initial_password: str = Field(min_length=12, max_length=72)
     name: str = Field(min_length=2, max_length=120)
-    role: Literal["Sheriff", "Clerk", "DCR", "Chief Registrar", "Judge"]
+    role: str
     badge: str = Field(min_length=2, max_length=120)
     court: str = Field(min_length=2, max_length=120)
     division: str = Field(min_length=2, max_length=120)
+
+    @field_validator("role")
+    @classmethod
+    def validate_pilot_role(cls, value):
+        value = value.strip()
+        if value not in PILOT_ROLES:
+            raise ValueError("Only approved first-pilot roles may be assigned")
+        return value
+
+    @model_validator(mode="after")
+    def validate_role_scope(self):
+        if self.role == CHIEF_REGISTRAR:
+            if self.court != "All Courts" or self.division != "All Divisions":
+                raise ValueError("Chief Registrar scope must be All Courts / All Divisions")
+        elif self.court == "All Courts":
+            raise ValueError("Only the Chief Registrar may have All Courts scope")
+        if self.role in {CHIEF_JUDGE, DEPUTY_CHIEF_REGISTRAR, REGISTRAR} and self.division != "All Divisions":
+            raise ValueError(f"{self.role} must be assigned All Divisions within a specific court")
+        return self
 
     @field_validator("username")
     @classmethod
@@ -571,6 +635,23 @@ class UserCreateRequest(BaseModel):
         value = value.strip()
         if not value:
             raise ValueError("Field cannot be blank")
+        return value
+
+
+class UserRoleChangeRequest(BaseModel):
+    role: str
+    reason: str = Field(min_length=5, max_length=500, pattern=r"\S")
+
+    @field_validator("role", "reason")
+    @classmethod
+    def trim_role_change_fields(cls, value):
+        return value.strip()
+
+    @field_validator("role")
+    @classmethod
+    def validate_pilot_role(cls, value):
+        if value not in PILOT_ROLES:
+            raise ValueError("Only approved first-pilot roles may be assigned")
         return value
 
 
@@ -600,8 +681,13 @@ class PasswordResetRequest(BaseModel):
 
 @app.get("/api/config")
 def client_config():
-    """Expose only non-sensitive switches needed to render demo-only controls safely."""
-    return {"demo_mode": DEMO_MODE_ENABLED}
+    """Expose safe client switches; this is not a billing or payment-status endpoint."""
+    features = enabled_paid_features()
+    return {
+        "demo_mode": DEMO_MODE_ENABLED,
+        "paid_features": {"court_clerk": "court_clerk" in features},
+        "assignable_roles": [role for role in PILOT_ROLES if role_is_assignable(role)],
+    }
 
 
 @app.post("/api/login")
@@ -643,8 +729,25 @@ def login(req: LoginRequest, response: Response, request: Request):
         password_matches = False
 
     if user and stored_hash and stored_hash == password_hash and password_matches and not user.get("disabled"):
+        role = user.get("role", "")
+        if role == "Clerk" or role == ROLE_ASSIGNMENT_REQUIRED or user.get("role_remap_required"):
+            db.complete_login_attempt(attempt_id)
+            raise HTTPException(
+                status_code=403,
+                detail="Legacy Clerk account requires an explicit role assignment by the Chief Registrar before sign-in.",
+                headers={"Cache-Control": "no-store"},
+            )
+        if role not in PILOT_ROLES:
+            db.complete_login_attempt(attempt_id)
+            raise HTTPException(status_code=403, detail="This account has no active first-pilot role.")
+        if not role_is_licensed(role):
+            db.complete_login_attempt(attempt_id)
+            raise HTTPException(
+                status_code=403,
+                detail="The Court Clerk feature is not enabled for this deployment.",
+                headers={"Cache-Control": "no-store"},
+            )
         user_id = user["user_id"]
-        role = user.get("role", "Clerk")
         session_id = secrets.token_urlsafe(32)
         refresh_jti = secrets.token_urlsafe(32)
         expires_at = int((datetime.now(timezone.utc) + timedelta(days=REFRESH_TOKEN_EXPIRE_DAYS)).timestamp())
@@ -698,6 +801,12 @@ def refresh_token_endpoint(
         if user_id:
             db.revoke_user_sessions(user_id)
         raise HTTPException(status_code=401, detail="Account is no longer active")
+    if user.get("role_remap_required") or user.get("role") in {"Clerk", ROLE_ASSIGNMENT_REQUIRED}:
+        db.revoke_user_sessions(user["user_id"])
+        raise HTTPException(status_code=403, detail="Legacy Clerk account requires an explicit role assignment before sign-in.")
+    if not role_is_licensed(user.get("role", "")):
+        db.revoke_user_sessions(user["user_id"])
+        raise HTTPException(status_code=403, detail="This role is not enabled by the deployment entitlement.")
     if not session_id or not old_jti:
         raise HTTPException(status_code=401, detail="Refresh session is invalid")
 
@@ -740,16 +849,16 @@ def logout(
 
 
 # ----------------- COMPLIANCE SWEEP LOGIC -----------------
-def run_compliance_checks_sync():
+def run_compliance_checks_sync(cases_to_check: Optional[List[Dict[str, Any]]] = None):
     """
-    Synchronously updates all dynamic metrics for cases:
+    Synchronously updates dynamic metrics for all cases, or an explicitly scoped list:
     1. Days since filing based on the current UTC clock.
     2. Idle custody alert flag (True if no scan events in the last 7 consecutive days).
     3. Preserve the separate missing-file flag until an authorised found action.
     4. Configured 90-day execution-review prompt stored in a legacy case field.
        It is not a legal compliance determination; the policy basis remains under review.
     """
-    cases = db.list_cases()
+    cases = cases_to_check if cases_to_check is not None else db.list_cases()
     logger.info(f"Running prototype workflow checks on {len(cases)} cases...")
     
     for case in cases:
@@ -960,33 +1069,47 @@ def run_model_inference(case_data: Dict[str, Any]) -> Dict[str, Any]:
 
 @app.get("/api/users", response_model=List[Dict[str, Any]])
 def list_users(auth: Dict[str, str] = Depends(get_current_user)):
-    """Lists all user accounts across the 5-level access hierarchy."""
-    if auth["role"] != "Chief Registrar":
+    """List pilot accounts; a legacy Clerk is shown as requiring explicit remap."""
+    if auth["role"] != CHIEF_REGISTRAR:
         raise HTTPException(status_code=403, detail="User management requires Chief Registrar authority")
-    return [{k: v for k, v in user.items() if k != "password"} for user in db.list_users()]
+    visible_users = []
+    for user in db.list_users():
+        visible = {k: v for k, v in user.items() if k != "password"}
+        if visible.get("role") == "Clerk":
+            # The committed local demo DB is not rewritten automatically, but the
+            # legacy account is still visibly blocked and can be explicitly remapped.
+            visible.update({
+                "role": ROLE_ASSIGNMENT_REQUIRED,
+                "legacy_role": "Clerk",
+                "role_remap_required": True,
+            })
+        visible_users.append(visible)
+    return visible_users
 
 @app.get("/api/audit/events", response_model=List[Dict[str, Any]])
 def get_audit_events(
     limit: int = Query(default=100, ge=1, le=500),
     auth: Dict[str, str] = Depends(get_current_user),
 ):
-    """Chief Registrar-only access to the latest append-only operational events."""
-    if auth["role"] != "Chief Registrar":
-        raise HTTPException(status_code=403, detail="Audit review requires Chief Registrar authority")
+    """Chief Registrar and Deputy Chief Registrar read access to append-only events."""
+    if auth["role"] not in {CHIEF_REGISTRAR, DEPUTY_CHIEF_REGISTRAR}:
+        raise HTTPException(status_code=403, detail="Audit review requires Chief Registrar or Deputy Chief Registrar authority")
     return db.list_audit_events(limit)
 
 
 @app.post("/api/users", status_code=201)
 def create_user(req: UserCreateRequest, auth: Dict[str, str] = Depends(get_current_user)):
-    """Create a named account with a temporary password that must be changed at first login."""
-    if auth["role"] != "Chief Registrar":
+    """Create a pilot account with a temporary password that must be changed at first login."""
+    if auth["role"] != CHIEF_REGISTRAR:
         raise HTTPException(status_code=403, detail="User management requires Chief Registrar authority")
-    if req.role == "Chief Registrar" and (req.court.casefold() != "all courts" or req.division.casefold() != "all divisions"):
-        raise HTTPException(status_code=422, detail="Chief Registrars must be assigned to All Courts and All Divisions")
-    if req.role != "Chief Registrar" and req.court.casefold() == "all courts":
-        raise HTTPException(status_code=422, detail="Only Chief Registrars may be assigned to All Courts")
-    if req.role != "Chief Registrar" and req.division.casefold() == "all divisions":
-        raise HTTPException(status_code=422, detail="Only Chief Registrars may be assigned to All Divisions")
+    if not role_is_assignable(req.role):
+        feature = required_feature_for_role(req.role)
+        if feature:
+            raise HTTPException(
+                status_code=403,
+                detail=f"The {req.role} role requires the server-side '{feature}' deployment entitlement; no billing integration is configured.",
+            )
+        raise HTTPException(status_code=422, detail="Only approved first-pilot roles may be assigned")
     if any(str(user.get("username", "")).strip().casefold() == req.username.casefold() for user in db.list_users()):
         raise HTTPException(status_code=409, detail="Username is already in use")
 
@@ -1012,6 +1135,53 @@ def create_user(req: UserCreateRequest, auth: Dict[str, str] = Depends(get_curre
         metadata={"role": req.role},
     )
     return _safe_user(new_user)
+
+
+@app.patch("/api/users/{user_id}/role")
+def remap_legacy_user_role(
+    user_id: str,
+    req: UserRoleChangeRequest,
+    auth: Dict[str, str] = Depends(get_current_user),
+):
+    """Explicitly map an ambiguous pre-pilot Clerk account to one pilot role."""
+    if auth["role"] != CHIEF_REGISTRAR:
+        raise HTTPException(status_code=403, detail="Role remapping requires Chief Registrar authority")
+    if user_id == auth["user_id"]:
+        raise HTTPException(status_code=409, detail="A Chief Registrar cannot remap their own account")
+    user = db.get_user(user_id)
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    if not user.get("role_remap_required") and user.get("role") not in {"Clerk", ROLE_ASSIGNMENT_REQUIRED}:
+        raise HTTPException(status_code=409, detail="Only a legacy account awaiting role assignment can be remapped here")
+    if not role_is_assignable(req.role):
+        feature = required_feature_for_role(req.role)
+        if feature:
+            raise HTTPException(
+                status_code=403,
+                detail=f"The {req.role} role requires the server-side '{feature}' deployment entitlement; no billing integration is configured.",
+            )
+        raise HTTPException(status_code=422, detail="Only approved first-pilot roles may be assigned")
+
+    previous_role = user.get("legacy_role", "Clerk")
+    if req.role == CHIEF_REGISTRAR:
+        user["court"] = "All Courts"
+        user["division"] = "All Divisions"
+    else:
+        if not user.get("court") or user.get("court") == "All Courts":
+            raise HTTPException(status_code=422, detail="Select a specific court scope before assigning this role")
+        if req.role in {CHIEF_JUDGE, DEPUTY_CHIEF_REGISTRAR, REGISTRAR}:
+            user["division"] = "All Divisions"
+    user["role"] = req.role
+    user["role_remap_required"] = False
+    user.pop("legacy_role", None)
+    db.save_user(user_id, user)
+    db.revoke_user_sessions(user_id)
+    _record_audit_event(
+        auth["user_id"], "user.role.remap", "user", user_id,
+        reason=req.reason,
+        metadata={"previous_role": previous_role, "current_role": req.role},
+    )
+    return _safe_user(user)
 
 
 @app.post("/api/users/me/password")
@@ -1086,20 +1256,22 @@ def delete_user(user_id: str, auth: Dict[str, str] = Depends(get_current_user)):
 
 @app.get("/api/cases", response_model=List[Dict[str, Any]])
 def get_all_cases(auth: Dict[str, str] = Depends(get_current_user)):
-    """Lists cases in the database filtered by role scope per 5-Level Hierarchy."""
-    return scoped_cases(auth)
+    """List cases filtered by pilot role/court scope and judicial read-only field limits."""
+    return [case_view_for_role(case, auth["role"]) for case in scoped_cases(auth)]
 
 
 @app.post("/api/cases", status_code=201)
 def create_case(req: CaseCreateRequest, auth: Dict[str, str] = Depends(get_current_user)):
-    """Creates a new case file. Restricted to Clerks and Chief Registrar."""
-    if auth["role"] not in ["Clerk", "Chief Registrar"]:
-        raise HTTPException(status_code=403, detail="Permission Denied: Case creation is restricted to Court Clerks and Chief Registrar.")
-        
-    if auth["role"] == "Clerk":
-        profile = db.get_user(auth["user_id"])
-        if req.court != profile.get("court"):
-            raise HTTPException(status_code=403, detail="Clerks may register cases only in their assigned court")
+    """Create a new case file; first-pilot filing and registration belong to Filing Clerks."""
+    if auth["role"] != FILING_CLERK:
+        raise HTTPException(status_code=403, detail="Case registration requires the Filing Clerk role")
+
+    profile = db.get_user(auth["user_id"])
+    if req.court != profile.get("court"):
+        raise HTTPException(status_code=403, detail="Filing Clerks may register cases only in their assigned court")
+    requested_division = "Criminal" if "criminal" in req.case_type.casefold() else "Civil"
+    if profile.get("division") not in {"All Divisions", requested_division}:
+        raise HTTPException(status_code=403, detail="Filing Clerks may register cases only in their assigned division")
 
     if db.get_case(req.case_id):
         raise HTTPException(status_code=400, detail="Case ID already exists")
@@ -1108,9 +1280,9 @@ def create_case(req: CaseCreateRequest, auth: Dict[str, str] = Depends(get_curre
         "case_id": req.case_id,
         "case_type": req.case_type,
         "court": req.court,
-        "assigned_division": "Criminal" if "Criminal" in req.case_type else "Civil",
-        # Judicial assignment is an explicit Chief Registrar action; do not bind
-        # every new case to a hard-coded demo Judge or grant cross-court visibility.
+        "assigned_division": requested_division,
+        # Judicial assignment is recorded separately by the Registrar against a
+        # Chief Judge decision reference; do not bind to a hard-coded demo judge.
         "assigned_judge_id": None,
         "assigned_sheriff_id": None,
         "custody_history": [],
@@ -1204,9 +1376,9 @@ def _record_case_scan(
 
 @app.post("/api/scan", response_model=Dict[str, Any])
 def record_scan_event(req: ScanRequest, auth: Dict[str, str] = Depends(get_current_user)):
-    """Manual case-selection fallback for Sheriff and registry staff."""
-    if auth["role"] not in ["Sheriff", "Clerk", "Chief Registrar"]:
-        raise HTTPException(status_code=403, detail="Permission Denied: custody scanning is restricted to Sheriff and Registry Staff.")
+    """Manual case-selection fallback for the approved registry, service, and Sheriff roles."""
+    if auth["role"] not in {FILING_CLERK, REGISTRY_CLERK, COURT_CLERK, BAILIFF, SHERIFF}:
+        raise HTTPException(status_code=403, detail="Manual custody scanning is restricted to assigned pilot workflow roles.")
 
     case = db.get_case(req.case_id)
     if not case:
@@ -1217,9 +1389,9 @@ def record_scan_event(req: ScanRequest, auth: Dict[str, str] = Depends(get_curre
 
 @app.post("/api/scan/qr", response_model=Dict[str, Any])
 def record_qr_scan_event(req: QRScanRequest, auth: Dict[str, str] = Depends(get_current_user)):
-    """Resolve an opaque QR token, then enforce the current Sheriff assignment."""
-    if auth.get("role") != "Sheriff":
-        raise HTTPException(status_code=403, detail="QR check-in is restricted to the assigned Sheriff")
+    """Resolve an opaque QR token and record the authenticated pilot-role actor."""
+    if auth.get("role") not in {FILING_CLERK, REGISTRY_CLERK, COURT_CLERK, BAILIFF, SHERIFF}:
+        raise HTTPException(status_code=403, detail="QR check-in is restricted to approved registry, service, or Sheriff roles")
     if not QR_PAYLOAD_PATTERN.fullmatch(req.qr_payload):
         raise HTTPException(status_code=422, detail="QR label format is not recognized")
 
@@ -1232,9 +1404,11 @@ def record_qr_scan_event(req: QRScanRequest, auth: Dict[str, str] = Depends(get_
     if not case:
         raise HTTPException(status_code=404, detail="QR label is not recognized")
     authorize_case(case, auth)
-    if case.get("assigned_sheriff_id") != auth["user_id"]:
-        raise HTTPException(status_code=403, detail="Only the currently assigned Sheriff may check in this QR label")
-    return _record_case_scan(case_id, req.location, auth, "qr", require_current_assignment=True)
+    if auth["role"] == SHERIFF:
+        if case.get("assigned_sheriff_id") != auth["user_id"]:
+            raise HTTPException(status_code=403, detail="Only the currently assigned Sheriff may check in this QR label")
+        return _record_case_scan(case_id, req.location, auth, "qr", require_current_assignment=True)
+    return _record_case_scan(case_id, req.location, auth, "qr")
 
 
 @app.post("/api/cases/{case_id:path}/qr-label", status_code=201)
@@ -1244,8 +1418,8 @@ def issue_case_qr_label(
     auth: Dict[str, str] = Depends(get_current_user),
 ):
     """Issue a random, opaque label token; it is never a substitute for authorization."""
-    if auth.get("role") not in ["Clerk", "Chief Registrar"]:
-        raise HTTPException(status_code=403, detail="Only registry staff may issue QR labels")
+    if auth.get("role") != FILING_CLERK:
+        raise HTTPException(status_code=403, detail="QR labels may be issued only by a Filing Clerk")
 
     case = db.get_case(case_id)
     if not case:
@@ -1274,21 +1448,17 @@ def issue_case_qr_label(
 
 
 @app.post("/api/cases/{case_id:path}/hearings", response_model=Dict[str, Any])
-def log_hearing_outcome(case_id: CaseIdentifier, req: HearingRequest, background_tasks: BackgroundTasks, auth: Dict[str, str] = Depends(get_current_user)):
+def log_hearing_outcome(case_id: CaseIdentifier, req: HearingRequest, auth: Dict[str, str] = Depends(get_current_user)):
     """Record hearing outcomes and apply the unchanged prototype review trigger.
 
     The configured case-level threshold is not a statutory determination or a
     per-party count; confirm any policy change with the Law Lead before rollout.
     """
-    if auth["role"] not in ["Clerk", "Judge", "Chief Registrar"]:
-        raise HTTPException(status_code=403, detail="Permission Denied: Hearing log entry is restricted to Clerks and Judges.")
+    if auth["role"] != COURT_CLERK:
+        raise HTTPException(status_code=403, detail="Hearing record entry requires the Court Clerk role and its deployment entitlement.")
+    if req.outcome == "Heard" and req.reason_code in {"Judgment Delivered", "Ruling Delivered"}:
+        raise HTTPException(status_code=403, detail="Court Clerks record administrative hearing events, not judgment details")
 
-    # Judge can ONLY deliver rulings — not log adjournments (Clerks do 90% of work)
-    if auth["role"] == "Judge" and req.outcome == "Adjourned":
-        raise HTTPException(status_code=403, detail="Permission Denied: Judges do not log adjournments. Clerks handle hearing data entry. Judges may only deliver rulings.")
-    if auth["role"] == "Judge" and req.outcome == "Heard" and req.reason_code not in ["Judgment Delivered", "Ruling Delivered"]:
-        raise HTTPException(status_code=403, detail="Permission Denied: Judges may only deliver final rulings/judgments through this system.")
-        
     case = db.get_case(case_id)
     if not case:
         raise HTTPException(status_code=404, detail="Case file not found")
@@ -1341,7 +1511,7 @@ def log_hearing_outcome(case_id: CaseIdentifier, req: HearingRequest, background
             )
             raise HTTPException(
                 status_code=400,
-                detail="Adjournment not recorded: the current application review threshold is reached and DCR/Chief Registrar review is pending.",
+                detail="Adjournment not recorded: the existing application review threshold is reached and Deputy Chief Registrar review is pending.",
             )
             
     if req.next_date is None:
@@ -1367,24 +1537,6 @@ def log_hearing_outcome(case_id: CaseIdentifier, req: HearingRequest, background
     if req.outcome == "Adjourned":
         updates["adjournment_count"] = current_adj_count + 1
         
-        background_tasks.add_task(
-            send_adjournment_broadcast,
-            case_id=case_id,
-            next_date=next_date_value,
-            reason_code=req.reason_code,
-            event_id=hearing_event["event_id"],
-            database=db,
-            actor_user_id=auth["user_id"],
-        )
-    elif req.outcome == "Heard" and req.reason_code in ["Judgment Delivered", "Ruling Delivered"]:
-        updates["judgment_status"] = "Delivered"
-        delivery_event = {
-            "action": "Judgment Delivered",
-            "date": format_date(get_current_time()),
-            "sheriff_id": auth["user_id"]
-        }
-        updates["execution_log"] = [delivery_event]
-        
     db.update_case(case_id, updates)
     
     case = db.get_case(case_id)
@@ -1406,11 +1558,90 @@ def log_hearing_outcome(case_id: CaseIdentifier, req: HearingRequest, background
     )
     return db.get_case(case_id)
 
+
+@app.post("/api/cases/{case_id:path}/judgment-delivery", response_model=Dict[str, Any])
+def record_judgment_delivery(
+    case_id: CaseIdentifier,
+    req: JudgmentDeliveryRequest,
+    auth: Dict[str, str] = Depends(get_current_user),
+):
+    """Registrar records only the delivery date; judgment text and legal reasons stay outside CourtLOG."""
+    if auth["role"] != REGISTRAR:
+        raise HTTPException(status_code=403, detail="Judgment delivery entry requires the Registrar role")
+    case = db.get_case(case_id)
+    if not case:
+        raise HTTPException(status_code=404, detail="Case file not found")
+    authorize_case(case, auth)
+    if case.get("judgment_status") in {"Delivered", "Executed"}:
+        raise HTTPException(status_code=409, detail="Judgment delivery is already recorded for this case")
+    filing_date = parse_date(case.get("filing_date", ""))
+    delivered_at = req.delivered_at.astimezone(timezone.utc)
+    if delivered_at < filing_date:
+        raise HTTPException(status_code=422, detail="Judgment delivery date cannot precede the filing date")
+
+    delivery_event = {
+        "action": "Judgment Delivered",
+        "date": format_date(delivered_at),
+        "registrar_id": auth["user_id"],
+    }
+    db.update_case(case_id, {
+        "judgment_status": "Delivered",
+        "judgment_delivery_at": format_date(delivered_at),
+        "judgment_recorded_by": auth["user_id"],
+        "execution_log": [delivery_event],
+    })
+    _record_audit_event(
+        auth["user_id"], "case.judgment.delivery.record", "case", case_id,
+        reason=format_date(delivered_at),
+        metadata={"record_type": "delivery_date_only"},
+    )
+    return db.get_case(case_id)
+
+
+@app.post("/api/cases/{case_id:path}/hearing-notice", status_code=202)
+def send_hearing_notice(
+    case_id: CaseIdentifier,
+    background_tasks: BackgroundTasks,
+    response: Response,
+    auth: Dict[str, str] = Depends(get_current_user),
+):
+    """Registrar sends a generic notice for the latest adjournment to opted-in contacts."""
+    if auth["role"] != REGISTRAR:
+        raise HTTPException(status_code=403, detail="Hearing notices require Registrar authority")
+    case = db.get_case(case_id)
+    if not case:
+        raise HTTPException(status_code=404, detail="Case file not found")
+    authorize_case(case, auth)
+    hearing_log = case.get("hearing_log") or []
+    if not hearing_log or hearing_log[-1].get("outcome") != "Adjourned":
+        raise HTTPException(status_code=409, detail="There is no latest adjournment to notify")
+    latest = hearing_log[-1]
+    event_id = latest.get("event_id")
+    if not event_id:
+        raise HTTPException(status_code=409, detail="The latest hearing record has no notification reference")
+
+    background_tasks.add_task(
+        send_adjournment_broadcast,
+        case_id=case_id,
+        next_date=latest.get("next_date", ""),
+        reason_code=latest.get("reason_code", ""),
+        event_id=event_id,
+        database=db,
+        actor_user_id=auth["user_id"],
+    )
+    _record_audit_event(
+        auth["user_id"], "whatsapp.hearing_notice.request", "case", case_id,
+        metadata={"event_id": event_id, "channel": "individual_opted_in_templates"},
+    )
+    response.headers["Cache-Control"] = "no-store"
+    return {"status": "queued", "case_id": case_id, "event_id": event_id}
+
+
 @app.post("/api/cases/{case_id:path}/dcr-override", response_model=Dict[str, Any])
 def override_dcr_adjournment(case_id: CaseIdentifier, req: DCROverrideRequest, auth: Dict[str, str] = Depends(get_current_user)):
-    """Record a reasoned DCR/Chief Registrar decision on a pending review."""
-    if auth["role"] not in ["DCR", "Chief Registrar"]:
-        raise HTTPException(status_code=403, detail="Permission Denied: DCR or Chief Registrar role required.")
+    """Record a reasoned Deputy Chief Registrar resolution on a pending review flag."""
+    if auth["role"] != DEPUTY_CHIEF_REGISTRAR:
+        raise HTTPException(status_code=403, detail="Permission Denied: Deputy Chief Registrar role required.")
 
     case = db.get_case(case_id)
     if not case:
@@ -1446,9 +1677,9 @@ def acknowledge_dcr_review(
     req: DCRReviewAcknowledgementRequest,
     auth: Dict[str, str] = Depends(get_current_user),
 ):
-    """Acknowledge a pending review without approving it or unblocking the case."""
-    if auth["role"] not in ["DCR", "Chief Registrar"]:
-        raise HTTPException(status_code=403, detail="Permission Denied: DCR or Chief Registrar role required.")
+    """Acknowledge a pending review flag without clearing or changing its threshold."""
+    if auth["role"] != DEPUTY_CHIEF_REGISTRAR:
+        raise HTTPException(status_code=403, detail="Permission Denied: Deputy Chief Registrar role required.")
 
     case = db.get_case(case_id)
     if not case:
@@ -1480,8 +1711,8 @@ def acknowledge_dcr_review(
 @app.post("/api/cases/{case_id:path}/report-missing", response_model=Dict[str, Any])
 def report_file_missing(case_id: CaseIdentifier, req: FileMissingRequest, auth: Dict[str, str] = Depends(get_current_user)):
     """Report a physical file as missing without changing idle or ML-risk flags."""
-    if auth["role"] not in ["Sheriff", "Chief Registrar"]:
-        raise HTTPException(status_code=403, detail="Permission Denied: Only Sheriffs and the Chief Registrar can report missing files.")
+    if auth["role"] not in {REGISTRY_CLERK, COURT_CLERK, SHERIFF}:
+        raise HTTPException(status_code=403, detail="Missing-file reports require a Registry Clerk, Court Clerk, or Sheriff role.")
 
     case = db.get_case(case_id)
     if not case:
@@ -1525,8 +1756,8 @@ def report_file_missing(case_id: CaseIdentifier, req: FileMissingRequest, auth: 
 @app.post("/api/cases/{case_id:path}/found", response_model=Dict[str, Any])
 def record_file_found(case_id: CaseIdentifier, req: FileFoundRequest, auth: Dict[str, str] = Depends(get_current_user)):
     """Record an authorised recovery and resolve the open missing-file alert."""
-    if auth.get("role") not in ["Sheriff", "Chief Registrar"]:
-        raise HTTPException(status_code=403, detail="Permission Denied: File recovery must be recorded by a Sheriff or Chief Registrar.")
+    if auth.get("role") not in {REGISTRY_CLERK, COURT_CLERK, SHERIFF}:
+        raise HTTPException(status_code=403, detail="File recovery must be recorded by a Registry Clerk, Court Clerk, or Sheriff.")
 
     case = db.get_case(case_id)
     if not case:
@@ -1580,8 +1811,8 @@ def _active_sheriff_for_case(case: Dict[str, Any], sheriff_id: str) -> Dict[str,
 @app.get("/api/cases/{case_id:path}/sheriffs", response_model=List[Dict[str, str]])
 def list_case_sheriffs(case_id: CaseIdentifier, auth: Dict[str, str] = Depends(get_current_user)):
     """Return only active Sheriff accounts for this case's court."""
-    if auth["role"] not in ["Clerk", "Chief Registrar", "Sheriff"]:
-        raise HTTPException(status_code=403, detail="Permission Denied: Sheriff custody is managed by registry staff and the assigned Sheriff.")
+    if auth["role"] not in {REGISTRY_CLERK, REGISTRAR, SHERIFF, CHIEF_REGISTRAR}:
+        raise HTTPException(status_code=403, detail="Sheriff custody is visible to registry operators and the Chief Registrar.")
 
     case = db.get_case(case_id)
     if not case:
@@ -1610,8 +1841,8 @@ def list_case_sheriffs(case_id: CaseIdentifier, auth: Dict[str, str] = Depends(g
 @app.post("/api/cases/{case_id:path}/assign-sheriff", response_model=Dict[str, Any])
 def assign_sheriff_to_case(case_id: CaseIdentifier, req: SheriffAssignmentRequest, auth: Dict[str, str] = Depends(get_current_user)):
     """Assign physical file custody to an active Sheriff in the same court."""
-    if auth["role"] not in ["Clerk", "Chief Registrar"]:
-        raise HTTPException(status_code=403, detail="Permission Denied: Sheriff assignment is restricted to registry staff")
+    if auth["role"] != REGISTRAR:
+        raise HTTPException(status_code=403, detail="Sheriff assignments require the Registrar role")
 
     case = db.get_case(case_id)
     if not case:
@@ -1691,23 +1922,21 @@ def handover_case_custody(case_id: CaseIdentifier, req: SheriffHandoverRequest, 
 
 @app.post("/api/cases/{case_id:path}/assign-judge", response_model=Dict[str, Any])
 def assign_judge_to_case(case_id: CaseIdentifier, req: AssignJudgeRequest, auth: Dict[str, str] = Depends(get_current_user)):
-    """
-    CR-only: Assign or reassign a judge to a case (balloting).
-    """
-    if auth["role"] != "Chief Registrar":
-        raise HTTPException(status_code=403, detail="Permission Denied: Judge assignment (balloting) requires Chief Registrar authority.")
+    """Registrar records a Presiding Judge assignment against a Chief Judge decision reference."""
+    if auth["role"] != REGISTRAR:
+        raise HTTPException(status_code=403, detail="Judge assignment requires the Registrar role")
 
     case = db.get_case(case_id)
     if not case:
         raise HTTPException(status_code=404, detail="Case file not found")
     authorize_case(case, auth)
 
-    # Balloting targets must be active Judges of this exact court.
+    # Assignment targets must be active, read-only Presiding Judge accounts at this court.
     judge = db.get_user(req.judge_id)
-    if not judge or judge.get("disabled") or judge.get("role") != "Judge":
-        raise HTTPException(status_code=422, detail="Selected account is not an active Judge")
+    if not judge or judge.get("disabled") or judge.get("role") != PRESIDING_JUDGE:
+        raise HTTPException(status_code=422, detail="Selected account is not an active Presiding Judge")
     if not case.get("court") or judge.get("court") != case.get("court"):
-        raise HTTPException(status_code=422, detail="Selected Judge is assigned to a different court")
+        raise HTTPException(status_code=422, detail="Selected Presiding Judge is assigned to a different court")
 
     db.update_case(case_id, {
         "assigned_judge_id": req.judge_id,
@@ -1724,27 +1953,24 @@ def assign_judge_to_case(case_id: CaseIdentifier, req: AssignJudgeRequest, auth:
 
 @app.post("/api/cases/{case_id:path}/reassign", response_model=Dict[str, Any])
 def reassign_case(case_id: CaseIdentifier, req: ReassignRequest, auth: Dict[str, str] = Depends(get_current_user)):
-    """
-    DCR/CR: Reassign a case to a different division or court.
-    DCR can reassign within their division; CR can reassign anywhere.
-    """
-    if auth["role"] not in ["DCR", "Chief Registrar"]:
-        raise HTTPException(status_code=403, detail="Permission Denied: Case reassignment requires DCR or Chief Registrar role.")
+    """Deputy Chief Registrar may correct a division entry with an audited reason."""
+    if auth["role"] != DEPUTY_CHIEF_REGISTRAR:
+        raise HTTPException(status_code=403, detail="Assignment corrections require Deputy Chief Registrar authority")
+    if req.new_court:
+        raise HTTPException(status_code=403, detail="Cross-court reassignment is not available in the approved pilot role model")
 
     case = db.get_case(case_id)
     if not case:
         raise HTTPException(status_code=404, detail="Case file not found")
     authorize_case(case, auth)
-    if auth["role"] == "DCR":
-        profile = db.get_user(auth["user_id"])
-        if req.new_division and req.new_division != (profile or {}).get("division"):
-            raise HTTPException(status_code=403, detail="DCR cannot move a case outside their assigned division")
+    profile = db.get_user(auth["user_id"])
+    if not profile or case.get("court") != profile.get("court"):
+        raise HTTPException(status_code=403, detail="Assignment correction must remain within the Deputy Chief Registrar's court")
 
     updates = {}
     if req.new_division:
         updates["assigned_division"] = req.new_division
-    if req.new_court:
-        updates["court"] = req.new_court
+    before = {key: case.get(key) for key in updates}
 
     if not updates:
         raise HTTPException(status_code=400, detail="Must specify new_division or new_court for reassignment.")
@@ -1753,27 +1979,28 @@ def reassign_case(case_id: CaseIdentifier, req: ReassignRequest, auth: Dict[str,
     _record_audit_event(
         auth["user_id"], "case.reassign", "case", case_id,
         reason=req.reason,
-        metadata=updates,
+        metadata={"before": before, "after": updates},
     )
 
-    logger.info(f"CASE REASSIGNMENT: {case_id} reassigned by {auth['user_id']} ({auth['role']}) — Reason: {req.reason}")
+    logger.info(f"CASE ASSIGNMENT CORRECTION: {case_id} corrected by {auth['user_id']} ({auth['role']}) — Reason: {req.reason}")
     return db.get_case(case_id)
 
 
 @app.get("/api/export/dcr-weekly")
 def export_dcr_weekly_report(auth: Dict[str, str] = Depends(get_current_user)):
-    """DCR/CR: Generate a division-scoped prototype workflow summary."""
-    if auth["role"] not in ["DCR", "Chief Registrar"]:
-        raise HTTPException(status_code=403, detail="Permission Denied: Weekly report requires DCR or Chief Registrar authority.")
+    """Deputy Chief Registrar court scope or Chief Registrar all-court read-only summary."""
+    if auth["role"] not in {DEPUTY_CHIEF_REGISTRAR, CHIEF_REGISTRAR}:
+        raise HTTPException(status_code=403, detail="Weekly report requires Deputy Chief Registrar or Chief Registrar authority")
 
     user_profile = db.get_user(auth["user_id"])
-    if auth["role"] == "DCR":
-        division = (user_profile or {}).get("division")
-        if not division or division == "All Divisions":
-            raise HTTPException(status_code=403, detail="DCR account has no valid assigned division")
-        division_cases = [case for case in db.list_cases() if case.get("assigned_division") == division]
+    if auth["role"] == DEPUTY_CHIEF_REGISTRAR:
+        court = (user_profile or {}).get("court")
+        if not court or court == "All Courts":
+            raise HTTPException(status_code=403, detail="Deputy Chief Registrar account has no valid court scope")
+        division = f"{court} — All Divisions"
+        division_cases = [case for case in db.list_cases() if case.get("court") == court]
     else:
-        division = "All Divisions"
+        division = "All Courts — All Divisions"
         division_cases = db.list_cases()
 
     total = len(division_cases)
@@ -1808,8 +2035,8 @@ def export_dcr_weekly_report(auth: Dict[str, str] = Depends(get_current_user)):
 @app.post("/api/cases/{case_id:path}/documents", response_model=Dict[str, Any])
 def upload_document(case_id: CaseIdentifier, req: DocumentUploadRequest, auth: Dict[str, str] = Depends(get_current_user)):
     """Record document metadata only; binary file storage is not implemented yet."""
-    if auth["role"] not in ["Clerk", "Chief Registrar"]:
-        raise HTTPException(status_code=403, detail="Permission Denied: Document metadata entry is restricted to Clerks and the Chief Registrar.")
+    if auth["role"] not in {FILING_CLERK, REGISTRY_CLERK}:
+        raise HTTPException(status_code=403, detail="Document metadata entry requires Filing Clerk or Registry Clerk authority")
 
     case = db.get_case(case_id)
     if not case:
@@ -1916,14 +2143,14 @@ def get_case(case_id: CaseIdentifier, auth: Dict[str, str] = Depends(get_current
     if not case:
         raise HTTPException(status_code=404, detail="Case file not found")
     authorize_case(case, auth)
-    return case
+    return case_view_for_role(case, auth["role"])
 
 
 @app.get("/api/judge/alerts", response_model=Dict[str, Any])
 def get_judge_alerts(auth: Dict[str, str] = Depends(get_current_user)):
-    """Return operational prompts across the Judge's or Chief Registrar's scoped docket."""
-    if auth["role"] not in ["Judge", "Chief Registrar"]:
-        raise HTTPException(status_code=403, detail="Permission Denied: Judge alerts are restricted to Judges and Chief Registrar.")
+    """Return operational prompts across the Chief Judge or assigned Presiding Judge scope."""
+    if auth["role"] not in {CHIEF_JUDGE, PRESIDING_JUDGE}:
+        raise HTTPException(status_code=403, detail="Judge alerts are restricted to Chief Judge or Presiding Judge read-only access")
 
     alerts = [
         alert
@@ -1939,12 +2166,12 @@ def get_judge_alerts(auth: Dict[str, str] = Depends(get_current_user)):
 @app.get("/api/export/prototype-summary")
 def export_prototype_summary(auth: Dict[str, str] = Depends(get_current_user)):
     """Export a scoped, PII-minimized prototype workflow summary (not an official report)."""
-    if auth["role"] not in ["Chief Registrar", "DCR"]:
-        raise HTTPException(status_code=403, detail="Permission Denied: prototype summary export requires DCR or Chief Registrar authority.")
+    if auth["role"] not in {CHIEF_REGISTRAR, DEPUTY_CHIEF_REGISTRAR}:
+        raise HTTPException(status_code=403, detail="Prototype summary export requires Deputy Chief Registrar or Chief Registrar authority")
 
     user = db.get_user(auth["user_id"]) or {}
-    if auth["role"] == "DCR" and (not user.get("division") or user.get("division") == "All Divisions"):
-        raise HTTPException(status_code=403, detail="DCR account has no valid assigned division")
+    if auth["role"] == DEPUTY_CHIEF_REGISTRAR and (not user.get("court") or user.get("court") == "All Courts"):
+        raise HTTPException(status_code=403, detail="Deputy Chief Registrar account has no valid court scope")
 
     cases = scoped_cases(auth)
     case_summaries = [{
@@ -1970,7 +2197,7 @@ def export_prototype_summary(auth: Dict[str, str] = Depends(get_current_user)):
         metadata={"case_count": len(cases)},
     )
 
-    scope = user.get("division") if auth["role"] == "DCR" else "all cases in Chief Registrar scope"
+    scope = f"{user.get('court')} — All Divisions" if auth["role"] == DEPUTY_CHIEF_REGISTRAR else "all courts — all divisions"
     return {
         "report_title": "COURTLOG Prototype Workflow Summary",
         "intended_use": "Internal prototype review only; not an official NJC/NCMS submission or legal compliance certificate.",
@@ -1991,9 +2218,11 @@ def export_prototype_summary(auth: Dict[str, str] = Depends(get_current_user)):
 @app.post("/api/cases/{case_id:path}/predict", response_model=Dict[str, Any])
 def predict_case_risk(case_id: CaseIdentifier, auth: Dict[str, str] = Depends(get_current_user)):
     """
-    Module 3: Run delay-risk prediction on-demand for a case.
-    Returns and saves updated delay_risk_score and risk_flag.
+    Module 3: Run a disclosed delay-risk estimate for a case in the DCR work queue.
+    Returns and saves updated experimental score fields; not a legal finding.
     """
+    if auth["role"] != DEPUTY_CHIEF_REGISTRAR:
+        raise HTTPException(status_code=403, detail="On-demand risk refresh requires Deputy Chief Registrar authority")
     case = db.get_case(case_id)
     if not case:
         raise HTTPException(status_code=404, detail="Case file not found")
@@ -2024,11 +2253,9 @@ def predict_case_risk(case_id: CaseIdentifier, auth: Dict[str, str] = Depends(ge
 
 @app.get("/api/predict/batch", response_model=List[Dict[str, Any]])
 def batch_predict_all_cases(auth: Dict[str, str] = Depends(get_current_user)):
-    """
-    Module 3: Batch delay-risk prediction.
-    Re-runs the ML model on all active (non-executed) cases and returns
-    them sorted by risk score descending. Also persists updated scores.
-    """
+    """Refresh experimental delay-risk fields for the Deputy Chief Registrar's court scope."""
+    if auth["role"] != DEPUTY_CHIEF_REGISTRAR:
+        raise HTTPException(status_code=403, detail="Batch risk refresh requires Deputy Chief Registrar authority")
     all_cases = scoped_cases(auth)
     results = []
     for case in all_cases:
@@ -2066,42 +2293,71 @@ def batch_predict_all_cases(auth: Dict[str, str] = Depends(get_current_user)):
 
 @app.post("/api/cases/{case_id:path}/execution", response_model=Dict[str, Any])
 def add_execution_action(case_id: CaseIdentifier, req: ExecutionRequest, auth: Dict[str, str] = Depends(get_current_user)):
-    """
-    Module 4: Execution Tracker.
-    Appends sheriff action to execution log. Restricted to Sheriff and Chief Registrar.
-    """
-    if auth["role"] not in ["Sheriff", "Chief Registrar"]:
-        raise HTTPException(status_code=403, detail="Permission Denied: Post-judgment execution actions are restricted to Sheriffs and the Chief Registrar.")
+    """Registrar issues a writ; only the addressed Sheriff records execution and return."""
+    if auth["role"] not in {REGISTRAR, SHERIFF}:
+        raise HTTPException(status_code=403, detail="Writ issuance requires Registrar authority; execution actions require Sheriff authority")
 
     case = db.get_case(case_id)
     if not case:
         raise HTTPException(status_code=404, detail="Case file not found")
     authorize_case(case, auth)
-        
-    action_event = {
-        "action": req.action,
-        "date": format_date(get_current_time()),
-        "sheriff_id": auth["user_id"]
-    }
-    
-    updates = {
-        "execution_log": [action_event]
-    }
-    
-    # If this action completes the enforcement, update status to "Executed"
-    if req.action in ["Garnishee Order Executed", "Writ of Fi Fa Completed", "Enforcement Completed"]:
+    if case.get("judgment_status") not in {"Delivered", "Judgment Delivered"}:
+        raise HTTPException(status_code=409, detail="A writ can be issued only for a recorded delivered judgment")
+
+    now = format_date(get_current_time())
+    updates: Dict[str, Any] = {}
+    if auth["role"] == REGISTRAR:
+        if not re.fullmatch(r"(?:Writ of (?:Fi Fa|Possession|Delivery)|Garnishee Order) Issued for .{1,200}", req.action):
+            raise HTTPException(status_code=422, detail="Registrar may record only an issued writ with a case-specific description")
+        _active_sheriff_for_case(case, req.sheriff_id)
+        action_event = {
+            "action": req.action,
+            "date": now,
+            "registrar_id": auth["user_id"],
+            "sheriff_id": req.sheriff_id,
+            "status": "issued",
+        }
+        previous_sheriff_id = case.get("assigned_sheriff_id")
+        if previous_sheriff_id != req.sheriff_id:
+            updates.update({
+                "assigned_sheriff_id": req.sheriff_id,
+                "assigned_sheriff_at": now,
+                "custody_history": [{
+                    "action": "writ_issued_to_sheriff",
+                    "from_sheriff_id": previous_sheriff_id,
+                    "to_sheriff_id": req.sheriff_id,
+                    "actor_user_id": auth["user_id"],
+                    "timestamp": now,
+                    "reason": req.action,
+                }],
+            })
+    else:
+        if req.sheriff_id != auth["user_id"] or case.get("assigned_sheriff_id") != auth["user_id"]:
+            raise HTTPException(status_code=403, detail="Only the currently assigned Sheriff may record this execution return")
+        allowed_actions = {
+            "Levy completed", "Attachment completed", "Possession delivered",
+            "Garnishee Order Executed", "Writ of Fi Fa Completed",
+            "Enforcement Completed", "Returned unexecuted",
+        }
+        if req.action not in allowed_actions:
+            raise HTTPException(status_code=422, detail="Select a valid Sheriff execution action or return status")
+        action_event = {"action": req.action, "date": now, "sheriff_id": auth["user_id"]}
+
+    updates["execution_log"] = [action_event]
+    # Preserve the application's existing execution completion status values.
+    if auth["role"] == SHERIFF and req.action in {
+        "Garnishee Order Executed", "Writ of Fi Fa Completed", "Enforcement Completed"
+    }:
         updates["judgment_status"] = "Executed"
         updates["enforcement_non_compliant"] = False
-        
+
     db.update_case(case_id, updates)
-    
-    # Re-run compliance updates
-    run_compliance_checks_sync()
+    run_compliance_checks_sync([db.get_case(case_id)])
     _record_audit_event(
         auth["user_id"], "case.execution.record", "case", case_id,
-        metadata={"action": req.action},
+        reason=req.action,
+        metadata={"action": req.action, "stage_actor_role": auth["role"], "sheriff_id": req.sheriff_id},
     )
-    
     return db.get_case(case_id)
 
 @app.post("/api/cron", response_model=Dict[str, Any])
@@ -2110,10 +2366,10 @@ def run_cron_compliance_sweep(auth: Dict[str, str] = Depends(get_current_user)):
     Simulated daily workflow sweep endpoint.
     Recalculates custody flags, days_since_filing, and execution-review prompts.
     """
-    if auth["role"] != "Chief Registrar":
-        raise HTTPException(status_code=403, detail="Workflow sweep requires Chief Registrar authority")
-    run_compliance_checks_sync()
-    cases = db.list_cases()
+    if auth["role"] != DEPUTY_CHIEF_REGISTRAR:
+        raise HTTPException(status_code=403, detail="Workflow sweep requires Deputy Chief Registrar authority")
+    run_compliance_checks_sync(scoped_cases(auth))
+    cases = scoped_cases(auth)
     
     stats = {
         "total_cases": len(cases),
@@ -2138,14 +2394,19 @@ def run_cron_compliance_sweep(auth: Dict[str, str] = Depends(get_current_user)):
 _WHATSAPP_OPT_OUT_WORDS = {"stop", "stop all", "unsubscribe", "cancel", "end", "quit", "remove"}
 
 
-def _require_whatsapp_admin(auth: Dict[str, str]) -> None:
-    if auth["role"] != "Chief Registrar":
-        raise HTTPException(status_code=403, detail="WhatsApp administration requires Chief Registrar authority")
+def _require_whatsapp_reader(auth: Dict[str, str]) -> None:
+    if auth["role"] not in {REGISTRAR, DEPUTY_CHIEF_REGISTRAR, CHIEF_REGISTRAR}:
+        raise HTTPException(status_code=403, detail="WhatsApp activity is restricted to registry operations and supervision")
+
+
+def _require_whatsapp_operator(auth: Dict[str, str]) -> None:
+    if auth["role"] != REGISTRAR:
+        raise HTTPException(status_code=403, detail="WhatsApp notices and consent records require Registrar authority")
 
 
 @app.get("/api/whatsapp/status")
 def get_whatsapp_status(response: Response, auth: Dict[str, str] = Depends(get_current_user)):
-    _require_whatsapp_admin(auth)
+    _require_whatsapp_reader(auth)
     response.headers["Cache-Control"] = "no-store"
     return get_whatsapp_public_status()
 
@@ -2156,8 +2417,8 @@ def record_whatsapp_preference(
     response: Response,
     auth: Dict[str, str] = Depends(get_current_user),
 ):
-    """Record an already-obtained, explicit opt-in or an operator-recorded opt-out."""
-    _require_whatsapp_admin(auth)
+    """Registrar records an already-obtained opt-in or an operator-recorded opt-out."""
+    _require_whatsapp_operator(auth)
     if not get_whatsapp_public_status()["consent_store_ready"]:
         raise HTTPException(status_code=503, detail="WhatsApp consent storage is not configured")
     try:
@@ -2201,8 +2462,8 @@ def send_whatsapp_test(
     response: Response,
     auth: Dict[str, str] = Depends(get_current_user),
 ):
-    """Send the configured generic template to a case contact with active opt-in only."""
-    _require_whatsapp_admin(auth)
+    """Registrar sends the configured generic template to an active opted-in contact only."""
+    _require_whatsapp_operator(auth)
     try:
         message, inserted = create_manual_test_message(db, req.case_id, req.recipient_role)
     except PermissionError as exc:
@@ -2238,8 +2499,8 @@ def get_whatsapp_broadcast_logs(
     limit: int = Query(default=100, ge=1, le=100),
     auth: Dict[str, str] = Depends(get_current_user),
 ):
-    """Return privacy-minimized persistent delivery records to the Chief Registrar."""
-    _require_whatsapp_admin(auth)
+    """Return privacy-minimized delivery records to registry operators and supervisors."""
+    _require_whatsapp_reader(auth)
     response.headers["Cache-Control"] = "no-store"
     messages = db.list_whatsapp_messages(limit=limit)
     messages.extend(whatsapp_logs)

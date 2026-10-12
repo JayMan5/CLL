@@ -101,7 +101,7 @@ function setScanHandler(handler) {
 }
 
 function setRole(role) {
-  scannerAllowed = role === "Sheriff";
+  scannerAllowed = ["Filing Clerk", "Registry Clerk", "Court Clerk", "Bailiff", "Sheriff"].includes(role);
   if (!scannerAllowed) stopCamera();
 }
 
@@ -124,7 +124,7 @@ function stopCamera() {
 
 async function startCamera() {
   if (!scannerAllowed) {
-    setText("camera-scan-status", "Sign in with the Sheriff account assigned to the file before using camera check-in.");
+    setText("camera-scan-status", "Sign in with an assigned pilot registry, service, or Sheriff role before using camera check-in.");
     return false;
   }
   if (!window.isSecureContext || !navigator.mediaDevices?.getUserMedia) {

@@ -21,7 +21,7 @@ The default `--as-of` is the current UTC date. Supplying a date makes the fixtur
 | `DEMO/2026/007` | Judgment delivered 100 days before the selected `--as-of` date | Demonstrates the configured 90-day prototype execution-review prompt, not a legal compliance finding. |
 | `DEMO/2026/008` | Execution workflow marked complete | Demonstrates a concluded record with a short, fictional execution history. |
 
-All eight records are assigned to the fictional `FHC Abuja Court 4` demo scope, the demo Judge `usr_judge_01`, and demo Sheriff `usr_sheriff_01`. Demo Clerk, DCR, and Chief Registrar accounts are also scoped according to the seeded fictional profiles. These assignments are fixtures, not advice about real court access control.
+All eight records are assigned to the fictional `FHC Abuja Court 4` demo scope, the demo Presiding Judge `usr_judge_01`, and demo Sheriff `usr_sheriff_01`. The demo Filing Clerk, Registry Clerk, Court Clerk (seeded only when the server-side entitlement is enabled), Deputy Chief Registrar, Registrar, Chief Judge, and Chief Registrar accounts are scoped according to their fictional profiles. These assignments are fixtures, not advice about real court access control.
 
 ## Limitations
 

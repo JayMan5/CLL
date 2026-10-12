@@ -142,7 +142,7 @@ COURTLOG_BOOTSTRAP_PASSWORD=your-strong-temporary-password-at-least-12-character
 COURTLOG_BOOTSTRAP_NAME=Local Test Administrator
 ```
 
-Keep the bootstrap password in `.env` only for this isolated local setup; do not commit or share it. On first sign-in, CourtLOG requires a password change. After that, use **User Management** to create the Clerk and Sheriff test accounts with strong temporary passwords and follow the first-login password-change prompt. Do not reuse these local credentials in staging.
+Keep the bootstrap password in `.env` only for this isolated local setup; do not commit or share it. On first sign-in, CourtLOG requires a password change. After that, use **User Management** to create separate Filing Clerk and Sheriff test accounts with strong temporary passwords and follow the first-login password-change prompt. Add a Registry Clerk account if testing that role's scan workflow. Do not reuse these local credentials in staging.
 
 ## 4. Prepare HTTPS staging for a phone
 
@@ -151,7 +151,7 @@ A staging administrator should complete these checks before the phone is handed 
 1. Deploy the approved build to a dedicated staging environment. Build local frontend assets with `npm ci` and `npm run build:frontend` before deployment.
 2. Use HTTPS with a certificate trusted by the phone. Serve the app from the origin root and keep API and `/static/` assets same-origin.
 3. Keep `DEMO_MODE=false`, `COOKIE_SECURE=true`, and use a dedicated staging database and protected signing keys. Do not use the tracked database or local demo credentials.
-4. Provision separate Clerk/Chief Registrar and Sheriff test accounts through the approved staging process. The Sheriff must be active and explicitly assigned to the fictional test case. Create a second unassigned Sheriff account if testing the permission boundary.
+4. Provision a Filing Clerk test account to issue the label, a Sheriff account to scan it, and (if needed) a Chief Registrar account for user administration. The Sheriff must be active and explicitly assigned to the fictional test case. Create a second unassigned Sheriff account if testing the permission boundary.
 5. Ensure a fictional test case exists in the same court as the assigned Sheriff. Case registration requires counsel and litigant phone fields. Use only administrator-approved synthetic/test contact values; do not guess numbers or use real contacts. Do not use the legacy seed script to obtain cases.
 6. From a desktop browser, check the exact URL `https://<staging-host>/`. Confirm there is no certificate warning and the page stays at the origin root.
 7. Confirm these resources load successfully from that same host:
@@ -161,7 +161,7 @@ A staging administrator should complete these checks before the phone is handed 
    - `/static/c2-pwa.bundle.js`
    - `/static/tailwind.css`
    - `/static/chart.bundle.js`
-8. Confirm the Clerk/Chief Registrar can see the case and that the current Sheriff assignment is saved. The issuer and phone must use the same staging origin/database.
+8. Confirm the Filing Clerk can access the case within the assigned court/division and that the current Sheriff assignment is saved. The Filing Clerk is the QR-label issuer; the Chief Registrar can administer accounts and read case data but cannot issue a label. The issuer and phone must use the same staging origin/database.
 
 If the staging host is untrusted, the app is under a subpath, the test data/account is uncertain, or the Sheriff assignment is unclear, stop and resolve that before installing or printing a label.
 
@@ -198,11 +198,11 @@ Safari may not show the in-page **Install CourtLOG** button; that is expected. U
 
 If the installed icon opens the wrong environment or a stale build, stop. Ask the staging administrator to verify the deployment/revision and update the service-worker shell. Do not enter a different host's credentials into the wrong installation.
 
-## 6. Issue and print a test QR label (registry staff)
+## 6. Issue and print a test QR label (Filing Clerk)
 
-Do this on a desktop/tablet browser connected to the **same staging origin and database** as the phone.
+Do this on a desktop/tablet browser connected to the **same staging origin and database** as the phone. The server permits QR-label issuance to Filing Clerks only; Chief Registrar access does not grant label-issuance authority.
 
-1. Sign in with the provisioned **Clerk** or **Chief Registrar** account.
+1. Sign in with the provisioned **Filing Clerk** account and confirm it is scoped to the test case's court and division.
 2. Open **Custody Check-In** from the left navigation.
 3. In **Select an authorised case file**, choose the fictional test case. Confirm the selected case ID shown in the label panel is correct.
 4. Tap **Generate local QR label**. Wait for the status **Opaque label ready**. The server issues the opaque token; the QR image is drawn locally in the browser.
@@ -268,9 +268,9 @@ The server still applies authentication and case-scope checks. A manual fallback
 | Camera is busy or no rear camera is found | Close other apps using the camera; check browser permission and device hardware. Use the USB/manual fallback if needed. |
 | QR is not recognized | Clean/reprint it, use good light, keep the white margin, reduce glare, hold it steady, and check print scale and physical size. Do not use a screenshot of the QR on the same phone. |
 | “QR label is not recognized” | The token may belong to another database/environment or be invalid. Confirm label issuer and Sheriff are on the same staging origin/database; ask registry staff to issue a fresh controlled label. |
-| “Only the currently assigned Sheriff…” / permission denied | Have a registry administrator verify that this exact active Sheriff account is currently assigned to the case and has the correct court scope. Signing in as another role does not bypass the check. |
+| “Only the currently assigned Sheriff…” / permission denied | Have the Registrar verify that this exact active Sheriff account is currently assigned to the case and has the correct court scope. Signing in as another role does not bypass the check. |
 | Check-in not confirmed or network error | Do not immediately rescan. Reconnect and inspect custody history first; then retry only if no event was recorded. |
-| Label panel is unavailable | Sign in as Clerk or Chief Registrar and confirm the case is in that account's authorized scope. Sheriffs scan labels; they do not issue them. |
+| Label panel is unavailable | Sign in as a Filing Clerk and confirm the case is in the account's assigned court/division. QR issuance is Filing Clerk-only; Chief Registrars administer accounts but do not issue labels. Sheriffs scan labels; they do not issue them. |
 | App opens an old or wrong version | Confirm the hostname/revision with the staging administrator. Reload while online and reopen the installed app. Do not continue if the environment is uncertain. |
 
 ## 11. Updating, removing, and data handling

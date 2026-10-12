@@ -32,7 +32,7 @@ const dom = new JSDOM(html, {
 dom.window.Headers = global.Headers;
 dom.window.CourtLogPwa = { initialize() {}, setRole() {}, setScanHandler() {}, stopCamera() {} };
 dom.window.fetch = async url => {
-    if (url === '/api/config') return response(200, { demo_mode: false });
+    if (url === '/api/config') return response(200, { demo_mode: false, paid_features: { court_clerk: false } });
     if (url === '/api/refresh') return response(401, { detail: 'No session' });
     return response(200, {});
 };
@@ -44,6 +44,13 @@ dom.window.fetch = async url => {
     await ready;
     const doc = dom.window.document;
     const run = code => vm.runInContext(code, context);
+    assert.deepEqual(Array.from(run('PILOT_ROLE_OPTIONS')), [
+        'Chief Judge', 'Chief Registrar', 'Deputy Chief Registrar', 'Registrar',
+        'Filing Clerk', 'Registry Clerk', 'Court Clerk', 'Bailiff', 'Sheriff', 'Presiding Judge'
+    ]);
+    for (const deferredRole of ['Cashier / Fees Clerk', 'Counsel', "Counsel's Clerk", 'Appellate Justice']) {
+        assert.equal([...doc.getElementById('new-user-role').options].some(option => option.value === deferredRole), false);
+    }
 
     for (const id of ['login-username', 'login-password']) {
         assert.ok(doc.getElementById(id).classList.contains('login-input'), `${id} reserves space for its leading icon`);
@@ -51,16 +58,18 @@ dom.window.fetch = async url => {
     assert.equal(doc.getElementById('profile-menu-toggle').getAttribute('aria-expanded'), 'false');
     assert.ok(doc.querySelectorAll('[data-nav-group]').length >= 3);
     assert.equal(doc.getElementById('tab-case-register').classList.contains('hidden'), true);
+    assert.equal(doc.getElementById('form-upload-doc').closest('details').classList.contains('hidden'), true);
 
     run(`authenticatedUser = ${JSON.stringify({
-        user_id: 'clerk-ui-test', username: 'clerk', name: 'Registry Clerk', role: 'Clerk',
-        badge: 'Registry Staff', court: 'FHC Abuja Court 4', division: 'Criminal', must_change_password: false
+        user_id: 'clerk-ui-test', username: 'clerk', name: 'Pilot Filing Clerk', role: 'Filing Clerk',
+        badge: 'Filing and case registration', court: 'FHC Abuja Court 4', division: 'Criminal', must_change_password: false
     })}; currentUserId = authenticatedUser.user_id; updateRoleUI()`);
-    assert.equal(doc.getElementById('sidebar-user-role').textContent, 'Clerk');
+    assert.equal(doc.getElementById('sidebar-user-role').textContent, 'Filing Clerk');
     assert.equal(doc.getElementById('active-user-scope').textContent, 'FHC Abuja Court 4 · Criminal division');
     assert.equal(doc.getElementById('nav-case-register').classList.contains('hidden'), false);
     assert.equal(doc.getElementById('btn-register-case').hidden, false);
-    assert.equal(doc.getElementById('nav-courtrooms').classList.contains('hidden'), false);
+    assert.equal(doc.getElementById('form-upload-doc').closest('details').classList.contains('hidden'), false);
+    assert.equal(doc.getElementById('nav-courtrooms').classList.contains('hidden'), true);
     assert.equal(doc.getElementById('nav-execution').classList.contains('hidden'), true);
     assert.equal(doc.getElementById('nav-whatsapp').classList.contains('hidden'), true);
 
@@ -74,20 +83,40 @@ dom.window.fetch = async url => {
     assert.equal(doc.getElementById('nav-courtrooms').classList.contains('hidden'), true);
     assert.equal(doc.getElementById('nav-execution').classList.contains('hidden'), false);
     assert.equal(doc.getElementById('btn-register-case').hidden, true);
+    assert.equal(doc.getElementById('form-upload-doc').closest('details').classList.contains('hidden'), true);
     assert.equal(doc.getElementById('tab-overview').classList.contains('hidden'), false, 'role changes redirect away from an unavailable page');
     run('switchTab("tab-user-admin")');
     assert.equal(doc.getElementById('tab-user-admin').classList.contains('hidden'), true, 'direct tab navigation cannot reveal Chief Registrar screens');
 
-    run('authenticatedUser.role = "Judge"; updateRoleUI()');
+    run('authenticatedUser.role = "Presiding Judge"; updateRoleUI()');
     assert.equal(doc.getElementById('nav-judge-docket').classList.contains('hidden'), false);
-    assert.equal(doc.getElementById('nav-courtrooms').classList.contains('hidden'), false);
+    assert.equal(doc.getElementById('nav-courtrooms').classList.contains('hidden'), true);
     assert.equal(doc.getElementById('nav-execution').classList.contains('hidden'), true);
-    run('authenticatedUser.role = "DCR"; updateRoleUI()');
+    run('authenticatedUser.role = "Deputy Chief Registrar"; updateRoleUI()');
     assert.equal(doc.getElementById('nav-dcr-console').classList.contains('hidden'), false);
     assert.equal(doc.getElementById('nav-courtrooms').classList.contains('hidden'), true);
     run('authenticatedUser.role = "Chief Registrar"; updateRoleUI()');
     assert.equal(doc.getElementById('nav-user-admin').classList.contains('hidden'), false);
+    assert.equal(doc.getElementById('nav-whatsapp').classList.contains('hidden'), true);
+    run('authenticatedUser.role = "Registrar"; updateRoleUI()');
+    assert.equal(doc.getElementById('nav-user-admin').classList.contains('hidden'), true);
     assert.equal(doc.getElementById('nav-whatsapp').classList.contains('hidden'), false);
+    run('authenticatedUser.role = "Registry Clerk"; updateRoleUI()');
+    assert.equal(doc.getElementById('form-upload-doc').closest('details').classList.contains('hidden'), false);
+    run('authenticatedUser.role = "Court Clerk"; updateRoleUI()');
+    assert.equal(doc.getElementById('form-upload-doc').closest('details').classList.contains('hidden'), true);
+    assert.equal(doc.getElementById('new-user-role').options[
+        [...doc.getElementById('new-user-role').options].findIndex(option => option.value === 'Court Clerk')
+    ].disabled, true, 'Court Clerk assignment stays disabled without entitlement');
+    assert.equal(doc.getElementById('nav-courtrooms').classList.contains('hidden'), true);
+    const courtClerkOption = doc.querySelector('#new-user-role option[value="Court Clerk"]');
+    assert.equal(courtClerkOption.disabled, true);
+    run('paidFeatures.court_clerk = true; updateCourtClerkEntitlementUI(); updateRoleUI()');
+    assert.equal(courtClerkOption.disabled, false);
+    assert.equal(doc.getElementById('nav-courtrooms').classList.contains('hidden'), false);
+    run('paidFeatures.court_clerk = false; updateCourtClerkEntitlementUI(); updateRoleUI()');
+    assert.equal(courtClerkOption.disabled, true);
+    assert.equal(doc.getElementById('nav-courtrooms').classList.contains('hidden'), true);
 
     const profileToggle = doc.getElementById('profile-menu-toggle');
     profileToggle.click();

@@ -1,6 +1,6 @@
 # CourtLOG Hosting Options — Comparison and Recommendation
 
-**Research date:** 1 October 2026  
+**Research date:** 1 October 2026<br>
 **Purpose:** Select a practical hosted staging/showcase environment for the current competition-team prototype. This is an architecture and budget comparison, not a cloud deployment or institutional approval. Prices are USD, before tax, exchange-rate effects, domain costs, and WhatsApp charges; provider prices and availability can change.
 
 ## Executive recommendation

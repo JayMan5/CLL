@@ -1,6 +1,6 @@
 # Delay-risk model evaluation: readiness and scope
 
-**Reviewed:** 3 October 2026  
+**Reviewed:** 12 October 2026<br>
 **Status:** software pipeline improved and synthetic-only tests pass; predictive validity is **not established**.
 
 ## Data-use boundary
@@ -46,8 +46,8 @@ A high score on rule-generated synthetic rows is only a software smoke test. No 
 ## Verification performed
 
 ```text
-.venv/bin/python -m pytest tests/test_model_training.py backend/test_api.py tests/test_security.py -q
-72 passed
+.venv/bin/python -m pytest -q
+82 passed, 10 deprecation warnings (12 October 2026)
 ```
 
 These tests use isolated databases and fictional in-memory/temporary rows. They do not load the repository's legacy training CSV, court sample files, or tracked application database.

@@ -9,7 +9,7 @@
 - Run against an **approved HTTPS staging deployment**, not production. The page, API, and static assets must be served from the same origin, at its root (`https://staging-host/`). The app's service worker is scoped to `/` and the camera requires a secure context.
 - Do not open `http://localhost` on the phone: on the phone, `localhost` means the phone itself. A plain-HTTP desktop development server is not a real-device camera test.
 - Use an isolated staging database and **fictional test case and user records only**. Do not use real court files, party/counsel contact details, or live credentials without documented permission. Do not create phone numbers by guessing; case setup in the UI requires valid contact numbers, so have the staging administrator provision the fictional test case if you do not have approved synthetic contact values.
-- Use provisioned test accounts: a Clerk or Chief Registrar to issue a label, the Sheriff assigned to the test case, and (for the authorization-negative check) a different, unassigned Sheriff. Do not put passwords, QR payloads, or refresh/session tokens in the test sheet.
+- Use provisioned test accounts: a Filing Clerk to issue a label, the Sheriff assigned to the test case, and (for the authorization-negative check) a different, unassigned Sheriff. A Chief Registrar may administer accounts but cannot issue QR labels. Do not put passwords, QR payloads, or refresh/session tokens in the test sheet.
 - The QR contains an opaque token rather than a case number, but it is still a physical link to a case in that environment. Keep test labels controlled, do not upload or send their images to online QR tools, and destroy unused/void paper labels securely. Issued test tokens remain in the staging database; there is no label-revocation control in the UI. Clean/reset staging only through its approved process.
 - No offline scan is queued. A scan is successful **only** when the page says CourtLOG confirmed it and the expected scan event is visible in the case history.
 
@@ -21,7 +21,7 @@ Have these ready before the run:
 - The intended printer and stock. A normal A4/plain-paper first print is useful for checking the output; the acceptance run must also use the printer/stock intended for the pilot. The print stylesheet lays out a roughly **76 mm square label** with a **58 mm square QR**.
 - Reliable staging Wi-Fi/mobile data for the online checks, and a way to deliberately disconnect the phone for the offline/no-queue check.
 - A fictional, staging-only test case in the same court as the test Sheriff. The case must have an explicit current Sheriff assignment. Record the case ID and assigned Sheriff user ID in the restricted test sheet.
-- A registry account (Clerk/Chief Registrar) that can access the case and issue a QR label; an assigned Sheriff account; and, where available, an unassigned Sheriff account for the negative permission check.
+- A Filing Clerk account in the case's assigned court/division that can issue its QR label; an assigned Sheriff account; and, where available, an unassigned Sheriff account for the negative permission check. A Chief Registrar account is only needed for account administration.
 - A removable test folder/card or other safe surface for the printed label. Do not attach a test label to a live court file.
 
 ## 3. Record the test run
@@ -46,8 +46,8 @@ Do **not** record user passwords, raw QR text, cookies/tokens, party details, or
 
 1. Confirm the staging operator has deployed the approved C2 build (the Sheriff QR PWA implementation on the session branch, or a later approved build) and recorded its revision. If the deployment builds assets itself, build `frontend/c2-pwa.bundle.js` from the matching source before deploying.
 2. On a desktop on the same network, open the staging origin in a current browser. Confirm the login page loads without a certificate warning and the URL remains HTTPS at the site root.
-3. Sign in as the test Clerk or Chief Registrar. Confirm the account is a staging account and has access to the fictional test case.
-4. Confirm that the test case is explicitly assigned to the intended active Sheriff, whose court matches the case. If not, have the Clerk/Chief Registrar use the case row's Sheriff custody assignment action to assign that Sheriff; record the assignment reason in accordance with normal staging procedure. Do not proceed on the assumption that a previous scan or a label alone grants access.
+3. Sign in as the test Filing Clerk. Confirm it is a staging account and that the fictional case is in the account's assigned court and division. Chief Registrar access does not confer QR-label issuance authority.
+4. Confirm that the test case is explicitly assigned to the intended active Sheriff, whose court matches the case. If not, have an authorized Registrar use the case row's Sheriff custody assignment action to assign that Sheriff; record the assignment reason in accordance with normal staging procedure. Do not proceed on the assumption that a previous scan or a label alone grants access.
 5. Confirm the other test Sheriff (if used) is active but is **not** assigned to this case. Prefer a same-court unassigned test Sheriff for this check.
 
 **Stop** if the site is not HTTPS, the database/environment is uncertain, a test account or case contains real data, or the case assignment cannot be verified.
@@ -67,9 +67,9 @@ If install is unavailable, record the browser/OS and the exact outcome. Do not m
 
 ## 6. Issue and physically print a test label
 
-Use a desktop/tablet browser and the registry test account. Keep the phone available for scanning.
+Use a desktop/tablet browser and the Filing Clerk test account. Keep the phone available for scanning.
 
-1. Sign in as the test **Clerk or Chief Registrar** on the same staging origin/database as the phone.
+1. Sign in as the test **Filing Clerk** on the same staging origin/database as the phone. QR-label issuance is restricted to Filing Clerks; a Chief Registrar cannot issue labels.
 2. Open **Custody Check-In**. In the label panel, select the fictional test case from the authorised-case selector. Verify the displayed **Selected case** is the intended case before issuing.
 3. Select **Generate local QR label**. Wait for the UI to say that the opaque label is ready and the QR was rendered locally. If generation fails, record the displayed error and stop; do not take a screenshot containing the QR.
 4. Select **Print label**. In the print dialog, use the intended printer and an appropriate stock/scale. Avoid “fit to page” if it makes the code materially smaller; do not crop the quiet margin. For the first plain-paper check, measure that the label is about 76 mm square and the QR about 58 mm square. Record actual measured dimensions and print settings.
@@ -132,7 +132,7 @@ Run this while signed in as the assigned Sheriff, with the app page already open
 | HTTPS and correct staging origin | Valid HTTPS; UI and API use same staging origin; no production data | |
 | PWA installation | Installed from browser flow and launches on target phone | |
 | Correct account and case assignment | Assigned active Sheriff and exact case/court match verified | |
-| Label issuance | Registry user can issue a label for the selected authorized test case | |
+| Label issuance | Filing Clerk can issue a label for the selected authorized test case | |
 | Printed label | Intended printer/stock used; complete, crisp, measured; no case details printed | |
 | Camera capture | Camera permission/preview works; agreed first-read target achieved | |
 | Server-confirmed check-in | Correct case history event with signed-in Sheriff, chosen location, and time | |
@@ -157,8 +157,8 @@ C2 may be checked complete only after required checks pass on the actual target 
 - **Camera says HTTPS/secure context is required:** check the browser address bar, certificate, and root staging origin. Do not use a phone-local `localhost` URL or a plain-HTTP LAN address.
 - **No camera prompt or permission denied:** check both OS camera permission for the browser/PWA and that browser's site permission for the staging origin. Close other apps using the camera, reload, and retry. Record denied permission separately from a successful camera test.
 - **No camera found/busy:** close other camera apps, restart the browser/PWA, and try again. If the target hardware has no supported camera, test the approved USB/manual fallback and record camera as failed—not passed.
-- **Generate/print controls unavailable:** QR issuance is for Clerk/Chief Registrar; check the authenticated server profile and case scope. Sheriff's camera controls require a Sheriff account.
-- **403 / assignment failure:** stop and ask the registry administrator to verify the current Sheriff assignment and exact court on the staging case. Do not repeatedly retry or change a live case assignment to force a pass.
+- **Generate/print controls unavailable:** QR issuance is Filing Clerk-only; confirm the authenticated server profile and assigned case court/division. Sheriff's camera controls require an active Sheriff account with current case assignment.
+- **403 / assignment failure:** stop and ask the Registrar to verify the current Sheriff assignment and exact court on the staging case. Do not repeatedly retry or change a live case assignment to force a pass.
 - **“QR label is not recognized” / 404:** labels are database/environment-specific. Ensure the label was generated on this same staging origin and has not been replaced by a label from local development or another environment.
 - **Camera reads but no confirmation:** wait, inspect case history, and confirm the network/account/assignment before retrying. Never treat the camera's decode message as a saved check-in.
 - **QR will not scan from print:** check actual-size/scale settings, printer focus/toner, complete quiet border, glare, smudges, and that the code was not resized from a screenshot. Reissue only when necessary; mark and securely destroy unusable labels, remembering their server tokens remain in staging.

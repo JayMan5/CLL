@@ -1,61 +1,87 @@
-# CourtLOG Local Demo: Role Quick Guide
+# CourtLOG Local Demo: Pilot Role Quick Guide
 
-**Status:** local walkthrough material for the competition prototype; not staff training, legal guidance, pilot approval, or evidence of production readiness. Use only a disposable `DEMO_MODE=true` database and fictional records. Do not enter real case, party, contact, or staff information.
+**Status:** local competition-prototype walkthrough material; not staff training, legal guidance, proof of pilot approval, or production readiness. Use only a disposable `DEMO_MODE=true` database with fictional records. Never enter real case, party, contact, or staff information without written permission.
 
 ## Before you begin
 
-1. Follow the isolated local-demo instructions in [`README.md`](../README.md). Never point the app at the tracked `data/courtlog.db`.
+1. Follow the isolated local-demo instructions in [`README.md`](../README.md). Never point a demo at the tracked `data/courtlog.db`.
 2. Optionally seed the fixed fictional scenarios with `python scripts/seed_demo_data.py --as-of YYYY-MM-DD`; see [`DEMO_SCENARIO_CATALOG.md`](DEMO_SCENARIO_CATALOG.md).
-3. Keep the demo reachable only on the local development computer. The demo passwords are intentionally weak. Do not expose demo mode to the internet or use its accounts in staging.
-4. Sign out before handing the computer to another role. The app may display prototype workflow prompts; verify any action before submitting it.
+3. Keep the demo local. Demo credentials are intentionally weak and must never be exposed publicly or used for hosting.
+4. Sign out before handing the device to another role. Server-side authorization is authoritative; hidden UI controls are not a security boundary.
 
-The local demo account names are `clerk`, `sheriff`, `judge`, `dcr`, and `cr`. The demo passwords are `123` for Clerk, Sheriff, Judge, and DCR, and `12345` for Chief Registrar. These credentials exist only for the isolated local demo; live mode does not enable them.
+The default demo seeds accounts for Filing Clerk (`clerk`), Registry Clerk (`registry.clerk`), Bailiff (`bailiff`), Deputy Chief Registrar (`dcr`), Registrar (`registrar`), Chief Judge (`chief.judge`), Presiding Judge (`judge`), Sheriff (`sheriff`), and Chief Registrar (`cr`). The default password is `123`, except Chief Registrar's `12345`; these are fictional demo credentials only. A Court Clerk demo account is seeded only when the isolated demo deployment also enables `COURTLOG_PAID_FEATURES=court_clerk`.
 
-## Clerk — register, route, and log
+## Pilot role/access summary
 
-- Open **Overview** and confirm the case list is scoped to the signed-in account's configured court.
-- Use **Register Case** to create a clearly fictional case. Clerks may register only in their assigned court. New cases do not receive a hard-coded Judge or Sheriff assignment.
-- From a case row, use **Custody** to assign an active Sheriff from that court and record the reason. A Sheriff handover is a separate action performed by the currently assigned Sheriff.
-- Use the **Courtrooms** tab to record a hearing outcome and any required next date/reason. A Judge cannot record an adjournment. The existing case-level application review trigger is a prototype setting, not an approved legal rule or per-party statutory count.
-- If the API rejects a request, stop and read the returned error; do not interpret it as a successful filing or hearing entry.
+| Role | Current implemented access | Important limit |
+|---|---|---|
+| Chief Judge | Read-only court-scoped dashboard and sanitized judicial alerts | Cannot edit any record; the Chief Judge's decision itself is not captured in CourtLOG. |
+| Chief Registrar | Read-only all-court case oversight; account create/list/delete/reset and explicit legacy-Clerk remapping; audit and summary reads | Cannot register or change case events. |
+| Deputy Chief Registrar | Court-wide read; configured review acknowledgement/reasoned resolution, audited same-court division correction, reports, risk refresh and workflow sweep | Cannot manage users or change case court; application thresholds are not legal findings. |
+| Registrar | Court-scoped Judge/Sheriff assignment, judgment-delivery date, separate notice request, writ issue/assignment, and WhatsApp consent administration | Cannot log hearing outcomes or record Sheriff execution on the Sheriff's behalf; assignment reason is stored but the source Chief Judge decision is not independently validated. |
+| Filing Clerk | Assigned court/division case registration, opaque QR-label issuance, manual/QR scans, document metadata | No general post-filing case-field or hearing-event edit route; scans/metadata are separate append/record operations, and metadata is not a binary upload. QR issuance is Filing Clerk-only. |
+| Registry Clerk | Court/division-scoped scans, missing-file report/recovery, document metadata, and Sheriff-choice reads | File movement is only a generic scan log; a complete registry-to-court custody workflow is not yet implemented. |
+| Court Clerk | Entitlement-gated court/division-scoped scans, administrative hearing entry, and missing-file report/recovery | Requires the server-side Court Clerk entitlement; `Heard` entries cannot be marked as judgment/ruling delivery. Hearing entry does not send WhatsApp. |
+| Bailiff | Court/division-scoped manual/QR custody check-ins | The per-defendant process-service, affidavit-of-service, and separate writ-execution workflows are not implemented. |
+| Sheriff | Assigned-case reads, manual/QR check-ins, handover, missing-file report/recovery, and execution/return for a delivered judgment | Cannot issue a writ; explicit current assignment controls access (older unassigned cases have a limited last-scan/open-report fallback). |
+| Presiding Judge | Optional read-only assigned-case dashboard fields and operational alert prompts | Access is limited to the Judge's own assigned cases and same court; case details/event histories are not exposed and no record edits are allowed. |
 
-## Sheriff — check in and record custody
+Court Clerk is a server-side organization/deployment entitlement, configured with `COURTLOG_PAID_FEATURES=court_clerk`. This setting only enables the role; it is not a payment/subscription connection and CourtLOG does not verify or process payment. Without the entitlement, Court Clerk account creation and sign-in are blocked even if a client changes the UI.
 
-- Confirm that the case is assigned to the signed-in Sheriff. An assigned Sheriff can access the case before the first scan; a prior Sheriff loses access after a handover.
-- Open **QR Custody / Check-In**. Use the local QR label/camera flow, a supported USB keyboard-wedge scanner, or the manual authorized-case fallback. The account session supplies the recorded actor.
-- A green success state is shown only after the server confirms the saved event. If the network is unavailable, reconnect and verify the case history before trying again; scans are not queued offline.
-- Use **Report Missing** only to record a fictional scenario that a file is missing. Resolve it only after the file is actually represented as found in the demo, using the explicit found action and location/reason. An idle-custody prompt is not proof that a file is missing.
-- For a transfer, use **Hand Over**, select an active Sheriff in the same court, and record the handover details. Confirm the new assignment before the prior operator signs out.
+## Walkthrough by role
 
-Follow [`C2_PWA_SETUP_AND_USER_GUIDE.md`](../C2_PWA_SETUP_AND_USER_GUIDE.md) for installation/QR steps. Real phone, camera, printer, and USB-scanner acceptance is still open.
+### Filing Clerk
 
-## Judge — review the assigned docket
+- Register a clearly fictional case in the assigned court. The case record receives a stable ID and initial scan event; assignment to a judge is recorded separately by the Registrar.
+- Generate/print an opaque QR label. The label contains a random token, not the case ID or party details.
+- Do not use the Filing Clerk account for post-filing corrections. The implementation does not provide a full correction workflow; a DCR correction, where supported, records the old/new division and reason in the append-only audit log.
 
-- Open **Judge Docket** to review cases assigned to this Judge within the configured court.
-- Use the ruling action only for the available `Ruling Delivered` or `Judgment Delivered` outcome. The application does not treat this as a legal determination that execution is permitted.
-- A Judge cannot use the hearing form to log adjournments. Ask a Clerk to record the supported hearing event; do not share the Judge account.
-- Use **AI Risk** only as experimental decision support. The score comes from synthetic rule-generated scenarios or a deterministic fallback and is not independently validated against real court outcomes. It must not determine a judicial action.
+### Registry Clerk
 
-## Deputy Chief Registrar (DCR) — review the scoped queue
+- Use the QR/check-in workspace to append a scan as the authenticated user.
+- Record a missing-file report or a recovery only for a fictional scenario.
+- Document metadata can be recorded, but binary files, signed orders, CTC requests/releases, appeal bundles, and close-out custody states are not implemented.
 
-- Open **DCR Console** to see the cases in the account's configured division.
-- For the synthetic pending-review example, record an acknowledgement note to demonstrate history. Acknowledgement does **not** approve, unblock, or change the case outcome.
-- If demonstrating the separate override action, record a reason and say clearly that this is only the current application workflow. It is not a statutory DCR requirement or a legal ruling; A3 remains open for Law Lead/registry approval.
-- An elapsed-time escalation is recorded in-app only. It sends no automatic WhatsApp, email, or other external notification.
+### Court Clerk
 
-## Chief Registrar — administer the fictional demo
+- Use **Courtrooms** to record a supported `Heard` or `Adjourned` event and any required next date/reason.
+- The existing configured case-level adjournment review threshold remains unchanged; it is an application prompt/hold, not a statutory or per-party determination. The Deputy Chief Registrar handles the flag.
+- A Court Clerk cannot submit `Judgment Delivered`/`Ruling Delivered` as a hearing reason, and the endpoint does not let the Court Clerk change judgment status.
+- WhatsApp notices are not sent automatically by the Court Clerk's log entry. The Registrar explicitly requests a generic notice, and only contacts with a current recorded opt-in are considered.
 
-- Use **User Admin** to inspect demo users and demonstrate the account controls. Do not add real staff identities or set real passwords in the demo.
-- Use the case assignment controls to assign a Judge only after selecting a Judge whose court matches the case.
-- The prototype summary is an internal demonstration export, not an official court/NJCS compliance report. Audit and message-log access is restricted to the Chief Registrar role.
-- The **WhatsApp** screen reports configuration and consent state. In demo mode no real message can be sent. Never enter a real party phone number or claim delivery from a simulator event.
+### Registrar
+
+- Record a Presiding Judge assignment only with a Chief Judge decision reference. The app records the reference string; it does not capture or verify the underlying Chief Judge decision.
+- Enter a judgment delivery date only; judgment text and legal reasons remain outside CourtLOG.
+- On a delivered judgment, use the writ compiler to record an issued writ and an active Sheriff account ID. The generated PDF is a prototype copy and is not a court-issued instrument.
+- Request a generic one-to-one WhatsApp notice for the latest adjournment. A phone number is not consent; use the stored consent evidence and inspect delivery status.
+
+### Deputy Chief Registrar
+
+- Open the court-wide flags and reports. Acknowledge or resolve an application flag with a reason; the existing trigger threshold is unchanged.
+- Correct a division entry only within the assigned court. The prior value, new value, and reason are audited; cross-court reassignment and deletion are unavailable.
+- Prototype risk scores and compliance sweeps are operational prompts, not legal determinations.
+
+### Sheriff
+
+- Confirm that the case is assigned to the signed-in Sheriff. A prior Sheriff loses access after a handover.
+- Use the QR/camera or manual fallback; a success state appears only after server confirmation. Offline scans are not saved or queued.
+- Record an allowed execution action/return only on a case assigned to that Sheriff. The Sheriff cannot issue or cancel a writ.
+
+### Chief Registrar, Chief Judge, and Presiding Judge
+
+- Chief Registrar: use **User Admin** to manage fictional accounts and explicitly map legacy Clerk accounts. A legacy account cannot sign in until a new pilot role is selected with an audit reason; Court Clerk is not offered unless the server entitlement is enabled.
+- Chief Judge: read the court-scoped judicial dashboard/alerts only. The Registrar records a judge assignment against the Chief Judge's decision reference.
+- Presiding Judge: read only the cases assigned to that account. No case event or judgment details can be edited from the judicial docket.
+
+## Known workflow gaps versus the DOCX
+
+This task implements the pilot role split and server-side access boundaries; it does **not** complete every stage in the workflow document. In particular, CourtLOG still lacks per-defendant service states and affidavit references, Chief-Judge-decision capture, full attendance/party-service call-over fields, registry/courtroom scan-out and scan-back closure, signed judgment/ruling PDF storage, CTC request/release tracking, and appeal-record/transit workflows. These remain implementation/acceptance work, not implied by the role names. Do not represent them as operationally complete.
 
 ## End the walkthrough
 
-- Sign out of the account, close the demo browser, and stop the local server.
-- Keep or delete only the disposable synthetic database according to the team's reset procedure. Do not copy it into a pilot or public demo without review.
-- Capture feedback without case details, phone numbers, credentials, tokens, or screenshots containing personal data. Use the separate [`pilot feedback and triage template`](PILOT_FEEDBACK_AND_TRIAGE.md).
+- Sign out, close the demo browser, and stop the local server.
+- Keep or delete only the disposable synthetic database according to the team's reset procedure.
+- Capture feedback without case details, phone numbers, credentials, tokens, or screenshots containing personal data. Use [`PILOT_FEEDBACK_AND_TRIAGE.md`](PILOT_FEEDBACK_AND_TRIAGE.md).
 
-## Acceptance boundary
-
-This guide does not show that staff training, an end-to-end pilot rehearsal, browser/device testing, legal review, WhatsApp delivery, staging, backup/restore, or pilot permission has happened. Record those as separate acceptance tasks in [`COURTLOG_COMPLETION_PLAN.md`](../COURTLOG_COMPLETION_PLAN.md).
+This guide does not show that staff training, device testing, legal review beyond the approved role model, WhatsApp delivery, staging, backup/restore, or pilot permission has happened. Record these as separate acceptance tasks in [`COURTLOG_COMPLETION_PLAN.md`](../COURTLOG_COMPLETION_PLAN.md).

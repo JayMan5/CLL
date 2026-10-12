@@ -6,7 +6,7 @@
 
 - **Reference:** `FB-YYYYMMDD-NNN` (no case number or person name)
 - **Date/time and timezone:**
-- **Role used:** Sheriff / Clerk / Judge / DCR / Chief Registrar / Other
+- **Role used:** Chief Judge / Chief Registrar / Deputy Chief Registrar / Registrar / Filing Clerk / Registry Clerk / Court Clerk / Bailiff / Sheriff / Presiding Judge / Other
 - **Build/commit and environment:** local demo / staging (identify URL privately, never include secrets)
 - **Scenario reference:** one of the `DEMO/2026/001`–`DEMO/2026/008` fixtures, or “new fictional scenario”
 - **What were you trying to do?**

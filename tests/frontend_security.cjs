@@ -46,6 +46,7 @@ assert.ok(dom.window.document.querySelector('#missing-file-history').textContent
 run('shortcutQRScan = id => { window.selectedId = id; }');
 scan.dispatchEvent(new dom.window.MouseEvent('click', {bubbles: true}));
 assert.equal(dom.window.selectedId, attack);
+run(`authenticatedUser = { user_id:'registrar-ui-test', role:'Registrar', name:'Fictional Registrar', court:'FHC Abuja Court 4', division:'All Divisions' }; renderHeatmapTable([${JSON.stringify(record)}])`);
 const custody = table.querySelector('[data-case-action="assignSheriff"]');
 assert.ok(custody);
 assert.equal(custody.getAttribute('onclick'), null);

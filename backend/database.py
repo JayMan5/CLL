@@ -14,9 +14,17 @@ import sqlite3
 import uuid
 import threading
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 import bcrypt
+
+from backend.roles import (
+    BAILIFF, CHIEF_JUDGE, CHIEF_REGISTRAR, COURT_CLERK,
+    DEPUTY_CHIEF_REGISTRAR, FILING_CLERK, PRESIDING_JUDGE,
+    REGISTRAR, REGISTRY_CLERK, ROLE_ASSIGNMENT_REQUIRED, SHERIFF,
+    enabled_paid_features,
+)
 
 # Setup logging
 logging.basicConfig(level=logging.INFO)
@@ -55,58 +63,59 @@ def format_date(dt: datetime) -> str:
     return dt.isoformat().replace("+00:00", "Z")
 
 
-# ---- Seed users (5-Level Access Hierarchy) ----
+# ---- Fictional demo accounts (pilot workflow roles) ----
 
 SEED_USERS = [
     {
-        "user_id": "usr_sheriff_01",
-        "name": "Level 1: Sheriff",
-        "username": "sheriff",
-        "password": get_password_hash("123"),
-        "role": "Sheriff",
-        "badge": "Physical File Custodian",
-        "court": "FHC Abuja Court 4",
-        "division": "Criminal",
+        "user_id": "usr_sheriff_01", "name": "Pilot Sheriff", "username": "sheriff",
+        "password": get_password_hash("123"), "role": SHERIFF,
+        "badge": "Execution and service records", "court": "FHC Abuja Court 4", "division": "Criminal",
     },
     {
-        "user_id": "usr_clerk_01",
-        "name": "Level 2: Clerk",
-        "username": "clerk",
-        "password": get_password_hash("123"),
-        "role": "Clerk",
-        "badge": "Data Entry & Event Logger",
-        "court": "FHC Abuja Court 4",
-        "division": "Criminal",
+        # Keep the historical ID, but the former combined Clerk role is not reused.
+        "user_id": "usr_clerk_01", "name": "Pilot Filing Clerk", "username": "clerk",
+        "password": get_password_hash("123"), "role": FILING_CLERK,
+        "badge": "Filing and case registration", "court": "FHC Abuja Court 4", "division": "Criminal",
     },
     {
-        "user_id": "usr_dcr_01",
-        "name": "Level 3: Deputy Chief Registrar (DCR)",
-        "username": "dcr",
-        "password": get_password_hash("123"),
-        "role": "DCR",
-        "badge": "Division Supervisor",
-        "court": "FHC Abuja",
-        "division": "Criminal",
+        "user_id": "usr_registry_clerk_01", "name": "Pilot Registry Clerk", "username": "registry.clerk",
+        "password": get_password_hash("123"), "role": REGISTRY_CLERK,
+        "badge": "Registry file custody", "court": "FHC Abuja Court 4", "division": "Criminal",
     },
     {
-        "user_id": "usr_cr_01",
-        "name": "Level 4: Chief Registrar (CR)",
-        "username": "cr",
-        "password": get_password_hash("12345"),
-        "role": "Chief Registrar",
-        "badge": "Court Administrator & Compliance Officer",
-        "court": "All Courts",
-        "division": "All Divisions",
+        "user_id": "usr_court_clerk_01", "name": "Pilot Court Clerk", "username": "court.clerk",
+        "password": get_password_hash("123"), "role": COURT_CLERK,
+        "badge": "Courtroom and hearing records", "court": "FHC Abuja Court 4", "division": "Criminal",
     },
     {
-        "user_id": "usr_judge_01",
-        "name": "Level 5: Judge",
-        "username": "judge",
-        "password": get_password_hash("123"),
-        "role": "Judge",
-        "badge": "Decision Maker & Accountability Owner",
-        "court": "FHC Abuja Court 4",
-        "division": "Criminal",
+        "user_id": "usr_bailiff_01", "name": "Pilot Bailiff", "username": "bailiff",
+        "password": get_password_hash("123"), "role": BAILIFF,
+        "badge": "Service and process records", "court": "FHC Abuja Court 4", "division": "Criminal",
+    },
+    {
+        "user_id": "usr_dcr_01", "name": "Pilot Deputy Chief Registrar", "username": "dcr",
+        "password": get_password_hash("123"), "role": DEPUTY_CHIEF_REGISTRAR,
+        "badge": "Court-wide supervision", "court": "FHC Abuja Court 4", "division": "All Divisions",
+    },
+    {
+        "user_id": "usr_registrar_01", "name": "Pilot Registrar", "username": "registrar",
+        "password": get_password_hash("123"), "role": REGISTRAR,
+        "badge": "Registry operations", "court": "FHC Abuja Court 4", "division": "All Divisions",
+    },
+    {
+        "user_id": "usr_cr_01", "name": "Pilot Chief Registrar", "username": "cr",
+        "password": get_password_hash("12345"), "role": CHIEF_REGISTRAR,
+        "badge": "Court administration and read-only oversight", "court": "All Courts", "division": "All Divisions",
+    },
+    {
+        "user_id": "usr_chief_judge_01", "name": "Pilot Chief Judge", "username": "chief.judge",
+        "password": get_password_hash("123"), "role": CHIEF_JUDGE,
+        "badge": "Court-level oversight", "court": "FHC Abuja Court 4", "division": "All Divisions",
+    },
+    {
+        "user_id": "usr_judge_01", "name": "Pilot Presiding Judge", "username": "judge",
+        "password": get_password_hash("123"), "role": PRESIDING_JUDGE,
+        "badge": "Assigned-case judicial view", "court": "FHC Abuja Court 4", "division": "Criminal",
     },
 ]
 
@@ -250,7 +259,47 @@ class SQLiteDatabase(BaseDatabase):
         # Ensure DELETE triggers also fire for conflict-replacement attempts.
         self.conn.execute("PRAGMA recursive_triggers = ON")
         self._create_tables()
+        self._migrate_legacy_roles()
         self._seed_users_if_empty()
+
+    def _migrate_legacy_roles(self) -> None:
+        """Migrate deployed accounts without guessing what a legacy Clerk did.
+
+        The committed local demo database is treated as an immutable fixture and
+        is deliberately not rewritten at import/startup. Persistent deployment
+        databases are migrated once, preserving user IDs and recording an audit
+        event. Legacy Clerk accounts are disabled for workflow access until an
+        authorized Chief Registrar explicitly assigns their new role.
+        """
+        tracked_demo_db = (Path(__file__).resolve().parent.parent / "data" / "courtlog.db").resolve()
+        if Path(self.db_path).resolve() == tracked_demo_db:
+            logger.info("Skipping automatic role migration for the committed local demo database")
+            return
+
+        from backend.roles import LEGACY_ROLE_REMAP, LEGACY_ROLE_RENAMES
+
+        for user in self.list_users():
+            old_role = user.get("role")
+            if old_role in LEGACY_ROLE_RENAMES:
+                user["role"] = LEGACY_ROLE_RENAMES[old_role]
+                user.pop("role_remap_required", None)
+                user.pop("legacy_role", None)
+            elif old_role in LEGACY_ROLE_REMAP:
+                user["legacy_role"] = old_role
+                user["role"] = ROLE_ASSIGNMENT_REQUIRED
+                user["role_remap_required"] = True
+            else:
+                continue
+            self.save_user(user["user_id"], user)
+            self.revoke_user_sessions(user["user_id"])
+            self.append_audit_event(
+                None,
+                "user.role.migration",
+                "user",
+                user["user_id"],
+                reason="Versioned pilot role migration; legacy Clerk accounts require explicit role assignment.",
+                metadata={"previous_role": old_role, "current_role": user["role"]},
+            )
 
     def _create_tables(self) -> None:
         """Create tables if they don't exist."""
@@ -405,12 +454,16 @@ class SQLiteDatabase(BaseDatabase):
         count = cursor.fetchone()[0]
         demo_mode = os.getenv("DEMO_MODE", "false").strip().lower() == "true"
         demo_ids = {user["user_id"] for user in SEED_USERS}
+        demo_seed_users = [
+            seed for seed in SEED_USERS
+            if seed.get("role") != COURT_CLERK or "court_clerk" in enabled_paid_features()
+        ]
 
         if demo_mode:
             if count == 0:
                 logger.warning("DEMO_MODE is enabled: installing fictional demo users with demo-only credentials")
                 with self._lock:
-                    for seed in SEED_USERS:
+                    for seed in demo_seed_users:
                         user = {**seed, "demo_only": True, "disabled": False, "must_change_password": False}
                         self.conn.execute(
                             "INSERT INTO users (user_id, username, data) VALUES (?, ?, ?)",

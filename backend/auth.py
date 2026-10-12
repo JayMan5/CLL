@@ -18,6 +18,8 @@ from dotenv import load_dotenv
 from fastapi import Depends, HTTPException, Request, status
 from fastapi.security import OAuth2PasswordBearer
 
+from backend.roles import ROLE_ASSIGNMENT_REQUIRED, role_is_licensed
+
 load_dotenv()
 
 logger = logging.getLogger("courtlog.auth")
@@ -155,6 +157,15 @@ def get_current_user(request: Request, token: Optional[str] = Depends(oauth2_sch
     if user.get("disabled"):
         main.db.revoke_user_sessions(user_id)
         raise HTTPException(status_code=401, detail="Account is no longer active")
+    if user.get("role_remap_required") or user.get("role") in {"Clerk", ROLE_ASSIGNMENT_REQUIRED}:
+        main.db.revoke_user_sessions(user_id)
+        raise HTTPException(
+            status_code=403,
+            detail="Legacy Clerk account requires an explicit role assignment by the Chief Registrar before sign-in.",
+        )
+    if not role_is_licensed(user.get("role", "")):
+        main.db.revoke_user_sessions(user_id)
+        raise HTTPException(status_code=403, detail="This role is not enabled by the deployment entitlement.")
 
     session_id = payload.get("sid")
     if not session_id or not main.db.is_auth_session_active(session_id, user_id):
