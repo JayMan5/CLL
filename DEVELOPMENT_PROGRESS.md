@@ -304,4 +304,5 @@ Implemented:
 Verification:
 - `.venv/bin/python -m pytest -q`: **82 passed**, with 10 existing FastAPI/SciPy deprecation warnings.
 - `npm run test:frontend`: passed, including security, session, PWA, and role-aware UI suites.
+- The push-triggered [GitHub Actions run](https://github.com/JayMan5/CLL/actions/runs/38257000805) ended in failure before either job ran a step; both jobs report empty step lists. This matches the previously reported billing lock and is not a remote test result.
 - Physical phone/printer testing, legal review beyond the approved role model, staging, live billing/payment, and production acceptance remain open. The Court Clerk environment entitlement is not evidence of payment.
