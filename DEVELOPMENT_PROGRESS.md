@@ -379,3 +379,13 @@ Verification:
 Verification:
 - `.venv/bin/python -m pytest tests/test_security.py::test_dashboard_revalidates_html_for_the_versioned_explanation_ui -q`: **1 passed**.
 - `npm run test:frontend`: passed, including the Why? dialog interaction and PWA shell checks.
+
+## 14 October 2026 — explicit case choice for QR label issuance
+
+- The label panel previously borrowed the manual check-in selector, whose first option auto-selected the first scoped case; this made it look as if the label workflow had no case dropdown.
+- Added a dedicated case dropdown inside the opaque-label panel with a clear no-selection prompt. The manual check-in selector also starts blank, and label generation/printing now use the explicit label selection only.
+- Changing or clearing the label selection invalidates any prior generated label so a stale QR cannot be printed for a different case. Case options still come from the user's server-scoped case list; Filing Clerk-only issuance and server authorization remain unchanged.
+
+Verification:
+- `npm run test:frontend`: passed, including the explicit/no-default case selection and label invalidation checks.
+- `.venv/bin/python -m pytest tests/test_security.py::test_dashboard_revalidates_html_for_the_versioned_explanation_ui -q`: **1 passed**.

@@ -1,10 +1,10 @@
 /* COURTLOG PWA shell only. Authenticated API data and all POSTs are never cached. */
-const CACHE_NAME = "courtlog-shell-v10";
+const CACHE_NAME = "courtlog-shell-v11";
 // Version these assets when their UI changes so installed PWAs and browser HTTP
 // caches cannot keep serving an older interactive app or its styles.
 const SHELL_ASSETS = [
   "/static/tailwind.css",
-  "/static/index.css?v=why-dialog-v10",
+  "/static/index.css?v=custody-case-selector-v11",
   "/static/vendor/fonts/outfit/wght.css",
   "/static/vendor/fonts/outfit/files/outfit-latin-wght-normal.woff2",
   "/static/vendor/fonts/outfit/files/outfit-latin-ext-wght-normal.woff2",
@@ -17,7 +17,7 @@ const SHELL_ASSETS = [
   "/static/vendor/fontawesome/webfonts/fa-solid-900.woff2",
   "/static/vendor/fontawesome/webfonts/fa-v4compatibility.woff2",
   "/static/chart.bundle.js",
-  "/static/app.js?v=why-dialog-v10",
+  "/static/app.js?v=custody-case-selector-v11",
   "/static/c2-pwa.bundle.js",
   "/static/manifest.webmanifest",
   "/static/offline.html",

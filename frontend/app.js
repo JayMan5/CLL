@@ -167,9 +167,10 @@ function clearClientSession() {
         "alert-count-custody", "alert-count-missing", "alert-count-enforcement", "judge-alert-count", "ai-total-cases"]
         .forEach(id => { const el = document.getElementById(id); if (el) el.textContent = "0"; });
     document.getElementById("quick-alert-bar")?.classList.add("hidden");
-    ["scan-case-id", "missing-case-id", "found-case-id", "missing-history-case-id", "hearing-case-id"].forEach(id => {
+    ["scan-case-id", "qr-label-case-id", "missing-case-id", "found-case-id", "missing-history-case-id", "hearing-case-id"].forEach(id => {
         const select = document.getElementById(id);
-        if (select) select.replaceChildren(new Option("Select a case", ""));
+        const prompt = id === "qr-label-case-id" ? "Choose an authorised case" : "Select a case";
+        if (select) select.replaceChildren(new Option(prompt, ""));
     });
     window.CourtLogPwa?.stopCamera();
     const qrInput = document.getElementById("qr-payload-input");
@@ -184,6 +185,7 @@ function clearClientSession() {
     if (printLabelButton) printLabelButton.disabled = true;
     const qrLabelStatus = document.getElementById("qr-label-status");
     if (qrLabelStatus) qrLabelStatus.textContent = "No label generated.";
+    updateQRLabelSelection();
     setCustodyCheckinStatus("No check-in submitted.", "info");
     ["new-case-id", "new-case-counsel", "new-case-litigant", "upload-case-id", "writ-case-id",
         "writ-sheriff-id", "reassign-case-id", "assign-judge-case-id", "assign-sheriff-case-id"]
@@ -1273,6 +1275,7 @@ function renderWhatsAppLogs() {
 
 function populateDropdowns() {
     const scanSelect = document.getElementById("scan-case-id");
+    const qrLabelSelect = document.getElementById("qr-label-case-id");
     const hearingSelect = document.getElementById("hearing-case-id");
     const missingSelect = document.getElementById("missing-case-id");
     const foundSelect = document.getElementById("found-case-id");
@@ -1281,12 +1284,14 @@ function populateDropdowns() {
     if (!scanSelect || !hearingSelect) return;
 
     const prevScanVal = scanSelect.value;
+    const prevQrLabelVal = qrLabelSelect ? qrLabelSelect.value : "";
     const prevHearingVal = hearingSelect.value;
     const prevMissingVal = missingSelect ? missingSelect.value : "";
     const prevFoundVal = foundSelect ? foundSelect.value : "";
     const prevHistoryVal = missingHistorySelect ? missingHistorySelect.value : "";
 
-    scanSelect.innerHTML = "";
+    scanSelect.replaceChildren(new Option("Choose a case for manual check-in", ""));
+    if (qrLabelSelect) qrLabelSelect.replaceChildren(new Option("Choose an authorised case", ""));
     hearingSelect.innerHTML = "";
     if (missingSelect) missingSelect.innerHTML = "";
     if (foundSelect) {
@@ -1303,6 +1308,7 @@ function populateDropdowns() {
         opt.textContent = `${c.case_id} [${c.case_type} - ${c.court}]`;
 
         scanSelect.appendChild(opt.cloneNode(true));
+        if (qrLabelSelect) qrLabelSelect.appendChild(opt.cloneNode(true));
         if (missingSelect) missingSelect.appendChild(opt.cloneNode(true));
         if (missingHistorySelect) missingHistorySelect.appendChild(opt.cloneNode(true));
         if (foundSelect && isFileMissingRecord(c)) foundSelect.appendChild(opt.cloneNode(true));
@@ -1310,6 +1316,9 @@ function populateDropdowns() {
     });
 
     if (prevScanVal && sortedCases.some(c => c.case_id === prevScanVal)) scanSelect.value = prevScanVal;
+    if (qrLabelSelect && prevQrLabelVal && sortedCases.some(c => c.case_id === prevQrLabelVal)) {
+        qrLabelSelect.value = prevQrLabelVal;
+    }
     if (prevHearingVal && sortedCases.some(c => c.case_id === prevHearingVal && c.judgment_status !== "Executed")) {
         hearingSelect.value = prevHearingVal;
     }
@@ -1322,6 +1331,7 @@ function populateDropdowns() {
     }
 
     updateQRDisplay();
+    updateQRLabelSelection();
     populateWhatsAppTestCases();
     renderFileMissingHistory();
 }
@@ -2120,24 +2130,9 @@ function shortcutHearingLog(caseId) {
     document.getElementById("hearing-case-id").value = caseId;
 }
 
-// Update selected case reference and locally rendered custody history.
+// Update case history for the manual check-in selector.
 function updateQRDisplay() {
-    const selector = document.getElementById("scan-case-id");
-    const caseId = selector?.value || "";
-    const selected = document.getElementById("qr-display-suit");
-    if (selected) selected.textContent = caseId || "No case selected";
-
-    const canvas = document.getElementById("qr-label-canvas");
-    if (canvas?.dataset.caseId && canvas.dataset.caseId !== caseId) {
-        canvas.width = canvas.width;
-        canvas.height = canvas.height;
-        delete canvas.dataset.caseId;
-        const printButton = document.getElementById("btn-print-qr-label");
-        if (printButton) printButton.disabled = true;
-        const status = document.getElementById("qr-label-status");
-        if (status) status.textContent = "Selection changed. Generate a new label before printing.";
-    }
-
+    const caseId = document.getElementById("scan-case-id")?.value || "";
     const targetCase = casesData.find(c => c.case_id === caseId);
     const logsContainer = document.getElementById("case-scan-history");
     if (!logsContainer) return;
@@ -2164,8 +2159,31 @@ function updateQRDisplay() {
     }
 }
 
+// The label workflow has its own explicit choice; it never inherits the first manual-scan case.
+function updateQRLabelSelection() {
+    const caseId = document.getElementById("qr-label-case-id")?.value || "";
+    const selected = document.getElementById("qr-display-suit");
+    if (selected) selected.textContent = caseId || "No case selected";
+
+    const generateButton = document.getElementById("btn-generate-qr-label");
+    if (generateButton) generateButton.disabled = !caseId;
+
+    const canvas = document.getElementById("qr-label-canvas");
+    if (canvas?.dataset.caseId && canvas.dataset.caseId !== caseId) {
+        canvas.width = canvas.width;
+        canvas.height = canvas.height;
+        delete canvas.dataset.caseId;
+        const printButton = document.getElementById("btn-print-qr-label");
+        if (printButton) printButton.disabled = true;
+        const status = document.getElementById("qr-label-status");
+        if (status) status.textContent = caseId
+            ? "Selection changed. Generate a new label before printing."
+            : "Choose a case before generating a label.";
+    }
+}
+
 async function generateQrLabel() {
-    const caseId = document.getElementById("scan-case-id")?.value || "";
+    const caseId = document.getElementById("qr-label-case-id")?.value || "";
     const role = authenticatedUser?.role;
     if (role !== "Filing Clerk") {
         showToast("QR labels can only be issued by a Filing Clerk.", "error");
@@ -2181,8 +2199,10 @@ async function generateQrLabel() {
     }
 
     const button = document.getElementById("btn-generate-qr-label");
+    const caseSelect = document.getElementById("qr-label-case-id");
     const status = document.getElementById("qr-label-status");
     if (button) button.disabled = true;
+    if (caseSelect) caseSelect.disabled = true;
     if (status) status.textContent = "Requesting an opaque label token from CourtLOG…";
     try {
         const casePath = caseId.split("/").map(encodeURIComponent).join("/");
@@ -2208,12 +2228,13 @@ async function generateQrLabel() {
         showToast(error.message || "QR label generation failed.", "error");
         return false;
     } finally {
-        if (button) button.disabled = false;
+        if (caseSelect) caseSelect.disabled = false;
+        if (button) button.disabled = !caseSelect?.value;
     }
 }
 
 function printQrLabel() {
-    const selectedCase = document.getElementById("scan-case-id")?.value || "";
+    const selectedCase = document.getElementById("qr-label-case-id")?.value || "";
     const canvas = document.getElementById("qr-label-canvas");
     if (!selectedCase || !canvas?.dataset.caseId || canvas.dataset.caseId !== selectedCase) {
         showToast("Generate a label for the currently selected case before printing.", "error");

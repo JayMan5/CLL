@@ -57,9 +57,9 @@ for (const [, path] of serviceWorker.matchAll(/"(\/static\/[^\"]+)"/g)) {
   const localPath = path.split('?')[0];
   assert.ok(fs.existsSync(`frontend${localPath.replace('/static', '')}`), `cached asset exists: ${path}`);
 }
-assert.match(serviceWorker, /courtlog-shell-v10/, 'the refreshed explanation UI invalidates the earlier static cache');
-const versionedAppScript = '/static/app.js?v=why-dialog-v10';
-const versionedExplanationStyles = '/static/index.css?v=why-dialog-v10';
+assert.match(serviceWorker, /courtlog-shell-v11/, 'the refreshed explanation UI invalidates the earlier static cache');
+const versionedAppScript = '/static/app.js?v=custody-case-selector-v11';
+const versionedExplanationStyles = '/static/index.css?v=custody-case-selector-v11';
 assert.ok(indexHtml.includes(versionedAppScript), 'the page loads the refreshed dialog-enabled app script');
 assert.ok(indexHtml.includes(versionedExplanationStyles), 'the page loads the refreshed explanation-dialog styles');
 assert.ok(serviceWorker.includes(`"${versionedAppScript}"`), 'the PWA precaches the versioned application script');
@@ -144,9 +144,15 @@ function response(status, body = {}) {
   assert.equal(calls.at(-1).url, '/api/scan/qr');
 
   run(`authenticatedUser = { user_id: 'clerk-test', role: 'Filing Clerk', name: 'Fictional Filing Clerk' };`);
-  const caseSelect = dom.window.document.getElementById('scan-case-id');
-  caseSelect.replaceChildren(new dom.window.Option('Fictional case', 'FICTIONAL/CASE'));
+  run(`casesData = [{case_id:'FICTIONAL/CASE', case_type:'Fictional civil', court:'Fictional Court', judgment_status:'Pending', scan_events:[]}]; populateDropdowns();`);
+  const manualCaseSelect = dom.window.document.getElementById('scan-case-id');
+  const caseSelect = dom.window.document.getElementById('qr-label-case-id');
+  assert.equal(manualCaseSelect.value, '', 'manual case check-in does not silently preselect the first case');
+  assert.equal(caseSelect.value, '', 'QR label selector starts with no case selected');
+  assert.equal(caseSelect.options.length, 2, 'QR label selector lists the scoped fictional case after its prompt');
   caseSelect.value = 'FICTIONAL/CASE';
+  run('updateQRLabelSelection()');
+  assert.equal(dom.window.document.getElementById('btn-generate-qr-label').disabled, false);
   const labelCreated = await run('generateQrLabel()');
   assert.equal(labelCreated, true);
   assert.equal(calls.at(-1).url, '/api/cases/FICTIONAL/CASE/qr-label');
@@ -155,6 +161,16 @@ function response(status, body = {}) {
   assert.equal(dom.window.document.getElementById('qr-label-canvas').dataset.caseId, 'FICTIONAL/CASE');
   assert.equal(dom.window.document.getElementById('btn-print-qr-label').disabled, false);
   assert.doesNotMatch(issuedPayload, /FICTIONAL\/CASE/);
+  let printedLabel = false;
+  dom.window.print = () => { printedLabel = true; };
+  assert.equal(run('printQrLabel()'), true, 'printing follows the dedicated QR-label selection');
+  assert.equal(printedLabel, true);
+  caseSelect.value = '';
+  run('updateQRLabelSelection()');
+  assert.equal(dom.window.document.getElementById('qr-display-suit').textContent, 'No case selected');
+  assert.equal(dom.window.document.getElementById('qr-label-canvas').dataset.caseId, undefined);
+  assert.equal(dom.window.document.getElementById('btn-print-qr-label').disabled, true);
+  assert.equal(dom.window.document.getElementById('btn-generate-qr-label').disabled, true);
 
   dom.window.close();
   console.log('Frontend PWA: local QR payload, API-only scanning, no offline queue, and confirmed-success gating passed');

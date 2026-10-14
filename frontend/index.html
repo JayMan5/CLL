@@ -18,7 +18,7 @@
     <link rel="stylesheet" href="/static/vendor/fonts/plus-jakarta-sans/wght.css">
     <link rel="stylesheet" href="/static/tailwind.css">
     <link rel="stylesheet" href="/static/vendor/fontawesome/css/all.min.css">
-    <link rel="stylesheet" href="/static/index.css?v=why-dialog-v10">
+    <link rel="stylesheet" href="/static/index.css?v=custody-case-selector-v11">
 </head>
 
 <body class="font-sans antialiased">
@@ -450,9 +450,15 @@
                                         <h4 class="text-sm font-semibold text-heading"><i class="fa-solid fa-print text-accent mr-2"></i>Issue and print an opaque QR label</h4>
                                         <p class="text-xs text-body mt-1">Registry staff can issue a random label token. QR generation is local in this browser; no case data or QR image is sent to a third party.</p>
                                     </div>
-                                    <p class="text-xs text-body">Selected case: <strong id="qr-display-suit" class="text-heading">No case selected</strong></p>
+                                    <div>
+                                        <label for="qr-label-case-id" class="stat-label block mb-1">Choose a case file for this label</label>
+                                        <select id="qr-label-case-id" class="th-input w-full py-2" onchange="updateQRLabelSelection()">
+                                            <option value="">Choose an authorised case</option>
+                                        </select>
+                                    </div>
+                                    <p class="text-xs text-body">Label for: <strong id="qr-display-suit" class="text-heading">No case selected</strong></p>
                                     <div class="flex flex-wrap gap-2">
-                                        <button id="btn-generate-qr-label" type="button" onclick="generateQrLabel()" class="btn-primary flex-1 py-2">
+                                        <button id="btn-generate-qr-label" type="button" onclick="generateQrLabel()" class="btn-primary flex-1 py-2" disabled>
                                             <i class="fa-solid fa-qrcode"></i> Generate local QR label
                                         </button>
                                         <button id="btn-print-qr-label" type="button" onclick="printQrLabel()" class="btn-secondary flex-1 py-2" disabled>
@@ -1495,7 +1501,7 @@
     <!-- Locally bundled QR generation and browser camera scanner -->
     <script src="/static/c2-pwa.bundle.js"></script>
     <!-- Client app code file integration -->
-    <script src="/static/app.js?v=why-dialog-v10"></script>
+    <script src="/static/app.js?v=custody-case-selector-v11"></script>
 </body>
 
 </html>
