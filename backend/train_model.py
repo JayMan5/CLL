@@ -44,7 +44,7 @@ MODEL_DIR = Path(os.getenv("COURTLOG_MODEL_DIR", str(DATA_DIR)))
 MODEL_PATH = MODEL_DIR / "delay_model.joblib"
 MODEL_METADATA_PATH = MODEL_DIR / "delay_model_metadata.json"
 
-NUMERIC_FEATURES = ["adjournment_count", "days_since_filing"]
+NUMERIC_FEATURES = ["adjournment_count", "days_since_filing", "days_since_last_event"]
 CATEGORICAL_FEATURES = ["case_type", "court"]
 FEATURES = NUMERIC_FEATURES + CATEGORICAL_FEATURES
 DEFAULT_GROUP_COLUMN = "case_id"
@@ -75,7 +75,7 @@ def build_pipeline() -> Pipeline:
 def _normalise_target(values: pd.Series, target_column: str) -> pd.Series:
     target = pd.to_numeric(values, errors="coerce")
     if target.isna().any() or not set(target.unique()).issubset({0, 1}):
-        raise ValueError(f"Target '{target_column}' must contain only observed binary 0/1 labels")
+        raise ValueError(f"Target '{target_column}' must contain only binary 0/1 labels")
     target = target.astype(int)
     if target.nunique() != 2:
         raise ValueError(f"Target '{target_column}' must contain both classes")
@@ -179,6 +179,7 @@ def train_and_evaluate(
     *,
     target_column: str,
     data_provenance: str,
+    target_definition: Optional[str] = None,
     permission_reference: Optional[str] = None,
     group_column: Optional[str] = DEFAULT_GROUP_COLUMN,
     time_column: Optional[str] = None,
@@ -196,7 +197,7 @@ def train_and_evaluate(
         if not group_column:
             raise ValueError("Permissioned real-data evaluation requires a case-group column")
     if target_column in FEATURES:
-        raise ValueError("The target must be a future observed outcome, not one of the model features")
+        raise ValueError("The target must be a separate outcome/label, not one of the model features")
     if group_column in FEATURES or group_column == target_column:
         raise ValueError("The case-group column must be an identifier, not a model feature or target")
     if time_column == target_column:
@@ -245,6 +246,7 @@ def train_and_evaluate(
         "data_provenance": data_provenance,
         "split": split_name,
         "target_column": target_column,
+        "target_definition": target_definition or f"Caller-defined binary label in '{target_column}'; see the documented data provenance.",
         "feature_columns": FEATURES,
         "train_rows": int(len(train_idx)),
         "test_rows": int(len(test_idx)),
@@ -278,6 +280,7 @@ def train_file(
     group_column: Optional[str],
     time_column: Optional[str],
     output_dir: Optional[Path],
+    target_definition: Optional[str] = None,
 ) -> dict[str, Any]:
     if (
         Path(dataset_path).resolve() == LEGACY_MIXED_DATASET_PATH.resolve()
@@ -292,6 +295,7 @@ def train_file(
         frame,
         target_column=target_column,
         data_provenance=data_provenance,
+        target_definition=target_definition,
         permission_reference=permission_reference,
         group_column=group_column,
         time_column=time_column,
@@ -308,6 +312,7 @@ def train_file(
             "permission_reference_present": bool(permission_reference),
             "feature_columns": FEATURES,
             "target_column": target_column,
+            "target_definition": metrics["target_definition"],
             "threshold": EXISTING_FLAG_THRESHOLD,
             "evaluation": metrics,
             "scikit_learn_version": sklearn.__version__,
@@ -321,7 +326,8 @@ def train_file(
 def _parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--dataset", type=Path, required=True, help="Explicit permitted/synthetic CSV path; there is no default training dataset")
-    parser.add_argument("--target-column", required=True, help="Observed binary 0/1 outcome column; labels are never derived from a risk score")
+    parser.add_argument("--target-column", required=True, help="Explicit binary 0/1 label column; synthetic labels are not observed court outcomes")
+    parser.add_argument("--target-definition", help="Plain-language definition of the 0/1 outcome, recorded in model metadata")
     parser.add_argument("--data-provenance", required=True, choices=["synthetic_demo", "permissioned_real"])
     parser.add_argument("--permission-reference", help="Required authorization reference for permissioned real records")
     parser.add_argument("--group-column", default=DEFAULT_GROUP_COLUMN, help="Case-group column held out as whole cases; pass an empty value to disable")
@@ -338,6 +344,7 @@ def main() -> None:
             args.dataset,
             target_column=args.target_column,
             data_provenance=args.data_provenance,
+            target_definition=args.target_definition,
             permission_reference=args.permission_reference,
             group_column=group_column,
             time_column=args.time_column,

@@ -277,7 +277,7 @@
                             <div>
                                 <p class="page-kicker">Secondary analysis</p>
                                 <h2 id="analytics-heading">Experimental delay-risk distribution</h2>
-                                <p>Model output is synthetic/prototype decision support and has not been validated for real-world decisions.</p>
+                                <p>The optional synthetic demo model targets no recorded Heard/Adjourned hearing or judgment delivery in the next 30 days. Scores are experimental and not validated for real-world decisions.</p>
                             </div>
                             <span class="prototype-label">Experimental</span>
                         </div>
@@ -818,7 +818,7 @@
                 <!-- ================== TAB: AI RISK INTELLIGENCE ================== -->
                 <section id="tab-ai-risk" class="hidden space-y-8">
                     <div class="alert-box alert-amber text-xs text-body">
-                        Experimental decision-support scores use generated synthetic training scenarios and have no independent real-world validation. They are not legal findings and do not determine custody, hearing, enforcement, or judicial outcomes.
+                        Synthetic demo target: no Heard/Adjourned hearing-log event or judgment delivery recorded in the next 30 days; QR scans and internal/admin changes do not count. This is a software-demo definition, not a legal deadline or rule. The optional synthetic demo model uses generated fictional data only and has no independent real-world validation. Other model sources may have a different target meaning, and this prototype does not establish their validity. If no synthetic demo artifact is enabled, the app uses its disclosed heuristic fallback. Scores are not legal findings and must not determine custody, hearing, enforcement, or judicial outcomes.
                     </div>
                     <!-- Summary Cards -->
                     <div class="grid grid-cols-1 md:grid-cols-4 gap-4">
@@ -869,15 +869,15 @@
                         <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mt-4 text-sm">
                             <div>
                                 <div class="text-xs text-body uppercase tracking-wide">Algorithm</div>
-                                <div class="text-heading font-semibold mt-1">Logistic Regression or heuristic fallback</div>
+                                <div class="text-heading font-semibold mt-1">Optional Logistic Regression pipeline; heuristic fallback otherwise</div>
                             </div>
                             <div>
-                                <div class="text-xs text-body uppercase tracking-wide">Features</div>
-                                <div class="text-heading font-semibold mt-1">Case Type, Court, Adjournments, Days Elapsed</div>
+                                <div class="text-xs text-body uppercase tracking-wide">Synthetic model features</div>
+                                <div class="text-heading font-semibold mt-1">Case type, court, adjournments, filing age, event recency</div>
                             </div>
                             <div>
-                                <div class="text-xs text-body uppercase tracking-wide">Training Data</div>
-                                <div class="text-heading font-semibold mt-1">3,000 generated synthetic rows; no real case files</div>
+                                <div class="text-xs text-body uppercase tracking-wide">Synthetic demo data</div>
+                                <div class="text-heading font-semibold mt-1">Reproducible fictional rows; demo artifact stays local and is not committed</div>
                             </div>
                             <div>
                                 <div class="text-xs text-body uppercase tracking-wide">Threshold</div>

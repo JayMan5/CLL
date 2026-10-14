@@ -50,17 +50,19 @@ def build_document() -> Path:
     )
     add_bullet(
         document,
-        "Experimental delay-risk code can load a provenance-checked versioned model artifact "
-        "or use a disclosed deterministic heuristic fallback; the prediction source is reported. "
+        "Experimental delay-risk scores have a clearly labelled synthetic demo option. "
+        "It uses only generated, fictional case snapshots and asks whether no Heard/Adjourned "
+        "hearing event or judgment delivery is recorded in the next 30 days; QR scans and "
+        "internal/admin changes do not count. This is a software-demo definition, not a legal "
+        "deadline or a court-derived outcome. Its labels are simulated, and the local model file "
+        "is kept outside the repository and loads only in a disposable demo. When no model is "
+        "loaded, the app uses a separately labelled heuristic fallback. The app measures time "
+        "since the last recorded hearing or judgment, but excludes custody scans and admin activity. "
         "The legacy tracked CSV has rule-generated labels calibrated from real-derived distributions "
         "with unverified permission and is never selected by default or treated as synthetic. "
-        "Training requires an explicit dataset and provenance; permitted real-data evaluation also "
-        "requires documented permission and case-grouped forward-time splits. No deployable model artifact "
-        "was trained on court outcomes, and no real court data was used for training or evaluation in this work; "
-        "automated tests fit temporary models on synthetic fixtures only. There is no independent validation "
-        "against real outcomes. Scores are "
-        "not legal findings and must not drive adjudicative or other consequential decisions. See "
-        "docs/ML_EVALUATION_READINESS.md.",
+        "No model has been trained on observed court outcomes, no real court data was used, and there "
+        "is no independent validation against real cases. Scores are not legal findings and must not "
+        "drive adjudicative or other consequential decisions. See docs/ML_EVALUATION_READINESS.md.",
     )
     add_bullet(
         document,

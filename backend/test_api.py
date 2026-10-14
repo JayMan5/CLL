@@ -457,9 +457,10 @@ def test_prediction_is_authenticated_scoped_and_persisted():
     prediction = response.json()
     assert 0.0 <= prediction["delay_risk_score"] <= 1.0
     assert prediction["prediction_source"] in {
-        "trained_pipeline", "legacy_model", "heuristic", "heuristic_after_model_error",
+        "synthetic_demo_pipeline", "synthetic_pipeline", "trained_pipeline", "legacy_model", "heuristic", "heuristic_after_model_error",
     }
     assert prediction["case_id"] == case["case_id"]
+    assert prediction["days_since_last_event"] >= 0
     stored = client.get(f"/api/cases/{case['case_id']}", headers=auth_headers("smoke_clerk"))
     assert stored.status_code == 200
     assert stored.json()["delay_risk_score"] == prediction["delay_risk_score"]
@@ -475,6 +476,7 @@ def test_versioned_pipeline_handles_unseen_demo_categories_and_reports_heuristic
             "case_id": f"FICTIONAL/MODEL-{index}",
             "adjournment_count": adjournments,
             "days_since_filing": days,
+            "days_since_last_event": (index * 37) % 500,
             "case_type": "Fictional Civil" if index % 2 else "Fictional Criminal",
             "court": "Demo Court A" if index % 3 else "Demo Court B",
             "target": int(adjournments >= 4 or days >= 700),
@@ -489,6 +491,7 @@ def test_versioned_pipeline_handles_unseen_demo_categories_and_reports_heuristic
     estimate = main.run_model_inference({
         "adjournment_count": 2,
         "days_since_filing": 220,
+        "days_since_last_event": 90,
         "case_type": "Previously Unseen Fictional Type",
         "court": "Previously Unseen Fictional Court",
     })
@@ -505,6 +508,54 @@ def test_versioned_pipeline_handles_unseen_demo_categories_and_reports_heuristic
     })
     assert fallback["prediction_source"] == "heuristic_after_model_error"
     assert fallback["delay_risk_score"] == 0.99
+
+
+def test_inference_derives_event_recency_from_hearing_and_judgment_records(monkeypatch):
+    fixed_now = datetime(2026, 10, 14, 12, tzinfo=timezone.utc)
+    monkeypatch.setattr(main, "get_current_time", lambda: fixed_now)
+    case_data = {
+        "adjournment_count": 2,
+        "days_since_filing": 240,
+        "case_type": "Fictional Civil",
+        "court": "Synthetic Court A",
+        "hearing_log": [
+            {"outcome": "Heard", "date": "2026-10-01T12:00:00Z"},
+            {"outcome": "Adjourned", "date": "2026-10-05T12:00:00Z"},
+            {"outcome": "QR Scanned", "date": "2026-10-13T12:00:00Z"},
+            {"outcome": "Internal Admin Update", "date": "2026-10-12T12:00:00Z"},
+        ],
+        "judgment_delivery_at": "2026-10-08T12:00:00Z",
+    }
+    assert main._days_since_last_substantive_event(case_data) == 6
+    assert main._days_since_last_substantive_event({
+        "hearing_log": [{"outcome": "QR Scanned", "date": "2026-10-13T12:00:00Z"}],
+    }, fallback_days=90) == 90
+
+    seen_features = {}
+
+    class FeatureCapturingModel:
+        def predict_proba(self, features):
+            seen_features.update(features.iloc[0].to_dict())
+            return [[0.4, 0.6]]
+
+    monkeypatch.setattr(main, "model", FeatureCapturingModel())
+    monkeypatch.setattr(main, "encoders", None)
+    monkeypatch.setattr(main, "model_metadata", {
+        "format_version": 2,
+        "data_provenance": "synthetic_demo",
+        "target_column": main.SYNTHETIC_DEMO_TARGET_COLUMN,
+        "target_definition": main.SYNTHETIC_DEMO_TARGET_DEFINITION,
+    })
+    estimate = main.run_model_inference(case_data)
+    assert seen_features["days_since_last_event"] == 6
+    assert estimate["prediction_source"] == "synthetic_demo_pipeline"
+
+    # A different/older synthetic artifact must not inherit this target's UI label.
+    monkeypatch.setattr(main, "model_metadata", {
+        "format_version": 2,
+        "data_provenance": "synthetic_demo",
+    })
+    assert main.run_model_inference(case_data)["prediction_source"] == "synthetic_pipeline"
 
 
 def test_model_artifact_loader_enforces_demo_and_permission_provenance(tmp_path):

@@ -126,8 +126,26 @@ The service worker caches the static app shell and `offline.html` only. `/api/` 
 
 - The hearing endpoint currently applies a **case-level application trigger** when `adjournment_count >= 4` and no override reason exists. It does not implement a validated per-party legal count and must not be presented as an ACJA/ACJL finding. The threshold and workflow remain unchanged pending Law Lead sign-off.
 - A DCR/Chief Registrar acknowledgement records a note but does not approve or unblock the case. More than 24 hours after a pending review is requested, the scheduled workflow sweep records an in-app escalation state; it sends no external notification.
-- Delay-risk scores are experimental. The legacy tracked training CSV contains rule-generated labels calibrated from real-derived distributions with unverified permission; the trainer never selects it by default and refuses to treat it as synthetic. The top-level legacy `build_dataset.py` still reads tracked source CSVs and emits rule-generated labels; do not run it without documented data permission, and do not treat its output as observed outcomes. New training requires an explicit dataset, binary target and provenance; real-data evaluation requires documented permission plus a case-grouped forward-time split. Preprocessing is fitted within a one-hot pipeline, and outputs identify the trained-model or heuristic source. There is no independent validation against real court outcomes; scores are not legal findings or a basis for decisions. See [`docs/ML_EVALUATION_READINESS.md`](docs/ML_EVALUATION_READINESS.md).
+- Delay-risk scores are experimental. A reproducible **synthetic-only demo model** uses the target “no recorded Heard/Adjourned hearing event or judgment delivery during the next 30 days”; QR scans and internal/admin changes do not count. This is an operational software-demo definition, not a legal deadline or rule, and its generated labels are not actual court outcomes. The legacy tracked training CSV has rule-generated labels calibrated from real-derived distributions with unverified permission; the trainer never selects it by default and refuses to treat it as synthetic. The top-level legacy `build_dataset.py` still reads tracked source CSVs and emits rule-generated labels; do not run it without documented data permission. New training requires an explicit dataset, binary target and provenance; the generated demo is evaluated on a future-starting case cohort, with strict case/time separation. Inference derives event recency from recorded `Heard`/`Adjourned` events and judgment delivery, ignoring QR/admin activity. The optional artifact is stored only under ignored `.local/` and is loaded only in `DEMO_MODE=true`. The model has no independent validation against real court outcomes; scores are not legal findings or a basis for decisions. See [`docs/ML_EVALUATION_READINESS.md`](docs/ML_EVALUATION_READINESS.md).
 - WhatsApp now has a configurable Meta Cloud API adapter, a persistent privacy-minimized delivery log, signed webhook/status handling, and explicit opt-in/opt-out checks. It is disabled by default; `DEMO_MODE=true` can never send real messages. Live delivery still requires a Meta account, server-side secrets, a Meta-approved generic template, a public HTTPS webhook, a documented recipient opt-in, and a consented test. No live account/credentials were supplied for this code change, so real delivery remains unverified.
+
+### Reproduce the synthetic 30-day model demonstration
+
+This optional pipeline smoke test reads only data emitted by the fictional generator below. It does **not** open the legacy training file or the repository case-data CSVs. Both the dataset and the model artifact go under ignored `.local/`; they are intentionally not committed. The labels are simulated from an invented waiting-time process, and holdout metrics describe only how the software behaves on that simulation—not court cases.
+
+```bash
+.venv/bin/python scripts/generate_synthetic_demo_data.py --cases 1500 --seed 20261014
+.venv/bin/python -m backend.train_model \
+  --dataset .local/courtlog-synthetic-demo/no_progress_30d.csv \
+  --target-column no_recorded_progress_30d \
+  --target-definition "1 when neither a Heard/Adjourned hearing-log event nor a judgment delivery is simulated within 30 days after snapshot_at; 0 when one is simulated in that window. QR scans and internal/admin changes are not progress. This is a fictional software-demo outcome, not a legal deadline or a court-derived label." \
+  --data-provenance synthetic_demo \
+  --group-column case_id \
+  --time-column snapshot_at \
+  --output-dir .local/courtlog-synthetic-demo/model
+```
+
+The model source is reported as `synthetic_demo_pipeline` only when the artifact's provenance and full target metadata match this exact 30-day demo contract. To load it in the disposable local demo, set `DEMO_MODE=true` and `COURTLOG_MODEL_DIR=.local/courtlog-synthetic-demo/model` in `.env`, while keeping the database and JWT key paths under `.local/` as described above. Demo mode is not for public/staging deployments. Without the artifact, the app discloses its heuristic fallback; that heuristic is not a trained 30-day probability. The active inference feature `days_since_last_event` is computed from the latest recorded `Heard`/`Adjourned` hearing-log date or judgment-delivery timestamp; if none is recorded, filing age is used as a fallback. QR scans and internal/admin events do not update this feature.
 
 ## Pilot and legal gates
 

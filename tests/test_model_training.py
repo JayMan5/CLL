@@ -14,6 +14,12 @@ from backend.train_model import (
     train_and_evaluate,
     train_file,
 )
+from scripts.generate_synthetic_demo_data import (
+    TARGET_COLUMN,
+    TARGET_DEFINITION,
+    generate_synthetic_cases,
+    write_synthetic_dataset,
+)
 
 
 def synthetic_cases(count=120):
@@ -27,6 +33,7 @@ def synthetic_cases(count=120):
             "snapshot_at": (start + timedelta(days=index)).isoformat(),
             "adjournment_count": adjournments,
             "days_since_filing": days_since_filing,
+            "days_since_last_event": (index * 47) % min(days_since_filing + 1, 721),
             "case_type": ["Fictional Civil", "Fictional Criminal", "Fictional Commercial"][index % 3],
             "court": ["Demo Court A", "Demo Court B", "Demo Court C"][index % 3],
             # Explicitly synthetic target for pipeline tests only—not a court outcome.
@@ -55,6 +62,7 @@ def test_pipeline_uses_grouped_holdout_one_hot_encoding_and_comparison_metrics()
     probability = pipeline.predict_proba(pd.DataFrame([{
         "adjournment_count": 2,
         "days_since_filing": 150,
+        "days_since_last_event": 45,
         "case_type": "New Fictional Category",
         "court": "New Fictional Court",
     }]))[0, 1]
@@ -153,7 +161,7 @@ def test_legacy_mixed_dataset_is_not_silently_treated_as_synthetic():
         )
 
 
-def test_target_must_be_explicit_binary_observed_labels():
+def test_target_must_be_explicit_binary_labels():
 
     frame = synthetic_cases()
     frame["demo_target"] = frame["demo_target"].map({0: "Low", 1: "High"})
@@ -163,6 +171,38 @@ def test_target_must_be_explicit_binary_observed_labels():
             target_column="demo_target",
             data_provenance="synthetic_demo",
         )
+
+
+def test_reproducible_synthetic_demo_generator_trains_only_with_forward_case_holdout(tmp_path):
+    first_rows = generate_synthetic_cases(case_count=500, seed=20261014)
+    assert first_rows == generate_synthetic_cases(case_count=500, seed=20261014)
+    assert all(row["case_id"].startswith("SYNTHETIC-DEMO-") for row in first_rows)
+    assert {row[TARGET_COLUMN] for row in first_rows} == {0, 1}
+
+    dataset = tmp_path / "synthetic-demo.csv"
+    generation_metadata = write_synthetic_dataset(dataset, case_count=500, seed=20261014)
+    assert generation_metadata["data_provenance"] == "synthetic_demo"
+    assert generation_metadata["target_definition"] == TARGET_DEFINITION
+    assert "No repository case-data rows" in generation_metadata["simulation_note"]
+
+    artifact_dir = tmp_path / "demo-artifacts"
+    metrics = train_file(
+        dataset,
+        target_column=TARGET_COLUMN,
+        data_provenance="synthetic_demo",
+        permission_reference=None,
+        group_column="case_id",
+        time_column="snapshot_at",
+        output_dir=artifact_dir,
+        target_definition=TARGET_DEFINITION,
+    )
+    metadata = json.loads((artifact_dir / MODEL_METADATA_PATH.name).read_text(encoding="utf-8"))
+    assert metrics["split"].startswith("forward_time_new_cases_by_case_id:")
+    assert metrics["evaluation_scope"].endswith("not real-world validation")
+    assert metadata["data_provenance"] == "synthetic_demo"
+    assert metadata["target_column"] == TARGET_COLUMN
+    assert metadata["target_definition"] == TARGET_DEFINITION
+    assert metadata["evaluation"]["test_rows"] > 0
 
 
 def test_saved_pipeline_metadata_contains_provenance_without_dataset_path(tmp_path):

@@ -19,6 +19,7 @@ from pydantic import AfterValidator, BaseModel, Field, field_validator, model_va
 load_dotenv()
 
 from backend.database import get_db_client, parse_date, format_date, verify_password, get_password_hash
+from backend.model_contract import SYNTHETIC_DEMO_TARGET_COLUMN, SYNTHETIC_DEMO_TARGET_DEFINITION
 from backend.whatsapp import (
     create_manual_test_message,
     deliver_whatsapp_message,
@@ -997,6 +998,44 @@ def run_compliance_checks_sync(cases_to_check: Optional[List[Dict[str, Any]]] = 
         db.update_case(case_id, updates)
 
 # ----------------- INFERENCE HELPER -----------------
+def _days_since_last_substantive_event(case_data: Dict[str, Any], fallback_days: int = 0) -> int:
+    """Measure time since the last recorded hearing or judgment, not custody/admin events."""
+    event_dates = []
+    hearing_log = case_data.get("hearing_log")
+    if isinstance(hearing_log, list):
+        for event in hearing_log:
+            if not isinstance(event, dict) or event.get("outcome") not in {"Heard", "Adjourned"}:
+                continue
+            raw_date = event.get("date")
+            if not isinstance(raw_date, str) or not raw_date.strip():
+                continue
+            try:
+                event_dates.append(parse_date(raw_date))
+            except (TypeError, ValueError, OverflowError):
+                continue
+
+    judgment_date = case_data.get("judgment_delivery_at")
+    if isinstance(judgment_date, str) and judgment_date.strip():
+        try:
+            event_dates.append(parse_date(judgment_date))
+        except (TypeError, ValueError, OverflowError):
+            pass
+
+    if event_dates:
+        last_event = max(event_dates)
+        return max(0, (get_current_time() - last_event).days)
+
+    # Historical snapshots may already carry this feature. For live records with
+    # no qualifying event, use filing age as a conservative first-activity proxy.
+    stored_value = case_data.get("days_since_last_event")
+    try:
+        if stored_value is not None:
+            return max(0, int(stored_value))
+        return max(0, int(fallback_days))
+    except (TypeError, ValueError, OverflowError):
+        return max(0, int(fallback_days or 0))
+
+
 def _heuristic_delay_estimate(case_data: Dict[str, Any], source: str) -> Dict[str, Any]:
     """Preserve the documented prototype fallback and identify its source explicitly."""
     try:
@@ -1026,6 +1065,7 @@ def run_model_inference(case_data: Dict[str, Any]) -> Dict[str, Any]:
     try:
         adjournment_count = max(0, int(case_data.get("adjournment_count", 0)))
         days_since_filing = max(0, int(case_data.get("days_since_filing", 0)))
+        days_since_last_event = _days_since_last_substantive_event(case_data, days_since_filing)
         case_type = str(case_data.get("case_type", "Civil Debt") or "Civil Debt")
         court = str(case_data.get("court", "FHC Abuja Court 2") or "FHC Abuja Court 2")
         import pandas as pd
@@ -1036,10 +1076,18 @@ def run_model_inference(case_data: Dict[str, Any]) -> Dict[str, Any]:
             features = pd.DataFrame([{
                 "adjournment_count": adjournment_count,
                 "days_since_filing": days_since_filing,
+                "days_since_last_event": days_since_last_event,
                 "case_type": case_type,
                 "court": court,
             }])
-            prediction_source = "trained_pipeline"
+            if model_metadata.get("data_provenance") == "synthetic_demo":
+                has_known_demo_target = (
+                    model_metadata.get("target_column") == SYNTHETIC_DEMO_TARGET_COLUMN
+                    and model_metadata.get("target_definition") == SYNTHETIC_DEMO_TARGET_DEFINITION
+                )
+                prediction_source = "synthetic_demo_pipeline" if has_known_demo_target else "synthetic_pipeline"
+            else:
+                prediction_source = "trained_pipeline"
         else:
             if encoders is None:
                 raise ValueError("Legacy model is missing its encoder artifact")
@@ -2258,6 +2306,7 @@ def predict_case_risk(case_id: CaseIdentifier, auth: Dict[str, str] = Depends(ge
         "delay_risk_score": pred["delay_risk_score"],
         "risk_flag": pred["risk_flag"],
         "prediction_source": pred["prediction_source"],
+        "days_since_last_event": _days_since_last_substantive_event(case, case["days_since_filing"]),
     }
 
 @app.get("/api/predict/batch", response_model=List[Dict[str, Any]])
@@ -2286,6 +2335,7 @@ def batch_predict_all_cases(auth: Dict[str, str] = Depends(get_current_user)):
             "court": case.get("court", "Unknown"),
             "adjournment_count": case.get("adjournment_count", 0),
             "days_since_filing": case["days_since_filing"],
+            "days_since_last_event": _days_since_last_substantive_event(case, case["days_since_filing"]),
             "delay_risk_score": pred["delay_risk_score"],
             "risk_flag": pred["risk_flag"],
             "prediction_source": pred["prediction_source"],

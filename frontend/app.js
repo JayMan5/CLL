@@ -2998,12 +2998,31 @@ function showExplainability(caseId) {
     if (!c) return;
     const pct = (Number(c.delay_risk_score || 0) * 100).toFixed(1);
     const sourceLabels = {
-        trained_pipeline: "Trained preprocessing pipeline",
-        legacy_model: "Legacy model and encoder artifact",
-        heuristic: "Deterministic heuristic fallback (no model loaded)",
-        heuristic_after_model_error: "Heuristic fallback after model inference error"
+        synthetic_demo_pipeline: "Synthetic 30-day no-progress demo model (fictional training data)",
+        synthetic_pipeline: "Synthetic model (target not shown in this view)",
+        trained_pipeline: "Versioned preprocessing pipeline (target not shown in this view)",
+        legacy_model: "Legacy model and encoder artifact (unverified target/provenance)",
+        heuristic: "Deterministic heuristic fallback (not a trained 30-day model)",
+        heuristic_after_model_error: "Heuristic fallback after model inference error (not a trained 30-day model)"
     };
     const source = sourceLabels[c.prediction_source] || "Source not recorded for this older score";
-    const msg = `═══ EXPERIMENTAL DELAY-RISK SCORE ═══\n\nCase: ${c.case_id}\nPrototype score: ${pct}%\nEstimate source: ${source}\nStatus: ${c.judgment_status}\n\n── Inputs used ──\nCase type: ${c.case_type}\nCourt: ${c.court}\nRecorded case-level adjournments: ${c.adjournment_count}\nDays since filing: ${c.days_since_filing}\n\nThis is a feature summary, not a causal or model-attribution explanation. Training rows and labels are synthetic and rule-generated; the score has not been independently validated against real court outcomes.\n\nThe 70% display threshold is experimental only. This score is not a legal finding and must not determine a hearing, custody, enforcement, or judicial decision.`;
+    const isSyntheticDemo = c.prediction_source === "synthetic_demo_pipeline";
+    const target = isSyntheticDemo
+        ? "Synthetic demo target: no Heard/Adjourned hearing-log event and no judgment delivery recorded in the next 30 days. QR scans and internal/admin changes do not count. This is an operational demo definition, not a legal deadline or rule."
+        : "No validated 30-day outcome meaning is established for this score source; do not read it as a probability of a real court outcome.";
+    const recency = Number.isFinite(Number(c.days_since_last_event))
+        ? `${c.days_since_last_event} day(s)`
+        : "not returned by this score response";
+    const recencyUse = isSyntheticDemo
+        ? "synthetic pipeline input"
+        : ["heuristic", "heuristic_after_model_error"].includes(c.prediction_source)
+            ? "not used by the deterministic heuristic"
+            : c.prediction_source === "legacy_model"
+                ? "not included in the legacy model feature set"
+                : "feature use is not shown for this source";
+    const validation = isSyntheticDemo
+        ? "The model was trained and evaluated only on generated fictional data. Synthetic/rule-generated labels demonstrate software behavior, not predictive accuracy for actual court cases."
+        : "This source has not been independently validated against real court outcomes.";
+    const msg = `═══ EXPERIMENTAL DELAY-RISK SCORE ═══\n\nCase: ${c.case_id}\nPrototype score: ${pct}%\nEstimate source: ${source}\nStatus: ${c.judgment_status}\n\n── Demo target and meaning ──\n${target}\n\n── Model inputs / case context ──\nCase type: ${c.case_type}\nCourt: ${c.court}\nRecorded case-level adjournments: ${c.adjournment_count}\nDays since filing: ${c.days_since_filing}\nDays since latest recorded hearing/judgment (or filing age if none; ${recencyUse}): ${recency}\n\nThis is a feature summary, not a causal or model-attribution explanation. ${validation}\n\nThe 70% display threshold is experimental only. This score is not a legal finding and must not determine a hearing, custody, enforcement, or judicial decision.`;
     alert(msg);
 }

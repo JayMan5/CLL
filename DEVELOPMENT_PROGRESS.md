@@ -1,6 +1,6 @@
 # Development progress
 
-> **Current status — 14 October 2026:** The approved first-pilot role model is enforced server-side, with role-aware UI, explicit legacy `Clerk` remapping, and a deployment entitlement gate for Court Clerk (not a billing integration). The role/access matrix and PWA acceptance guides align with current code. The local Python suite passes (86 passed; 8 SciPy deprecation warnings), frontend regression suites pass, and dependency audits are clear. API route-auth coverage, the FastAPI startup-lifespan regression, and a strict forward-time case-cohort model-evaluation split have been added. Physical-device/staging acceptance, legal review beyond the approved role model, and production gates remain open. This is a competition-team prototype, not a government service, and government approval does not block feature development. Older checkpoints below are historical and are superseded where the latest entry or completion plan says so.
+> **Current status — 14 October 2026:** The approved first-pilot role model is enforced server-side, with role-aware UI, explicit legacy `Clerk` remapping, and a deployment entitlement gate for Court Clerk (not a billing integration). The current backend suite passes (88 passed; 10 SciPy deprecation warnings) and the frontend regression suite passes. A reproducible 30-day no-recorded-progress model demo is trained only on fictional data under ignored `.local/`; it is not validated for court outcomes. API route-auth coverage, lifespan checks, and the strict future-case holdout remain tested. Physical-device/staging acceptance, real data/outcome permission, real-model validation, legal review beyond the approved role model, and production gates remain open. This is a competition-team prototype, not a government service, and government approval does not block feature development. Older checkpoints below are historical and are superseded where the latest entry or completion plan says so.
 
 ## 1 October 2026 — first security tranche
 
@@ -323,3 +323,20 @@ Verification:
 - No tracked generated assets changed during the frontend build.
 
 Still open: broad end-to-end workflows and real-browser/device/network/staging acceptance; third-party webhook delivery and real WhatsApp acceptance remain blocked on the corresponding external setup.
+
+## 14 October 2026 — synthetic 30-day no-recorded-progress model demo
+
+Implemented:
+- Added `scripts/generate_synthetic_demo_data.py`, a deterministic, seeded generator for fictional case snapshots. It reads no repository CSV, app database, or real outcomes. The dataset, codebook, model artifact, and metadata are written under ignored `.local/courtlog-synthetic-demo/` and are not committed.
+- Following the user's delegation of unresolved demo defaults, set the synthetic target to: positive when no `Heard`/`Adjourned` hearing-log event or judgment delivery is recorded in the 30 days after a snapshot; QR scans and internal/admin changes do not count. This is an operational software-demo definition, not a legal deadline, rule, or court-derived outcome.
+- Added `days_since_last_event` to the model's numeric feature set. Live inference computes it from recorded hearing/judgment history, ignores QR/admin activity, and exposes the derived value in the batch response and explanation panel. Filing age is used only as a fallback when there is no qualifying event.
+- Generated 1,500 fictional cases with seed `20261014`, trained the versioned Logistic Regression pipeline, and evaluated with the existing strict future-starting case-cohort holdout. The local artifact loader accepted it only with `DEMO_MODE=true`; a smoke inference identified `synthetic_demo_pipeline` provenance. The target, data provenance, limitations, and heuristic fallback are disclosed in the UI and docs.
+- Updated README, current status, ML-readiness note, completion-plan note, abstract/team brief, model-readiness review, and regenerated the nontechnical `docs/CourtLOG_Overview.docx`.
+
+Verification:
+- Synthetic held-out cohort: 1,199 train rows / 301 later-starting test rows; cutoff `2025-12-04T00:00:00Z`; ROC AUC 0.745, average precision 0.736, Brier score 0.207. Prior baseline average precision 0.495 and Brier score 0.250. These metrics measure only the invented waiting-time generator and are not court prediction performance.
+- `.venv/bin/python -m pytest -q`: **88 passed**, 10 SciPy L-BFGS deprecation warnings; `npm run test:frontend`: passed.
+- `npm run test:viewport` was attempted but could not launch because the Playwright Chromium executable is not installed. The latest successful recorded viewport run remains the 12 October run; this change makes no new viewport-acceptance claim.
+- No real court records, legacy training CSV, or legacy dataset builder were used. No legal rule, real-data permission, or predictive-validity claim was changed.
+
+Still open: a real-world target/horizon approved by the appropriate owners, permissioned observed outcomes, independent prospective validation, threshold/calibration review, and real browser/device/staging acceptance.
