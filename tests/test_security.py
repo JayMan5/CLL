@@ -24,6 +24,7 @@ os.environ['COOKIE_SECURE'] = 'false'  # TestClient uses HTTP; production must s
 os.environ['COURTLOG_PAID_FEATURES'] = 'court_clerk'  # Isolated tests exercise the entitled role.
 
 from fastapi.testclient import TestClient
+from fastapi.routing import APIRoute
 import pytest
 from backend import main
 from backend.auth import create_access_token, create_refresh_token, REFRESH_TOKEN_EXPIRE_DAYS
@@ -62,6 +63,27 @@ for user_id, username, role, court, division, password in _TEST_USERS:
 
 client = TestClient(main.app)
 
+# These endpoints intentionally use a separate trust boundary: safe configuration,
+# password/rate-limit login, a validated HttpOnly refresh cookie, idempotent logout,
+# Meta's verification token/signature, or the demo-only simulator secret.
+_AUTH_EXEMPT_API_ENDPOINTS = {
+    ("GET", "/api/config"),
+    ("POST", "/api/login"),
+    ("POST", "/api/refresh"),
+    ("POST", "/api/logout"),
+    ("GET", "/api/whatsapp/webhook"),
+    ("POST", "/api/whatsapp/webhook"),
+    ("POST", "/api/whatsapp/webhook-simulator"),
+}
+
+
+def _depends_on_current_user(dependant):
+    return (
+        dependant.call is main.get_current_user
+        or any(_depends_on_current_user(child) for child in dependant.dependencies)
+    )
+
+
 def issue_session(uid):
     user = main.db.get_user(uid)
     sid = secrets.token_urlsafe(32)
@@ -84,6 +106,34 @@ def fixture_case(cid, court='FHC Abuja Court 4'):
     main.db.save_case(cid, case)
     return case
 
+def test_every_api_route_has_an_explicit_authentication_boundary():
+    discovered_exemptions = set()
+    unprotected_routes = []
+
+    for route in main.app.routes:
+        if not isinstance(route, APIRoute) or not route.path.startswith('/api/'):
+            continue
+        for method in route.methods:
+            endpoint = (method, route.path)
+            if endpoint in _AUTH_EXEMPT_API_ENDPOINTS:
+                discovered_exemptions.add(endpoint)
+            elif not _depends_on_current_user(route.dependant):
+                unprotected_routes.append(f'{method} {route.path}')
+
+    assert discovered_exemptions == _AUTH_EXEMPT_API_ENDPOINTS
+    assert unprotected_routes == []
+
+
+def test_startup_lifespan_runs_initial_compliance_sweep(monkeypatch):
+    sweep_calls = []
+    monkeypatch.setattr(main, 'run_compliance_checks_sync', lambda: sweep_calls.append('started'))
+
+    with TestClient(main.app) as lifespan_client:
+        assert lifespan_client.get('/api/config').status_code == 200
+
+    assert sweep_calls == ['started']
+
+
 def test_exposed_routes_require_authentication():
     fixture_case('SEC/1')
     for method, path in [('get', '/api/users'), ('get', '/api/audit/events'),
@@ -92,6 +142,27 @@ def test_exposed_routes_require_authentication():
                          ('get', '/api/whatsapp/logs')]:
         assert getattr(client, method)(path).status_code == 401
     assert client.post('/api/whatsapp/webhook-simulator', json={}).status_code == 404
+
+
+def test_cron_compliance_sweep_requires_deputy_chief_registrar(monkeypatch):
+    case = fixture_case('SEC/CRON-AUTH')
+    monkeypatch.setattr(main, 'scoped_cases', lambda _auth: [case])
+    monkeypatch.setattr(main, 'run_compliance_checks_sync', lambda _cases=None: None)
+
+    denied = client.post('/api/cron', headers=headers('usr_registrar_01'))
+    assert denied.status_code == 403
+
+    allowed = client.post('/api/cron', headers=headers('usr_dcr_01'))
+    assert allowed.status_code == 200
+    assert allowed.json()['stats']['total_cases'] == 1
+    event = next(
+        event for event in main.db.list_audit_events(100)
+        if event['action'] == 'compliance.sweep'
+        and event['entity_type'] == 'case_collection'
+        and event['actor_user_id'] == 'usr_dcr_01'
+    )
+    assert event['metadata'] == {'case_count': 1}
+
 
 def test_user_hashes_never_returned():
     assert client.get('/api/users', headers=headers('usr_clerk_01')).status_code == 403

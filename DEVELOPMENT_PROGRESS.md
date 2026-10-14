@@ -1,6 +1,6 @@
 # Development progress
 
-> **Current status — 12 October 2026:** The approved first-pilot role model is now enforced server-side, with role-aware UI, explicit legacy `Clerk` remapping, and a deployment entitlement gate for Court Clerk (not a billing integration). The role/access matrix and PWA acceptance guides are aligned with current code. Full local Python tests pass (82 passed, 10 deprecation warnings), as do the frontend regression suites; physical-device/staging acceptance, legal review beyond the approved role model, and production gates remain open. This is a competition-team prototype, not a government service, and government approval does not block feature development. Older checkpoints below are historical and are superseded where the latest entry or completion plan says so.
+> **Current status — 14 October 2026:** The approved first-pilot role model is enforced server-side, with role-aware UI, explicit legacy `Clerk` remapping, and a deployment entitlement gate for Court Clerk (not a billing integration). The role/access matrix and PWA acceptance guides align with current code. The local Python suite passes (85 passed; 8 SciPy deprecation warnings), frontend regression suites pass, and dependency audits are clear. API route-auth coverage and the FastAPI startup-lifespan regression have been added. Physical-device/staging acceptance, legal review beyond the approved role model, and production gates remain open. This is a competition-team prototype, not a government service, and government approval does not block feature development. Older checkpoints below are historical and are superseded where the latest entry or completion plan says so.
 
 ## 1 October 2026 — first security tranche
 
@@ -306,3 +306,19 @@ Verification:
 - `npm run test:frontend`: passed, including security, session, PWA, and role-aware UI suites.
 - The push-triggered [GitHub Actions run](https://github.com/JayMan5/CLL/actions/runs/38257000805) ended in failure before either job ran a step; both jobs report empty step lists. This matches the previously reported billing lock and is not a remote test result.
 - Physical phone/printer testing, legal review beyond the approved role model, staging, live billing/payment, and production acceptance remain open. The Court Clerk environment entitlement is not evidence of payment.
+
+## 14 October 2026 — API authentication coverage and lifespan cleanup
+
+Implemented:
+- Replaced FastAPI's deprecated `@app.on_event("startup")` hook with an ASGI lifespan handler. The same initial workflow sweep runs once at startup in a worker thread, so the sync sweep does not block the event loop.
+- Added a route-inventory security regression: every `/api/` route must depend on the authenticated current-user boundary unless it is one of the explicitly documented safe configuration, login/session, signature-verified Meta webhook, or demo-secret simulator endpoints.
+- Added regression coverage proving the initial compliance sweep runs when the app lifespan starts and that only a Deputy Chief Registrar can invoke the cron sweep; the successful sweep is attributed to that actor in the audit log.
+- No legal rule, role policy, real-data use, or provider behavior was changed. This is code/test hardening, not independent security review or provider acceptance.
+
+Verification:
+- `.venv/bin/python -m pytest -q`: **85 passed**, 8 SciPy deprecation warnings; the FastAPI `on_event` deprecation warnings are gone.
+- `npm run test:frontend`: passed; no frontend source changes were made.
+- `pip check`, `pip-audit`, both npm audits, Python compileall, JavaScript syntax check, and `git diff --check`: passed.
+- No tracked generated assets changed during the frontend build.
+
+Still open: broad end-to-end workflows and real-browser/device/network/staging acceptance; third-party webhook delivery and real WhatsApp acceptance remain blocked on the corresponding external setup.

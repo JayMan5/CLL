@@ -1,3 +1,4 @@
+import asyncio
 import os
 import joblib
 import logging
@@ -7,6 +8,7 @@ import hashlib
 import json
 import sqlite3
 import uuid
+from contextlib import asynccontextmanager
 from dotenv import load_dotenv
 from datetime import datetime, timezone, timedelta
 from typing import Dict, Any, List, Optional, Annotated, Literal
@@ -47,6 +49,17 @@ logger = logging.getLogger("courtlog.main")
 # Expose interactive API docs only in explicitly enabled demo mode.
 DEMO_MODE_ENABLED = os.getenv("DEMO_MODE", "false").strip().lower() == "true"
 
+
+@asynccontextmanager
+async def app_lifespan(_app: FastAPI):
+    """Run the initial workflow sweep without blocking the ASGI event loop."""
+    logger.info("Starting up CourtLog 2.0 Backend...")
+    # Keep the previous synchronous startup behavior in a worker thread. The
+    # sweep function is defined below and is available when the app starts.
+    await asyncio.to_thread(run_compliance_checks_sync)
+    yield
+
+
 # Initialize FastAPI
 app = FastAPI(
     title="COURTLOG 2.0 API",
@@ -54,6 +67,7 @@ app = FastAPI(
     docs_url="/docs" if DEMO_MODE_ENABLED else None,
     redoc_url="/redoc" if DEMO_MODE_ENABLED else None,
     openapi_url="/openapi.json" if DEMO_MODE_ENABLED else None,
+    lifespan=app_lifespan,
 )
 
 # Enable CORS for frontend integration
@@ -274,11 +288,6 @@ def get_current_time():
     """Returns the current UTC time for all compliance calculations."""
     return datetime.now(timezone.utc)
 
-@app.on_event("startup")
-def startup_event():
-    logger.info("Starting up CourtLog 2.0 Backend...")
-    # Run initial compliance sweep
-    run_compliance_checks_sync()
 
 # Nigerian case references can contain suit-number separators, but never path
 # traversal segments or characters that could become markup in the UI.
