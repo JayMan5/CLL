@@ -338,5 +338,6 @@ Verification:
 - `.venv/bin/python -m pytest -q`: **88 passed**, 10 SciPy L-BFGS deprecation warnings; `npm run test:frontend`: passed.
 - `npm run test:viewport` was attempted but could not launch because the Playwright Chromium executable is not installed. The latest successful recorded viewport run remains the 12 October run; this change makes no new viewport-acceptance claim.
 - No real court records, legacy training CSV, or legacy dataset builder were used. No legal rule, real-data permission, or predictive-validity claim was changed.
+- GitHub Actions run [38553617232](https://github.com/JayMan5/CLL/actions/runs/38553617232) for commit `960a24b` failed before either job ran a step (both step lists were empty); this is the existing account billing/startup blocker, not a code-test result.
 
 Still open: a real-world target/horizon approved by the appropriate owners, permissioned observed outcomes, independent prospective validation, threshold/calibration review, and real browser/device/staging acceptance.
