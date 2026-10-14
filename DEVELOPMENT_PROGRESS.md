@@ -358,3 +358,14 @@ Verification:
 - `npm run test:frontend`: passed after the modal change.
 - `npm run test:viewport` could not start because Playwright's Chromium executable is absent in the workspace; the new modal has no fresh screenshot-based viewport acceptance here.
 - No backend logic or model target was changed in this UI-only task.
+
+## 14 October 2026 — case-type diversity in fictional demo scenarios
+
+- Updated the eight optional demo fixtures to cover all six case types offered by the registration form: Criminal, Civil Debt, Land Dispute, Family, Admiralty, and Intellectual Property. Civil Debt and Land Dispute appear twice each; the other types appear once.
+- Set each fixture's assigned division using the same current rule as case registration (Criminal type → Criminal division; all other listed types → Civil division), so the demo Filing Clerk's Criminal-only scope sees only the Criminal fixture. Court and explicit judge/Sheriff assignments remain fictional and unchanged.
+- Updated seed tests and the scenario catalog to assert the type distribution, division mapping, and role-scoped visibility.
+
+Verification:
+- `.venv/bin/python -m pytest tests/test_seed_demo_data.py -q`: **5 passed**.
+- `.venv/bin/python -m pytest -q`: **88 passed, 10 SciPy L-BFGS deprecation warnings**.
+- Existing local demo databases are not automatically changed; use the guarded `--overwrite-fixtures` path only for a disposable database containing only these demo fixtures.

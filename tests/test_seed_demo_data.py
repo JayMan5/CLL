@@ -1,5 +1,6 @@
 """Tests for the demo-only synthetic seed tool; never open the tracked database."""
 
+from collections import Counter
 from datetime import datetime, timezone
 import re
 
@@ -27,6 +28,17 @@ def test_demo_scenarios_are_deterministic_fictional_and_scope_matched():
     assert all(re.fullmatch(r"DEMO/2026/\d{3}", case["case_id"]) for case in first)
     assert all(case["demo_fixture"] is True for case in first)
     assert all("fictional" in case["data_notice"].lower() for case in first)
+    assert set(case["case_type"] for case in first) == {
+        "Land Dispute", "Criminal", "Civil Debt", "Family", "Admiralty", "Intellectual Property",
+    }
+    assert Counter(case["case_type"] for case in first) == {
+        "Civil Debt": 2, "Land Dispute": 2, "Criminal": 1,
+        "Family": 1, "Admiralty": 1, "Intellectual Property": 1,
+    }
+    assert all(
+        case["assigned_division"] == ("Criminal" if "criminal" in case["case_type"].casefold() else "Civil")
+        for case in first
+    )
     assert all(case["assigned_sheriff_id"] == "usr_sheriff_01" for case in first)
     assert all(case["assigned_judge_id"] == "usr_judge_01" for case in first)
     assert all(case["court"] == "FHC Abuja Court 4" for case in first)
@@ -91,8 +103,20 @@ def test_seeded_scenarios_are_visible_with_their_intended_demo_role_scopes(tmp_p
             as_of=datetime(2026, 10, 2, 12, tzinfo=timezone.utc),
         )
         monkeypatch.setattr(main, "db", database)
-        for user_id in DEMO_USERS:
-            assert all(main.can_access_case(case, {"user_id": user_id}) for case in cases), user_id
+        all_case_ids = {case["case_id"] for case in cases}
+        expected_visible_case_ids = {
+            "usr_sheriff_01": all_case_ids,  # Explicit assignments extend across divisions.
+            "usr_clerk_01": {"DEMO/2026/003"},  # Criminal Filing Clerk sees Criminal division only.
+            "usr_dcr_01": all_case_ids,
+            "usr_cr_01": all_case_ids,
+            "usr_judge_01": all_case_ids,  # Every fictional case is assigned to this demo judge.
+        }
+        for user_id, expected_ids in expected_visible_case_ids.items():
+            visible_ids = {
+                case["case_id"] for case in cases
+                if main.can_access_case(case, {"user_id": user_id})
+            }
+            assert visible_ids == expected_ids, user_id
     finally:
         database.conn.close()
 

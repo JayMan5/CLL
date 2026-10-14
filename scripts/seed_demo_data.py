@@ -45,6 +45,7 @@ def _base_case(
     case_id: str,
     *,
     title: str,
+    case_type: str,
     filing_days_ago: int,
     risk_score: float,
     adjournments: int = 0,
@@ -61,9 +62,9 @@ def _base_case(
     return {
         "case_id": case_id,
         "case_title": title,
-        "case_type": "Criminal",
+        "case_type": case_type,
         "court": "FHC Abuja Court 4",
-        "assigned_division": "Criminal",
+        "assigned_division": "Criminal" if "criminal" in case_type.casefold() else "Civil",
         "assigned_judge_id": "usr_judge_01",
         "assigned_sheriff_id": "usr_sheriff_01",
         "filing_date": _stamp(reference, days=filing_days_ago),
@@ -107,17 +108,17 @@ def build_demo_cases(as_of: datetime) -> list[dict[str, Any]]:
 
     active = _base_case(
         reference, "DEMO/2026/001", title="Fictional Applicant A v Fictional Respondent A",
-        filing_days_ago=3, risk_score=0.18, scan_days_ago=1,
+        case_type="Civil Debt", filing_days_ago=3, risk_score=0.18, scan_days_ago=1,
     )
     moderate_idle = _base_case(
         reference, "DEMO/2026/002", title="Fictional Applicant B v Fictional Respondent B",
-        filing_days_ago=24, risk_score=0.52, adjournments=2, scan_days_ago=8,
+        case_type="Land Dispute", filing_days_ago=24, risk_score=0.52, adjournments=2, scan_days_ago=8,
     )
     moderate_idle["custody_alert"] = True
 
     high_risk = _base_case(
         reference, "DEMO/2026/003", title="Fictional Applicant C v Fictional Respondent C",
-        filing_days_ago=48, risk_score=0.86, adjournments=3, scan_days_ago=1,
+        case_type="Criminal", filing_days_ago=48, risk_score=0.86, adjournments=3, scan_days_ago=1,
     )
     high_risk["hearing_log"] = [{
         "date": _stamp(reference, days=4),
@@ -129,7 +130,7 @@ def build_demo_cases(as_of: datetime) -> list[dict[str, Any]]:
 
     missing = _base_case(
         reference, "DEMO/2026/004", title="Fictional Applicant D v Fictional Respondent D",
-        filing_days_ago=32, risk_score=0.42, adjournments=1, scan_days_ago=10,
+        case_type="Family", filing_days_ago=32, risk_score=0.42, adjournments=1, scan_days_ago=10,
     )
     missing["file_missing"] = True
     missing["file_missing_report"] = {
@@ -151,7 +152,7 @@ def build_demo_cases(as_of: datetime) -> list[dict[str, Any]]:
 
     found = _base_case(
         reference, "DEMO/2026/005", title="Fictional Applicant E v Fictional Respondent E",
-        filing_days_ago=40, risk_score=0.31, adjournments=1, scan_days_ago=1,
+        case_type="Admiralty", filing_days_ago=40, risk_score=0.31, adjournments=1, scan_days_ago=1,
     )
     found["file_missing_report"] = {
         "reported_by": "usr_sheriff_01",
@@ -183,7 +184,7 @@ def build_demo_cases(as_of: datetime) -> list[dict[str, Any]]:
 
     dcr_review = _base_case(
         reference, "DEMO/2026/006", title="Fictional Applicant F v Fictional Respondent F",
-        filing_days_ago=75, risk_score=0.64, adjournments=4, scan_days_ago=1,
+        case_type="Intellectual Property", filing_days_ago=75, risk_score=0.64, adjournments=4, scan_days_ago=1,
     )
     dcr_review.update({
         "dcr_approval_required": True,
@@ -211,7 +212,7 @@ def build_demo_cases(as_of: datetime) -> list[dict[str, Any]]:
 
     overdue_delivery = _base_case(
         reference, "DEMO/2026/007", title="Fictional Applicant G v Fictional Respondent G",
-        filing_days_ago=210, risk_score=0.77, adjournments=2,
+        case_type="Civil Debt", filing_days_ago=210, risk_score=0.77, adjournments=2,
         judgment_status="Delivered", scan_days_ago=1,
     )
     overdue_delivery["execution_log"] = [{
@@ -224,7 +225,7 @@ def build_demo_cases(as_of: datetime) -> list[dict[str, Any]]:
 
     executed = _base_case(
         reference, "DEMO/2026/008", title="Fictional Applicant H v Fictional Respondent H",
-        filing_days_ago=120, risk_score=0.29, adjournments=1,
+        case_type="Land Dispute", filing_days_ago=120, risk_score=0.29, adjournments=1,
         judgment_status="Executed", scan_days_ago=1,
     )
     executed["execution_log"] = [

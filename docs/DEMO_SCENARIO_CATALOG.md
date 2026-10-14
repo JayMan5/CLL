@@ -10,18 +10,18 @@ Run after configuring a fresh disposable local database in `.env`:
 
 The default `--as-of` is the current UTC date. Supplying a date makes the fixture timestamps reproducible for a walkthrough. Existing non-demo records cause the tool to refuse the seed. Replacing existing fixtures requires the explicit `--overwrite-fixtures` option.
 
-| Demo reference | State shown | Notes |
-|---|---|---|
-| `DEMO/2026/001` | Pending, low synthetic risk, recent custody scan | Basic case and assigned-custody example. |
-| `DEMO/2026/002` | Pending, moderate synthetic risk, scan older than seven days | Demonstrates the configured idle-custody prompt; it does not mark the file missing. |
-| `DEMO/2026/003` | Pending, high synthetic risk and a recorded adjournment | Score and event are illustrative only, not validated prediction or legal classification. |
-| `DEMO/2026/004` | Pending with an open missing-file report | Shows the separate report state and Sheriff attribution. |
-| `DEMO/2026/005` | Pending with a resolved missing-file report | Shows fictional found/recovery history. |
-| `DEMO/2026/006` | Pending with a DCR review state and elapsed-time escalation | Demonstrates the current in-app prototype state only; no external message is sent. |
-| `DEMO/2026/007` | Judgment delivered 100 days before the selected `--as-of` date | Demonstrates the configured 90-day prototype execution-review prompt, not a legal compliance finding. |
-| `DEMO/2026/008` | Execution workflow marked complete | Demonstrates a concluded record with a short, fictional execution history. |
+| Demo reference | Case type / division | State shown | Notes |
+|---|---|---|---|
+| `DEMO/2026/001` | Civil Debt / Civil | Pending, low synthetic risk, recent custody scan | Basic case and assigned-custody example. |
+| `DEMO/2026/002` | Land Dispute / Civil | Pending, moderate synthetic risk, scan older than seven days | Demonstrates the configured idle-custody prompt; it does not mark the file missing. |
+| `DEMO/2026/003` | Criminal / Criminal | Pending, high synthetic risk and a recorded adjournment | Score and event are illustrative only, not validated prediction or legal classification. |
+| `DEMO/2026/004` | Family / Civil | Pending with an open missing-file report | Shows the separate report state and Sheriff attribution. |
+| `DEMO/2026/005` | Admiralty / Civil | Pending with a resolved missing-file report | Shows fictional found/recovery history. |
+| `DEMO/2026/006` | Intellectual Property / Civil | Pending with a DCR review state and elapsed-time escalation | Demonstrates the current in-app prototype state only; no external message is sent. |
+| `DEMO/2026/007` | Civil Debt / Civil | Judgment delivered 100 days before the selected `--as-of` date | Demonstrates the configured 90-day prototype execution-review prompt, not a legal compliance finding. |
+| `DEMO/2026/008` | Land Dispute / Civil | Execution workflow marked complete | Demonstrates a concluded record with a short, fictional execution history. |
 
-All eight records are assigned to the fictional `FHC Abuja Court 4` demo scope, the demo Presiding Judge `usr_judge_01`, and demo Sheriff `usr_sheriff_01`. The demo Filing Clerk, Registry Clerk, Court Clerk (seeded only when the server-side entitlement is enabled), Deputy Chief Registrar, Registrar, Chief Judge, and Chief Registrar accounts are scoped according to their fictional profiles. These assignments are fixtures, not advice about real court access control.
+The eight records now cover every case type available in the case-registration form: Criminal, Civil Debt, Land Dispute, Family, Admiralty, and Intellectual Property. Case division follows the current registration rule: Criminal cases are assigned to Criminal; the other listed types are assigned to Civil. All records remain in the fictional `FHC Abuja Court 4` court scope and are assigned to the demo Presiding Judge `usr_judge_01` and demo Sheriff `usr_sheriff_01`. Consequently, Criminal-division Filing Clerk, Registry Clerk, Bailiff, and entitled Court Clerk accounts see only the Criminal example; the assigned Sheriff, Deputy Chief Registrar, Registrar, Chief Judge, Chief Registrar, and assigned Presiding Judge see cases according to their broader court scope or explicit assignment. These assignments are fixtures, not advice about real court access control.
 
 ## Limitations
 
