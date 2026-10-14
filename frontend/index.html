@@ -1070,6 +1070,79 @@
         </main>
     </div>
 
+    <!-- Accessible, in-app explanation for experimental prediction scores. -->
+    <dialog id="prediction-explanation-modal" class="prediction-explanation-dialog" aria-modal="true"
+        aria-labelledby="prediction-explanation-title" aria-describedby="prediction-explanation-intro">
+        <div class="glass-panel prediction-explanation-panel">
+            <header class="prediction-explanation-header">
+                <div class="min-w-0">
+                    <p class="page-kicker">Experimental decision support</p>
+                    <h2 id="prediction-explanation-title" class="font-heading font-bold text-xl text-heading" tabindex="-1">Risk score details</h2>
+                    <p id="prediction-explanation-intro" class="text-sm text-body mt-1">A plain-language summary of the score, its source, and its limits.</p>
+                </div>
+                <button type="button" data-explanation-close class="prediction-explanation-icon-close" aria-label="Close score details" autofocus>
+                    <i class="fa-solid fa-xmark" aria-hidden="true"></i>
+                </button>
+            </header>
+
+            <div class="prediction-explanation-scroll custom-scrollbar">
+                <section class="prediction-explanation-summary" aria-label="Score summary">
+                    <div class="prediction-explanation-score-wrap">
+                        <span class="stat-label">Prototype score</span>
+                        <strong id="prediction-explanation-score" class="prediction-explanation-score">—</strong>
+                    </div>
+                    <span id="prediction-explanation-source" class="prediction-explanation-source">Source not recorded</span>
+                    <div class="prediction-explanation-case-line">
+                        <span><span class="stat-label">Case</span> <strong id="prediction-explanation-case-id">—</strong></span>
+                        <span id="prediction-explanation-status" class="prediction-explanation-status">Status not recorded</span>
+                    </div>
+                </section>
+
+                <section class="prediction-explanation-target" aria-labelledby="prediction-explanation-target-heading">
+                    <p id="prediction-explanation-target-heading" class="prediction-explanation-eyebrow">What this score means</p>
+                    <p id="prediction-explanation-target" class="text-body">Target meaning is not available for this score source.</p>
+                </section>
+
+                <section aria-labelledby="prediction-explanation-inputs-heading">
+                    <div class="prediction-explanation-section-heading">
+                        <h3 id="prediction-explanation-inputs-heading" class="font-heading font-semibold text-heading">Case details</h3>
+                        <p class="text-xs text-body">A summary of the case information shown to the prototype.</p>
+                    </div>
+                    <dl class="prediction-explanation-input-grid">
+                        <div class="prediction-explanation-input">
+                            <dt>Case type</dt><dd id="prediction-explanation-case-type">—</dd>
+                        </div>
+                        <div class="prediction-explanation-input">
+                            <dt>Court</dt><dd id="prediction-explanation-court">—</dd>
+                        </div>
+                        <div class="prediction-explanation-input">
+                            <dt>Recorded adjournments</dt><dd id="prediction-explanation-adjournments">—</dd>
+                        </div>
+                        <div class="prediction-explanation-input">
+                            <dt>Days since filing</dt><dd id="prediction-explanation-filing-age">—</dd>
+                        </div>
+                        <div class="prediction-explanation-input prediction-explanation-input-wide">
+                            <dt>Time since last hearing or judgment</dt>
+                            <dd id="prediction-explanation-event-recency">—</dd>
+                            <p id="prediction-explanation-event-recency-note" class="prediction-explanation-help"></p>
+                        </div>
+                    </dl>
+                    <p id="prediction-explanation-feature-note" class="prediction-explanation-feature-note"></p>
+                </section>
+
+                <section id="prediction-explanation-warning" class="prediction-explanation-warning" aria-live="polite">
+                    <i class="fa-solid fa-triangle-exclamation" aria-hidden="true"></i>
+                    <p id="prediction-explanation-warning-text">This score has not been validated for real court outcomes.</p>
+                </section>
+            </div>
+
+            <footer class="prediction-explanation-footer">
+                <p class="prediction-explanation-threshold">The 70% display threshold is experimental and not validated.</p>
+                <button type="button" data-explanation-close class="btn-primary prediction-explanation-close-button">Close</button>
+            </footer>
+        </div>
+    </dialog>
+
     <!-- ================== MODAL: DCR REVIEW DECISION ================== -->
     <div id="dcr-override-modal" class="hidden fixed inset-0 z-50 flex items-center justify-center p-4"
         style="background:rgba(0,0,0,0.6); backdrop-filter:blur(4px)">

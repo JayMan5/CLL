@@ -192,6 +192,10 @@ function clearClientSession() {
     if (overrideCase) overrideCase.textContent = "";
     document.getElementById("password-change-overlay")?.classList.add("hidden");
     document.getElementById("add-user-overlay")?.classList.add("hidden");
+    if (document.getElementById("prediction-explanation-modal")?.hasAttribute("open")) {
+        predictionExplanationReturnFocus = null;
+        closePredictionExplanation();
+    }
     document.getElementById("form-password-change")?.reset();
     document.getElementById("form-add-user")?.reset();
     document.getElementById("form-login")?.reset();
@@ -2984,7 +2988,7 @@ function renderAIRiskDashboard() {
             </td>
             <td><span class="text-xs px-2 py-1 rounded-full font-semibold" style="background:rgba(255,255,255,0.06);">${c.judgment_status}</span></td>
             <td class="text-center">
-                <button data-case-action="explain" data-record-id="${c.case_id}" class="text-xs px-2 py-1 rounded-lg font-semibold"
+                <button type="button" data-case-action="explain" data-record-id="${c.case_id}" aria-haspopup="dialog" aria-controls="prediction-explanation-modal" class="text-xs px-2 py-1 rounded-lg font-semibold"
                     style="background:rgba(139,92,246,0.15);color:#a78bfa;border:1px solid rgba(139,92,246,0.3);cursor:pointer;">
                     <i class="fa-solid fa-magnifying-glass-chart"></i> Why?
                 </button>
@@ -2993,36 +2997,122 @@ function renderAIRiskDashboard() {
     }).join('');
 }
 
+let predictionExplanationReturnFocus = null;
+
+function setPredictionExplanationText(id, value) {
+    const element = document.getElementById(id);
+    if (!element) return;
+    const text = value == null ? "" : String(value);
+    element.textContent = text.trim() ? text : "Not recorded";
+}
+
+function restorePredictionExplanationFocus() {
+    const returnFocus = predictionExplanationReturnFocus;
+    predictionExplanationReturnFocus = null;
+    if (returnFocus && document.contains(returnFocus) && typeof returnFocus.focus === "function") {
+        returnFocus.focus();
+    }
+}
+
+function closePredictionExplanation() {
+    const dialog = document.getElementById("prediction-explanation-modal");
+    if (!dialog) return;
+    if (dialog.open && typeof dialog.close === "function") {
+        dialog.close();
+    } else {
+        dialog.removeAttribute("open");
+    }
+    dialog.classList.remove("prediction-explanation-fallback-open");
+    restorePredictionExplanationFocus();
+}
+
+function initPredictionExplanationDialog() {
+    const dialog = document.getElementById("prediction-explanation-modal");
+    if (!dialog || dialog.dataset.handlersAttached === "true") return;
+    dialog.dataset.handlersAttached = "true";
+    dialog.querySelectorAll("[data-explanation-close]").forEach(button => {
+        button.addEventListener("click", closePredictionExplanation);
+    });
+    dialog.addEventListener("cancel", event => {
+        event.preventDefault();
+        closePredictionExplanation();
+    });
+    dialog.addEventListener("click", event => {
+        if (event.target === dialog) closePredictionExplanation();
+    });
+    dialog.addEventListener("close", restorePredictionExplanationFocus);
+}
+
 function showExplainability(caseId) {
     const c = aiRiskData.find(x => x.case_id === caseId);
     if (!c) return;
-    const pct = (Number(c.delay_risk_score || 0) * 100).toFixed(1);
+
     const sourceLabels = {
-        synthetic_demo_pipeline: "Synthetic 30-day no-progress demo model (fictional training data)",
-        synthetic_pipeline: "Synthetic model (target not shown in this view)",
-        trained_pipeline: "Versioned preprocessing pipeline (target not shown in this view)",
-        legacy_model: "Legacy model and encoder artifact (unverified target/provenance)",
+        synthetic_demo_pipeline: "Synthetic 30-day no-progress demo model",
+        synthetic_pipeline: "Synthetic model (target not shown)",
+        trained_pipeline: "Versioned model pipeline (target not shown)",
+        legacy_model: "Legacy model (target/provenance unverified)",
         heuristic: "Deterministic heuristic fallback (not a trained 30-day model)",
-        heuristic_after_model_error: "Heuristic fallback after model inference error (not a trained 30-day model)"
+        heuristic_after_model_error: "Heuristic fallback after model error (not a trained 30-day model)"
     };
     const source = sourceLabels[c.prediction_source] || "Source not recorded for this older score";
     const isSyntheticDemo = c.prediction_source === "synthetic_demo_pipeline";
     const target = isSyntheticDemo
-        ? "Synthetic demo target: no Heard/Adjourned hearing-log event and no judgment delivery recorded in the next 30 days. QR scans and internal/admin changes do not count. This is an operational demo definition, not a legal deadline or rule."
-        : "No validated 30-day outcome meaning is established for this score source; do not read it as a probability of a real court outcome.";
-    const recency = Number.isFinite(Number(c.days_since_last_event))
-        ? `${c.days_since_last_event} day(s)`
-        : "not returned by this score response";
+        ? "The demo estimates whether no Heard/Adjourned hearing-log event and no judgment delivery will be recorded in the next 30 days. QR scans and internal/admin changes do not count. This operational demo definition is not a legal deadline or rule."
+        : "This score source has no validated 30-day outcome meaning. Do not read it as the probability of a real court outcome.";
+    const hasRecordedNumber = value => value !== null && value !== undefined && String(value).trim() !== "" && Number.isFinite(Number(value));
+    const recency = hasRecordedNumber(c.days_since_last_event)
+        ? `${Number(c.days_since_last_event)} day(s)`
+        : "Not returned";
     const recencyUse = isSyntheticDemo
-        ? "synthetic pipeline input"
+        ? "Used by the synthetic demo model"
         : ["heuristic", "heuristic_after_model_error"].includes(c.prediction_source)
-            ? "not used by the deterministic heuristic"
+            ? "Context only; the deterministic heuristic does not use event recency"
             : c.prediction_source === "legacy_model"
-                ? "not included in the legacy model feature set"
-                : "feature use is not shown for this source";
+                ? "Context only; event recency is not in the legacy feature set"
+                : "Context only; this source's feature list is not shown";
     const validation = isSyntheticDemo
-        ? "The model was trained and evaluated only on generated fictional data. Synthetic/rule-generated labels demonstrate software behavior, not predictive accuracy for actual court cases."
-        : "This source has not been independently validated against real court outcomes.";
-    const msg = `═══ EXPERIMENTAL DELAY-RISK SCORE ═══\n\nCase: ${c.case_id}\nPrototype score: ${pct}%\nEstimate source: ${source}\nStatus: ${c.judgment_status}\n\n── Demo target and meaning ──\n${target}\n\n── Model inputs / case context ──\nCase type: ${c.case_type}\nCourt: ${c.court}\nRecorded case-level adjournments: ${c.adjournment_count}\nDays since filing: ${c.days_since_filing}\nDays since latest recorded hearing/judgment (or filing age if none; ${recencyUse}): ${recency}\n\nThis is a feature summary, not a causal or model-attribution explanation. ${validation}\n\nThe 70% display threshold is experimental only. This score is not a legal finding and must not determine a hearing, custody, enforcement, or judicial decision.`;
-    alert(msg);
+        ? "This model was trained and evaluated only on generated fictional data. Its score does not demonstrate predictive accuracy for actual court cases."
+        : "This score source has not been independently validated against real court outcomes.";
+    const scoreValue = Number(c.delay_risk_score);
+    const scoreText = hasRecordedNumber(c.delay_risk_score) ? `${(scoreValue * 100).toFixed(1)}%` : "Not available";
+    const adjournments = hasRecordedNumber(c.adjournment_count) ? `${Number(c.adjournment_count)}` : "Not recorded";
+    const filingAge = hasRecordedNumber(c.days_since_filing) ? `${Number(c.days_since_filing)} days` : "Not recorded";
+
+    setPredictionExplanationText("prediction-explanation-score", scoreText);
+    setPredictionExplanationText("prediction-explanation-source", source);
+    setPredictionExplanationText("prediction-explanation-case-id", c.case_id);
+    setPredictionExplanationText("prediction-explanation-status", c.judgment_status || "Not recorded");
+    setPredictionExplanationText("prediction-explanation-target-heading", isSyntheticDemo ? "What this demo predicts" : "What this score means");
+    setPredictionExplanationText("prediction-explanation-target", target);
+    setPredictionExplanationText("prediction-explanation-case-type", c.case_type);
+    setPredictionExplanationText("prediction-explanation-court", c.court);
+    setPredictionExplanationText("prediction-explanation-adjournments", adjournments);
+    setPredictionExplanationText("prediction-explanation-filing-age", filingAge);
+    setPredictionExplanationText("prediction-explanation-event-recency", recency);
+    setPredictionExplanationText("prediction-explanation-event-recency-note", recencyUse);
+    setPredictionExplanationText(
+        "prediction-explanation-feature-note",
+        "These details provide context; this panel does not explain cause or show which detail changed the score."
+    );
+    setPredictionExplanationText(
+        "prediction-explanation-warning-text",
+        `${validation} Do not interpret this score as a real-world outcome probability. It is not a legal finding and must not determine a hearing, custody, enforcement, or judicial decision.`
+    );
+
+    const warning = document.getElementById("prediction-explanation-warning");
+    warning?.classList.toggle("prediction-explanation-warning-demo", isSyntheticDemo);
+    const dialog = document.getElementById("prediction-explanation-modal");
+    if (!dialog) return;
+    initPredictionExplanationDialog();
+    predictionExplanationReturnFocus = document.activeElement;
+    if (typeof dialog.showModal === "function") {
+        if (!dialog.open) dialog.showModal();
+    } else {
+        dialog.setAttribute("open", "");
+        dialog.classList.add("prediction-explanation-fallback-open");
+    }
+    dialog.querySelector("[data-explanation-close]")?.focus();
 }
+
+initPredictionExplanationDialog();
