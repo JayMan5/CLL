@@ -91,7 +91,7 @@ def _split_indices(
     test_size: float,
     random_state: int,
 ) -> tuple[np.ndarray, np.ndarray, Optional[str]]:
-    """Hold out whole cases; when timestamps exist, hold out later case cohorts."""
+    """Keep whole cases separate and make grouped timestamp holdouts strictly forward."""
     indices = np.arange(len(frame))
     if time_column:
         if time_column not in frame.columns:
@@ -104,22 +104,38 @@ def _split_indices(
                 raise ValueError(f"Group column '{group_column}' is missing")
             if frame[group_column].isna().any() or frame[group_column].astype(str).str.strip().eq("").any():
                 raise ValueError(f"Group column '{group_column}' must be populated for every row")
-            case_times = pd.DataFrame({"group": frame[group_column], "time": times}).groupby("group")["time"].max()
-            ordered = case_times.sort_values()
-            split_at = max(1, int(np.floor(len(ordered) * (1 - test_size))))
-            split_at = min(split_at, len(ordered) - 1)
-            cutoff = ordered.iloc[split_at]
-            test_groups = set(ordered[ordered >= cutoff].index)
-            test_mask = frame[group_column].isin(test_groups).to_numpy()
-            split_name = f"forward_time_by_{group_column}:{cutoff.isoformat()}"
+            grouped_times = pd.DataFrame({"group": frame[group_column], "time": times}).groupby("group")["time"]
+            case_starts = grouped_times.min().sort_values()
+            case_ends = grouped_times.max()
+            if len(case_starts) < 2:
+                raise ValueError("A forward-time grouped holdout needs at least two distinct cases")
+            split_at = max(1, int(np.floor(len(case_starts) * (1 - test_size))))
+            split_at = min(split_at, len(case_starts) - 1)
+            cutoff = case_starts.iloc[split_at]
+
+            # Test only new-case cohorts whose first snapshot is at/after the
+            # cutoff. Keep training cases wholly before it, and exclude cases
+            # whose histories cross the boundary rather than leaking earlier
+            # snapshots of future test cases into the test partition.
+            test_groups = set(case_starts[case_starts >= cutoff].index)
+            train_groups = set(case_ends[case_ends < cutoff].index)
+            group_values = frame[group_column]
+            train_mask = group_values.isin(train_groups).to_numpy()
+            test_mask = (group_values.isin(test_groups) & (times >= cutoff)).to_numpy()
+            train_idx, test_idx = indices[train_mask], indices[test_mask]
+            excluded_crossing_cases = len(set(case_starts.index) - train_groups - test_groups)
+            split_name = (
+                f"forward_time_new_cases_by_{group_column}:{cutoff.isoformat()}:"
+                f"excluded_crossing_cases={excluded_crossing_cases}"
+            )
         else:
             ordered_times = times.sort_values()
             split_at = max(1, int(np.floor(len(ordered_times) * (1 - test_size))))
             split_at = min(split_at, len(ordered_times) - 1)
             cutoff = ordered_times.iloc[split_at]
             test_mask = (times >= cutoff).to_numpy()
+            train_idx, test_idx = indices[~test_mask], indices[test_mask]
             split_name = f"forward_time:{cutoff.isoformat()}"
-        train_idx, test_idx = indices[~test_mask], indices[test_mask]
     elif group_column:
         if group_column not in frame.columns:
             raise ValueError(f"Group column '{group_column}' is missing")

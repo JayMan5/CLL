@@ -1,11 +1,11 @@
 # Delay-risk model evaluation: readiness and scope
 
-**Reviewed:** 12 October 2026<br>
+**Reviewed:** 14 October 2026<br>
 **Status:** software pipeline improved and synthetic-only tests pass; predictive validity is **not established**.
 
 ## Data-use boundary
 
-The repository contains a legacy training file, `data/courtlog_delay_dataset.csv`, whose metadata describes synthetic delay features calibrated from real-derived court distributions. The seed script also references court-record/SCN-distribution files. Permission to use those sources for this project has not been established. **This review did not train or evaluate on those files.** The training command no longer selects a default dataset, so running it cannot silently consume the legacy file.
+The repository contains a legacy training file, `data/courtlog_delay_dataset.csv`, whose metadata describes synthetic delay features calibrated from real-derived court distributions. The top-level legacy `build_dataset.py` still reads `data/real_scn_cases_sample.csv` and `data/scn_appeal_cases_data.csv` if invoked; it has no permission-reference gate and emits rule-generated labels, so it is not a valid future-outcome training source. Do not run that builder without documented data permission, and do not treat its output as observed outcomes. Permission to use those sources for this project has not been established. **This review did not train or evaluate on those files.** The current `backend.train_model` command no longer selects a default dataset, so it cannot silently consume the legacy training CSV.
 
 Until specific written permission is recorded, use only fully fictional data generated for software tests. No real case record, identifier, label, or distribution was used in the synthetic pipeline tests below.
 
@@ -13,7 +13,7 @@ Until specific written permission is recorded, use only fully fictional data gen
 
 - Replaced `LabelEncoder` ordinal values for `case_type` and `court` with a scikit-learn `Pipeline`: numeric imputation/scaling and categorical imputation/one-hot encoding with `handle_unknown="ignore"`. The preprocessing is fitted on the training partition, not the full dataset.
 - The trainer now requires an explicit CSV path, target column, and provenance (`synthetic_demo` or `permissioned_real`). It accepts an observed binary `0/1` target; it no longer derives a target from the generated `delay_risk == High` category.
-- Case IDs are grouping metadata, never a model feature. The default holdout uses stratified, case-grouped folds; an optional snapshot-time split holds out later case cohorts. Permissioned real-data training requires a permission reference and a forward-time column.
+- Case IDs are grouping metadata, never a model feature. The default holdout uses stratified, case-grouped folds. A grouped snapshot-time holdout now assigns the test set to cases whose **first** snapshot is at or after the time cutoff, keeps training cases wholly before it, and excludes cases whose histories cross the cutoff. The regression test asserts that training and test cases are disjoint and every test timestamp is later than every training timestamp. This estimates performance on later-starting case cohorts; it does not by itself validate future scoring of cases already active before the cutoff. Permissioned real-data training requires a permission reference and a forward-time column.
 - Evaluation reports held-out ROC AUC, average precision, Brier score, precision/recall and a confusion matrix at the existing 0.70 display threshold, plus a prior baseline. The threshold was not changed or validated by this work.
 - Optional model artifacts carry a format version, data-provenance label, training timestamp, feature/target schema, threshold and evaluation summary, but not the CSV path or case rows. `COURTLOG_MODEL_DIR` controls the protected artifact directory. A `synthetic_demo` artifact is rejected outside `DEMO_MODE`; unverified legacy artifacts are demo-only; a purported real-data artifact must include permission and forward-time evaluation metadata.
 - Predictions identify their source (`trained_pipeline`, `legacy_model`, `heuristic`, or `heuristic_after_model_error`). If a loaded model errors, the app reports the deterministic fallback source instead of silently substituting a plausible-looking 0.50 score.
@@ -47,7 +47,7 @@ A high score on rule-generated synthetic rows is only a software smoke test. No 
 
 ```text
 .venv/bin/python -m pytest -q
-82 passed, 10 deprecation warnings (12 October 2026)
+86 passed, 8 SciPy L-BFGS option deprecation warnings (14 October 2026)
 ```
 
 These tests use isolated databases and fictional in-memory/temporary rows. They do not load the repository's legacy training CSV, court sample files, or tracked application database.

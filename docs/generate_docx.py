@@ -55,9 +55,10 @@ def build_document() -> Path:
         "The legacy tracked CSV has rule-generated labels calibrated from real-derived distributions "
         "with unverified permission and is never selected by default or treated as synthetic. "
         "Training requires an explicit dataset and provenance; permitted real-data evaluation also "
-        "requires documented permission and case-grouped forward-time splits. No trained model artifact "
-        "was produced and no real court data was used for training or evaluation in this work; automated tests use "
-        "synthetic fixtures only. There is no independent validation against real outcomes. Scores are "
+        "requires documented permission and case-grouped forward-time splits. No deployable model artifact "
+        "was trained on court outcomes, and no real court data was used for training or evaluation in this work; "
+        "automated tests fit temporary models on synthetic fixtures only. There is no independent validation "
+        "against real outcomes. Scores are "
         "not legal findings and must not drive adjudicative or other consequential decisions. See "
         "docs/ML_EVALUATION_READINESS.md.",
     )

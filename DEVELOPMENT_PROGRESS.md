@@ -1,6 +1,6 @@
 # Development progress
 
-> **Current status — 14 October 2026:** The approved first-pilot role model is enforced server-side, with role-aware UI, explicit legacy `Clerk` remapping, and a deployment entitlement gate for Court Clerk (not a billing integration). The role/access matrix and PWA acceptance guides align with current code. The local Python suite passes (85 passed; 8 SciPy deprecation warnings), frontend regression suites pass, and dependency audits are clear. API route-auth coverage and the FastAPI startup-lifespan regression have been added. Physical-device/staging acceptance, legal review beyond the approved role model, and production gates remain open. This is a competition-team prototype, not a government service, and government approval does not block feature development. Older checkpoints below are historical and are superseded where the latest entry or completion plan says so.
+> **Current status — 14 October 2026:** The approved first-pilot role model is enforced server-side, with role-aware UI, explicit legacy `Clerk` remapping, and a deployment entitlement gate for Court Clerk (not a billing integration). The role/access matrix and PWA acceptance guides align with current code. The local Python suite passes (86 passed; 8 SciPy deprecation warnings), frontend regression suites pass, and dependency audits are clear. API route-auth coverage, the FastAPI startup-lifespan regression, and a strict forward-time case-cohort model-evaluation split have been added. Physical-device/staging acceptance, legal review beyond the approved role model, and production gates remain open. This is a competition-team prototype, not a government service, and government approval does not block feature development. Older checkpoints below are historical and are superseded where the latest entry or completion plan says so.
 
 ## 1 October 2026 — first security tranche
 
@@ -313,10 +313,11 @@ Implemented:
 - Replaced FastAPI's deprecated `@app.on_event("startup")` hook with an ASGI lifespan handler. The same initial workflow sweep runs once at startup in a worker thread, so the sync sweep does not block the event loop.
 - Added a route-inventory security regression: every `/api/` route must depend on the authenticated current-user boundary unless it is one of the explicitly documented safe configuration, login/session, signature-verified Meta webhook, or demo-secret simulator endpoints.
 - Added regression coverage proving the initial compliance sweep runs when the app lifespan starts and that only a Deputy Chief Registrar can invoke the cron sweep; the successful sweep is attributed to that actor in the audit log.
-- No legal rule, role policy, real-data use, or provider behavior was changed. This is code/test hardening, not independent security review or provider acceptance.
+- Corrected the trainer's grouped time holdout: future test cohorts now contain only cases first observed at/after the cutoff, training cases end strictly before it, and cases whose snapshots straddle the cutoff are excluded. A synthetic test asserts temporal ordering and disjoint case groups.
+- No legal rule, role policy, real-data use, or provider behavior was changed. No repository training dataset was loaded and no deployable court-outcome artifact was produced. Pipeline tests fit temporary models on fictional rows only. This is code/test hardening, not predictive validation or independent security review.
 
 Verification:
-- `.venv/bin/python -m pytest -q`: **85 passed**, 8 SciPy deprecation warnings; the FastAPI `on_event` deprecation warnings are gone.
+- `.venv/bin/python -m pytest -q`: **86 passed**, 8 SciPy deprecation warnings; the FastAPI `on_event` deprecation warnings are gone.
 - `npm run test:frontend`: passed; no frontend source changes were made.
 - `pip check`, `pip-audit`, both npm audits, Python compileall, JavaScript syntax check, and `git diff --check`: passed.
 - No tracked generated assets changed during the frontend build.
