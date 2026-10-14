@@ -369,3 +369,13 @@ Verification:
 - `.venv/bin/python -m pytest tests/test_seed_demo_data.py -q`: **5 passed**.
 - `.venv/bin/python -m pytest -q`: **88 passed, 10 SciPy L-BFGS deprecation warnings**.
 - Existing local demo databases are not automatically changed; use the guarded `--overwrite-fixtures` path only for a disposable database containing only these demo fixtures.
+
+## 14 October 2026 — ensure the “Why?” dialog reaches existing browsers
+
+- Investigated the follow-up screenshot: the current source already uses the in-app explanation dialog, but the browser still displayed the old native alert, indicating it was loading a stale frontend asset.
+- Bumped the PWA shell cache to v10, versioned the explanation script and styles in both the page and offline shell, and made the root HTML response non-cacheable so a refreshed page picks up the new asset URLs.
+- Added regression checks for the versioned page assets, PWA cache entries, and response cache headers; API and authenticated data caching behavior is unchanged.
+
+Verification:
+- `.venv/bin/python -m pytest tests/test_security.py::test_dashboard_revalidates_html_for_the_versioned_explanation_ui -q`: **1 passed**.
+- `npm run test:frontend`: passed, including the Why? dialog interaction and PWA shell checks.

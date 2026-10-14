@@ -2712,7 +2712,7 @@ def serve_dashboard():
     """Serves the dashboard home index.html directly on root URL."""
     index_path = _FRONTEND_DIR / "index.html"
     if index_path.exists():
-        return FileResponse(str(index_path))
+        return FileResponse(str(index_path), headers={"Cache-Control": "no-store"})
     raise HTTPException(status_code=404, detail="Frontend index.html file not found")
 
 @app.get("/service-worker.js", include_in_schema=False)

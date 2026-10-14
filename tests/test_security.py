@@ -106,6 +106,19 @@ def fixture_case(cid, court='FHC Abuja Court 4'):
     main.db.save_case(cid, case)
     return case
 
+def test_dashboard_revalidates_html_for_the_versioned_explanation_ui():
+    response = client.get('/')
+    assert response.status_code == 200
+    assert response.headers['Cache-Control'] == 'no-store'
+    assert '/static/app.js?v=why-dialog-v10' in response.text
+    assert '/static/index.css?v=why-dialog-v10' in response.text
+
+    worker = client.get('/service-worker.js')
+    assert worker.status_code == 200
+    assert worker.headers['Cache-Control'] == 'no-cache'
+    assert 'courtlog-shell-v10' in worker.text
+
+
 def test_every_api_route_has_an_explicit_authentication_boundary():
     discovered_exemptions = set()
     unprotected_routes = []

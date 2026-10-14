@@ -54,9 +54,17 @@ for (const localAsset of [
   assert.ok(serviceWorker.includes(localAsset), `PWA shell cache includes ${localAsset}`);
 }
 for (const [, path] of serviceWorker.matchAll(/"(\/static\/[^\"]+)"/g)) {
-  assert.ok(fs.existsSync(`frontend${path.replace('/static', '')}`), `cached asset exists: ${path}`);
+  const localPath = path.split('?')[0];
+  assert.ok(fs.existsSync(`frontend${localPath.replace('/static', '')}`), `cached asset exists: ${path}`);
 }
-assert.match(serviceWorker, /courtlog-shell-v9/, 'the role-aware UI update invalidates the earlier static cache');
+assert.match(serviceWorker, /courtlog-shell-v10/, 'the refreshed explanation UI invalidates the earlier static cache');
+const versionedAppScript = '/static/app.js?v=why-dialog-v10';
+const versionedExplanationStyles = '/static/index.css?v=why-dialog-v10';
+assert.ok(indexHtml.includes(versionedAppScript), 'the page loads the refreshed dialog-enabled app script');
+assert.ok(indexHtml.includes(versionedExplanationStyles), 'the page loads the refreshed explanation-dialog styles');
+assert.ok(serviceWorker.includes(`"${versionedAppScript}"`), 'the PWA precaches the versioned application script');
+assert.ok(serviceWorker.includes(`"${versionedExplanationStyles}"`), 'the PWA precaches the versioned explanation styles');
+assert.match(serviceWorker, /SHELL_ASSET_PATHS\.has\(url\.pathname\)/, 'versioned shell assets remain covered by offline fetch handling');
 assert.match(serviceWorker, /request\.method !== "GET"/);
 assert.match(serviceWorker, /url\.pathname\.startsWith\("\/api\/"\)/, 'API responses are bypassed by the shell cache');
 assert.match(serviceWorker, /does not queue custody scans/i);
