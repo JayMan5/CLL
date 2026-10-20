@@ -665,6 +665,19 @@ class UserRoleChangeRequest(BaseModel):
         return value
 
 
+class UserDivisionChangeRequest(BaseModel):
+    division: Literal["Criminal", "Civil"]
+    reason: str = Field(min_length=5, max_length=500, pattern=r"\S")
+
+    @field_validator("reason")
+    @classmethod
+    def trim_division_change_reason(cls, value):
+        value = value.strip()
+        if len(value) < 5:
+            raise ValueError("Audit reason must contain at least five non-whitespace characters")
+        return value
+
+
 class PasswordChangeRequest(BaseModel):
     current_password: str = Field(min_length=1, max_length=72)
     new_password: str = Field(min_length=12, max_length=72)
@@ -1237,6 +1250,55 @@ def remap_legacy_user_role(
         auth["user_id"], "user.role.remap", "user", user_id,
         reason=req.reason,
         metadata={"previous_role": previous_role, "current_role": req.role},
+    )
+    return _safe_user(user)
+
+
+@app.patch("/api/users/{user_id}/division")
+def change_user_division(
+    user_id: str,
+    req: UserDivisionChangeRequest,
+    auth: Dict[str, str] = Depends(get_current_user),
+):
+    """Change a division-scoped staff account, revoke its sessions, and audit why."""
+    if auth["role"] != CHIEF_REGISTRAR:
+        raise HTTPException(status_code=403, detail="Division changes require Chief Registrar authority")
+    if user_id == auth["user_id"]:
+        raise HTTPException(status_code=409, detail="A Chief Registrar cannot change their own division assignment")
+
+    user = db.get_user(user_id)
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    if user.get("role_remap_required") or user.get("role") in {"Clerk", ROLE_ASSIGNMENT_REQUIRED}:
+        raise HTTPException(status_code=409, detail="Legacy Clerk accounts must be explicitly remapped before changing their division")
+
+    division_scoped_roles = {FILING_CLERK, REGISTRY_CLERK, COURT_CLERK, BAILIFF}
+    if user.get("role") not in division_scoped_roles:
+        raise HTTPException(
+            status_code=409,
+            detail="Division changes are available only for Filing Clerk, Registry Clerk, Court Clerk, and Bailiff accounts; this role uses an all-division or assignment-based scope.",
+        )
+    if user.get("role") == COURT_CLERK and not role_is_licensed(COURT_CLERK):
+        raise HTTPException(
+            status_code=403,
+            detail="The Court Clerk feature is not enabled for this deployment.",
+        )
+    if user.get("division") == req.division:
+        return _safe_user(user)
+
+    previous_division = user.get("division")
+    user["division"] = req.division
+    db.save_user(user_id, user)
+    db.revoke_user_sessions(user_id)
+    _record_audit_event(
+        auth["user_id"], "user.division.change", "user", user_id,
+        reason=req.reason,
+        metadata={
+            "role": user.get("role"),
+            "court": user.get("court"),
+            "previous_division": previous_division,
+            "current_division": req.division,
+        },
     )
     return _safe_user(user)
 

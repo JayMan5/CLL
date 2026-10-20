@@ -16,7 +16,7 @@ The default demo seeds accounts for Filing Clerk (`clerk`), Registry Clerk (`reg
 | Role | Current implemented access | Important limit |
 |---|---|---|
 | Chief Judge | Read-only court-scoped dashboard and sanitized judicial alerts | Cannot edit any record; the Chief Judge's decision itself is not captured in CourtLOG. |
-| Chief Registrar | Read-only all-court case oversight; account create/list/delete/reset and explicit legacy-Clerk remapping; audit and summary reads | Cannot register or change case events. |
+| Chief Registrar | Read-only all-court case oversight; account create/list/delete/reset, explicit legacy-Clerk remapping, and audited Criminal/Civil division changes for eligible staff; audit and summary reads | Cannot register or change case events. Division changes revoke the affected account's sessions and cannot grant All Divisions. |
 | Deputy Chief Registrar | Court-wide read; configured review acknowledgement/reasoned resolution, audited same-court division correction, reports, risk refresh and workflow sweep | Cannot manage users or change case court; application thresholds are not legal findings. |
 | Registrar | Court-scoped Judge/Sheriff assignment, judgment-delivery date, separate notice request, writ issue/assignment, and WhatsApp consent administration | Cannot log hearing outcomes or record Sheriff execution on the Sheriff's behalf; assignment reason is stored but the source Chief Judge decision is not independently validated. |
 | Filing Clerk | Assigned court/division case registration, opaque QR-label issuance, manual/QR scans, document metadata | No general post-filing case-field or hearing-event edit route; scans/metadata are separate append/record operations, and metadata is not a binary upload. QR issuance is Filing Clerk-only. |
@@ -70,7 +70,7 @@ Court Clerk is a server-side organization/deployment entitlement, configured wit
 
 ### Chief Registrar, Chief Judge, and Presiding Judge
 
-- Chief Registrar: use **User Admin** to manage fictional accounts and explicitly map legacy Clerk accounts. A legacy account cannot sign in until a new pilot role is selected with an audit reason; Court Clerk is not offered unless the server entitlement is enabled.
+- Chief Registrar: use **User Admin** to manage fictional accounts and explicitly map legacy Clerk accounts. For a Filing Clerk, Registry Clerk, entitlement-enabled Court Clerk, or Bailiff, choose **Division**, select Criminal or Civil, and enter an audit reason. The change revokes that user's sessions and does not grant All Divisions or alter the court/role. A legacy account cannot sign in until a new pilot role is selected with an audit reason; Court Clerk is not offered unless the server entitlement is enabled.
 - Chief Judge: read the court-scoped judicial dashboard/alerts only. The Registrar records a judge assignment against the Chief Judge's decision reference.
 - Presiding Judge: read only the cases assigned to that account. No case event or judgment details can be edited from the judicial docket.
 

@@ -34,7 +34,8 @@ document.addEventListener('click', event => {
         recordJudgment: recordJudgmentDelivery,
         writ: selectCaseForWrit, override: openDCROverrideModal, acknowledgeDCR: acknowledgeDCRReview,
         ruling: logJudicialRuling, deleteUser: deleteUserAccount, resetPassword: resetUserPassword,
-        remapUser: remapLegacyUserRole, explain: showExplainability
+        remapUser: remapLegacyUserRole, changeUserDivision: openChangeUserDivisionModal,
+        explain: showExplainability
     };
     const action = actions[button.dataset.caseAction];
     if (action) action(button.dataset.recordId);
@@ -56,12 +57,14 @@ const PILOT_ROLE_OPTIONS = [
     "Chief Judge", "Chief Registrar", "Deputy Chief Registrar", "Registrar",
     "Filing Clerk", "Registry Clerk", "Court Clerk", "Bailiff", "Sheriff", "Presiding Judge"
 ];
+const DIVISION_MANAGEMENT_ROLES = new Set(["Filing Clerk", "Registry Clerk", "Court Clerk", "Bailiff"]);
 let distributionChart = null;
 let currentHearingOutcome = "Adjourned";
 let activeOverrideCaseId = null;
 let selectedWritCaseId = null;
 let activeSheriffCustodyCaseId = null;
 let activeSheriffCustodyMode = null;
+let activeUserDivisionUserId = null;
 
 // ===== FICTIONAL PILOT USER PROFILES =====
 const USER_PROFILES = {
@@ -1893,6 +1896,13 @@ async function logJudicialRuling(caseId) {
 
 // ----------------- USER ADMIN CONSOLE -----------------
 
+function canChangeUserDivision(user) {
+    return Boolean(user)
+        && !user.role_remap_required
+        && DIVISION_MANAGEMENT_ROLES.has(user.role)
+        && (user.role !== "Court Clerk" || paidFeatures.court_clerk === true);
+}
+
 function renderUsersAdminTable() {
     const tableBody = document.getElementById("users-admin-table-body");
     if (!tableBody) return;
@@ -1914,9 +1924,13 @@ function renderUsersAdminTable() {
                 ${u.role_remap_required ? `<div class="text-[10px] text-amber-300 mt-1">Legacy ${u.legacy_role || 'Clerk'} — sign-in blocked until explicitly remapped</div>` : ""}
             </td>
             <td class="py-3 px-4" style="color:var(--text-secondary)">${u.badge || "—"}</td>
-            <td class="py-3 px-4">${u.division || 'All'}</td>
+            <td class="py-3 px-4">
+                <div>${u.division || 'All'}</div>
+                <div class="text-[10px] text-body">${u.court || 'No court scope'}</div>
+            </td>
             <td class="py-3 px-4 text-right whitespace-nowrap">
                 ${u.role_remap_required ? `<button data-case-action="remapUser" data-record-id="${u.user_id}" title="Explicitly assign this legacy account to a pilot role" class="btn-primary text-xs py-1 px-2.5">Remap role</button>` : ""}
+                ${canChangeUserDivision(u) ? `<button data-case-action="changeUserDivision" data-record-id="${u.user_id}" title="Change this account's assigned division" class="btn-secondary text-xs py-1 px-2.5"><i class="fa-solid fa-arrows-left-right mr-1"></i>Change division</button>` : ""}
                 ${u.user_id !== currentUserId ? `<button data-case-action="resetPassword" data-record-id="${u.user_id}" title="Issue temporary password" class="btn-secondary text-xs py-1 px-2.5"><i class="fa-solid fa-key"></i></button>` : ""}
                 <button data-case-action="deleteUser" data-record-id="${u.user_id}" class="btn-secondary text-xs text-rose hover:bg-rose-900/20 py-1 px-2.5"><i class="fa-solid fa-trash"></i></button>
             </td>
@@ -1960,6 +1974,92 @@ function openAddUserModal() {
 function closeAddUserModal() {
     document.getElementById("add-user-overlay")?.classList.add("hidden");
     document.getElementById("add-user-error")?.classList.add("hidden");
+}
+
+function openChangeUserDivisionModal(userId) {
+    const user = usersData.find(item => item.user_id === userId);
+    if (!canChangeUserDivision(user)) {
+        showToast("Only division-scoped pilot staff accounts can have their division changed.", "error");
+        return;
+    }
+
+    activeUserDivisionUserId = userId;
+    const overlay = document.getElementById("change-user-division-overlay");
+    document.getElementById("change-user-division-user").textContent = `${user.name} · ${user.role}`;
+    document.getElementById("change-user-division-court").textContent = user.court || "Unassigned";
+    document.getElementById("change-user-division-current").textContent = user.division || "Unassigned";
+    document.getElementById("change-user-division-select").value = "";
+    document.getElementById("change-user-division-reason").value = "";
+    document.getElementById("change-user-division-error").classList.add("hidden");
+    document.getElementById("btn-change-user-division-submit").disabled = true;
+    overlay?.classList.remove("hidden");
+    document.getElementById("change-user-division-select")?.focus();
+}
+
+function closeChangeUserDivisionModal() {
+    document.getElementById("change-user-division-overlay")?.classList.add("hidden");
+    document.getElementById("change-user-division-error")?.classList.add("hidden");
+    activeUserDivisionUserId = null;
+}
+
+function syncChangeUserDivisionSubmit() {
+    const user = usersData.find(item => item.user_id === activeUserDivisionUserId);
+    const division = document.getElementById("change-user-division-select")?.value;
+    const reason = document.getElementById("change-user-division-reason")?.value.trim() || "";
+    const button = document.getElementById("btn-change-user-division-submit");
+    if (button) button.disabled = !user || !division || division === user.division || reason.length < 5;
+}
+
+async function submitChangeUserDivisionForm(event) {
+    event.preventDefault();
+    const user = usersData.find(item => item.user_id === activeUserDivisionUserId);
+    const division = document.getElementById("change-user-division-select").value;
+    const reason = document.getElementById("change-user-division-reason").value.trim();
+    const error = document.getElementById("change-user-division-error");
+    const button = document.getElementById("btn-change-user-division-submit");
+
+    if (!canChangeUserDivision(user)) {
+        error.textContent = "This account is no longer eligible for a division change. Refresh the user list and try again.";
+        error.classList.remove("hidden");
+        return;
+    }
+    if (!["Criminal", "Civil"].includes(division) || division === user.division) {
+        error.textContent = "Choose a different supported division for this account.";
+        error.classList.remove("hidden");
+        return;
+    }
+    if (reason.length < 5) {
+        error.textContent = "Enter an audit reason of at least five characters.";
+        error.classList.remove("hidden");
+        return;
+    }
+
+    button.disabled = true;
+    try {
+        const response = await apiFetch(`${API_BASE}/users/${encodeURIComponent(activeUserDivisionUserId)}/division`, {
+            method: "PATCH", headers: getAuthHeaders(),
+            body: JSON.stringify({ division, reason })
+        });
+        const result = await response.json().catch(() => ({}));
+        if (!response.ok) {
+            error.textContent = result.detail || "Division change failed.";
+            error.classList.remove("hidden");
+            return;
+        }
+
+        const userName = user.name;
+        closeChangeUserDivisionModal();
+        await loadUsersData();
+        showToast(`${userName}'s division changed to ${division}. Their current sessions were revoked.`, "success");
+    } catch (requestError) {
+        error.textContent = "Connection error while changing the division.";
+        error.classList.remove("hidden");
+        logger(`Error changing a user's division: ${requestError}`);
+    } finally {
+        if (!document.getElementById("change-user-division-overlay")?.classList.contains("hidden")) {
+            syncChangeUserDivisionSubmit();
+        }
+    }
 }
 
 async function submitAddUserForm(event) {

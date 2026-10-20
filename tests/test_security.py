@@ -110,13 +110,13 @@ def test_dashboard_revalidates_html_for_the_versioned_explanation_ui():
     response = client.get('/')
     assert response.status_code == 200
     assert response.headers['Cache-Control'] == 'no-store'
-    assert '/static/app.js?v=custody-case-selector-v11' in response.text
-    assert '/static/index.css?v=custody-case-selector-v11' in response.text
+    assert '/static/app.js?v=user-division-management-v12' in response.text
+    assert '/static/index.css?v=user-division-management-v12' in response.text
 
     worker = client.get('/service-worker.js')
     assert worker.status_code == 200
     assert worker.headers['Cache-Control'] == 'no-cache'
-    assert 'courtlog-shell-v11' in worker.text
+    assert 'courtlog-shell-v12' in worker.text
 
 
 def test_every_api_route_has_an_explicit_authentication_boundary():
@@ -559,6 +559,92 @@ def test_admin_creates_unique_account_and_initial_password_is_mandatory():
         assert account_client.get('/api/cases', headers={'Authorization': f"Bearer {reset_login.json()['access_token']}"}).status_code == 403
 
 
+def test_chief_registrar_can_change_division_scoped_account_with_audit_and_session_revocation():
+    suffix = secrets.token_hex(4)
+    user_id = f'usr_division_change_{suffix}'
+    main.db.save_user(user_id, {
+        'user_id':user_id, 'username':f'division.change.{suffix}',
+        'password':get_password_hash('Temporary-Division-Password-1!'),
+        'name':'Fictional Division-Scoped Clerk', 'role':'Filing Clerk',
+        'badge':'Synthetic test user', 'court':'FHC Abuja Court 4',
+        'division':'Criminal', 'disabled':False,
+    })
+    criminal_case_id = f'SEC/DIVISION/{suffix}/CRIMINAL'
+    civil_case_id = f'SEC/DIVISION/{suffix}/CIVIL'
+    criminal_case = fixture_case(criminal_case_id)
+    civil_case = fixture_case(civil_case_id)
+    civil_case['assigned_division'] = 'Civil'
+    main.db.save_case(civil_case_id, civil_case)
+
+    old_session = headers(user_id)
+    assert client.get('/api/cases', headers=old_session).status_code == 200
+    assert client.patch(
+        f'/api/users/{user_id}/division', headers=headers('usr_dcr_01'),
+        json={'division':'Civil', 'reason':'Transfer to the Civil division'},
+    ).status_code == 403
+
+    invalid_all_divisions = client.patch(
+        f'/api/users/{user_id}/division', headers=headers('usr_cr_01'),
+        json={'division':'All Divisions', 'reason':'Expand scope to all divisions'},
+    )
+    assert invalid_all_divisions.status_code == 422, 'division editing must not grant an All Divisions scope'
+    invalid_reason = client.patch(
+        f'/api/users/{user_id}/division', headers=headers('usr_cr_01'),
+        json={'division':'Civil', 'reason':'    a'},
+    )
+    assert invalid_reason.status_code == 422, 'the trimmed audit reason must still contain five characters'
+
+    changed = client.patch(
+        f'/api/users/{user_id}/division', headers=headers('usr_cr_01'),
+        json={'division':'Civil', 'reason':'Transfer to the Civil division'},
+    )
+    assert changed.status_code == 200, changed.text
+    assert changed.json()['role'] == 'Filing Clerk'
+    assert changed.json()['division'] == 'Civil'
+    assert 'password' not in changed.json()
+    assert client.get('/api/cases', headers=old_session).status_code == 401, 'scope changes revoke existing sessions'
+
+    current_session = headers(user_id)
+    visible_ids = {case['case_id'] for case in client.get('/api/cases', headers=current_session).json()}
+    assert civil_case_id in visible_ids
+    assert criminal_case_id not in visible_ids
+
+    criminal_registration = client.post('/api/cases', headers=current_session, json={
+        'case_id':f'SEC/DIVISION/{suffix}/REGISTER-CRIMINAL', 'case_type':'Criminal',
+        'court':'FHC Abuja Court 4', 'counsel_phone':'+2348031234567',
+        'litigant_phone':'+2348037654321',
+    })
+    assert criminal_registration.status_code == 403
+    civil_registration = client.post('/api/cases', headers=current_session, json={
+        'case_id':f'SEC/DIVISION/{suffix}/REGISTER-CIVIL', 'case_type':'Civil',
+        'court':'FHC Abuja Court 4', 'counsel_phone':'+2348031234567',
+        'litigant_phone':'+2348037654321',
+    })
+    assert civil_registration.status_code == 201
+
+    for fixed_scope_user in ('usr_registrar_01', 'usr_sheriff_01'):
+        rejected = client.patch(
+            f'/api/users/{fixed_scope_user}/division', headers=headers('usr_cr_01'),
+            json={'division':'Civil', 'reason':'Change division assignment'},
+        )
+        assert rejected.status_code == 409
+    assert client.patch(
+        f'/api/users/usr_cr_01/division', headers=headers('usr_cr_01'),
+        json={'division':'Civil', 'reason':'Change own division assignment'},
+    ).status_code == 409
+
+    event = next(
+        item for item in main.db.list_audit_events(200)
+        if item['action'] == 'user.division.change' and item['entity_id'] == user_id
+    )
+    assert event['actor_user_id'] == 'usr_cr_01'
+    assert event['reason'] == 'Transfer to the Civil division'
+    assert event['metadata'] == {
+        'role':'Filing Clerk', 'court':'FHC Abuja Court 4',
+        'previous_division':'Criminal', 'current_division':'Civil',
+    }
+
+
 def test_legacy_clerk_is_blocked_until_explicit_audited_role_remap():
     user_id = 'legacy_clerk_remap'
     main.db.save_user(user_id, {
@@ -574,6 +660,12 @@ def test_legacy_clerk_is_blocked_until_explicit_audited_role_remap():
     assert login.status_code == 403
     assert 'explicit role assignment' in login.json()['detail']
     assert client.get('/api/cases', headers=legacy_session).status_code == 403
+    blocked_division_change = client.patch(
+        f'/api/users/{user_id}/division', headers=headers('usr_cr_01'),
+        json={'division':'Civil', 'reason':'Change legacy account division'},
+    )
+    assert blocked_division_change.status_code == 409
+    assert main.db.get_user(user_id)['division'] == 'Criminal'
 
     visible = next(user for user in client.get('/api/users', headers=headers('usr_cr_01')).json()
                    if user['user_id'] == user_id)
@@ -634,6 +726,12 @@ def test_court_clerk_requires_server_entitlement_for_creation_login_and_workflow
         )
         assert denied_deferred.status_code == 422
     assert client.post('/api/login', json={'username':'court.clerk', 'password':'123'}).status_code == 403
+
+    denied_division_change = client.patch(
+        '/api/users/usr_court_clerk_01/division', headers=headers('usr_cr_01'),
+        json={'division':'Civil', 'reason':'Change Court Clerk division'},
+    )
+    assert denied_division_change.status_code == 403, 'division management must not bypass the Court Clerk entitlement'
 
     existing_session = headers('usr_court_clerk_01')
     assert client.get('/api/cases', headers=existing_session).status_code == 403

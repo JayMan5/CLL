@@ -118,6 +118,40 @@ dom.window.fetch = async url => {
     assert.equal(courtClerkOption.disabled, true);
     assert.equal(doc.getElementById('nav-courtrooms').classList.contains('hidden'), true);
 
+    assert.ok(doc.getElementById('change-user-division-overlay'), 'the Chief Registrar division editor is available');
+    assert.deepEqual(
+        [...doc.getElementById('change-user-division-select').options].map(option => option.value),
+        ['', 'Criminal', 'Civil'],
+        'the division editor offers only a specific Criminal or Civil assignment, never All Divisions'
+    );
+    run(`currentUserId = 'cr-ui-test'; usersData = [{
+        user_id: 'ui-filing-clerk', username: 'ui.filing', name: 'Fictional Filing Clerk',
+        role: 'Filing Clerk', badge: 'Synthetic', court: 'FHC Abuja Court 4', division: 'Criminal'
+    }]; renderUsersAdminTable()`);
+    const divisionButton = doc.querySelector('#users-admin-table-body [data-case-action="changeUserDivision"]');
+    assert.ok(divisionButton, 'division-scoped staff get a division management action');
+    divisionButton.click();
+    assert.equal(doc.getElementById('change-user-division-overlay').classList.contains('hidden'), false);
+    assert.equal(doc.getElementById('change-user-division-current').textContent, 'Criminal');
+    assert.equal(doc.getElementById('change-user-division-court').textContent, 'FHC Abuja Court 4');
+    doc.getElementById('change-user-division-select').value = 'Civil';
+    doc.getElementById('change-user-division-reason').value = 'Synthetic test transfer';
+    run('syncChangeUserDivisionSubmit()');
+    assert.equal(doc.getElementById('btn-change-user-division-submit').disabled, false);
+    run('closeChangeUserDivisionModal()');
+    run(`usersData = [{
+        user_id: 'ui-registrar', username: 'ui.registrar', name: 'Fictional Registrar',
+        role: 'Registrar', badge: 'Synthetic', court: 'FHC Abuja Court 4', division: 'All Divisions'
+    }]; renderUsersAdminTable()`);
+    assert.equal(doc.querySelector('#users-admin-table-body [data-case-action="changeUserDivision"]'), null,
+        'court-wide roles do not display a misleading division control');
+    run(`usersData = [{
+        user_id: 'ui-court-clerk', username: 'ui.court.clerk', name: 'Fictional Court Clerk',
+        role: 'Court Clerk', badge: 'Synthetic', court: 'FHC Abuja Court 4', division: 'Criminal'
+    }]; renderUsersAdminTable()`);
+    assert.equal(doc.querySelector('#users-admin-table-body [data-case-action="changeUserDivision"]'), null,
+        'an unentitled Court Clerk stays unavailable in division management');
+
     const profileToggle = doc.getElementById('profile-menu-toggle');
     profileToggle.click();
     assert.equal(profileToggle.getAttribute('aria-expanded'), 'true');

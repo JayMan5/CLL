@@ -18,7 +18,7 @@
     <link rel="stylesheet" href="/static/vendor/fonts/plus-jakarta-sans/wght.css">
     <link rel="stylesheet" href="/static/tailwind.css">
     <link rel="stylesheet" href="/static/vendor/fontawesome/css/all.min.css">
-    <link rel="stylesheet" href="/static/index.css?v=custody-case-selector-v11">
+    <link rel="stylesheet" href="/static/index.css?v=user-division-management-v12">
 </head>
 
 <body class="font-sans antialiased">
@@ -929,7 +929,7 @@
                                 <h3 class="font-heading font-bold text-lg text-heading flex items-center gap-2">
                                     <i class="fa-solid fa-users-gear text-sky-400"></i> Chief Registrar User Administration & Pilot Roles
                                 </h3>
-                                <p class="text-xs text-body">Manage pilot personnel accounts, explicitly remap legacy Clerk accounts, and keep deferred roles unavailable.</p>
+                                <p class="text-xs text-body">Manage pilot accounts and explicitly remap legacy Clerk accounts. Change Criminal/Civil assignments for division-scoped staff; scope changes are audited and revoke the affected account's sessions.</p>
                             </div>
                             <button onclick="openAddUserModal()" class="btn-primary flex items-center gap-2 text-xs">
                                 <i class="fa-solid fa-user-plus"></i> Add User Account
@@ -946,7 +946,7 @@
                                         <th class="py-3 px-4">Full Name</th>
                                         <th class="py-3 px-4">Role & Level</th>
                                         <th class="py-3 px-4">Responsibilities</th>
-                                        <th class="py-3 px-4">Assigned Division</th>
+                                        <th class="py-3 px-4">Assigned Division / Court</th>
                                         <th class="py-3 px-4 text-right">Actions</th>
                                     </tr>
                                 </thead>
@@ -982,6 +982,36 @@
                             <div class="sm:col-span-2 flex justify-end gap-3">
                                 <button type="button" onclick="closeAddUserModal()" class="btn-secondary px-4 py-2">Cancel</button>
                                 <button type="submit" id="btn-add-user-submit" class="btn-primary px-4 py-2">Create account</button>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+
+                <!-- Chief Registrar division assignment dialog -->
+                <div id="change-user-division-overlay" class="fixed inset-0 z-[90] hidden flex items-center justify-center p-4 bg-black/70" role="dialog" aria-modal="true" aria-labelledby="change-user-division-title">
+                    <div class="glass-panel w-full max-w-lg rounded-2xl p-6 space-y-5">
+                        <div>
+                            <h2 id="change-user-division-title" class="font-heading font-bold text-xl text-heading">Change assigned division</h2>
+                            <p id="change-user-division-user" class="text-sm text-heading mt-2"></p>
+                            <p class="text-xs text-body mt-1">Assigned court: <strong id="change-user-division-court"></strong></p>
+                            <p class="text-xs text-body mt-1">Current division: <strong id="change-user-division-current"></strong></p>
+                        </div>
+                        <form id="form-change-user-division" class="space-y-4" onsubmit="submitChangeUserDivisionForm(event)">
+                            <label class="text-xs stat-label block">New division
+                                <select id="change-user-division-select" class="th-input w-full mt-1 p-2 rounded-lg" required onchange="syncChangeUserDivisionSubmit()">
+                                    <option value="" selected disabled>Choose a division</option>
+                                    <option value="Criminal">Criminal</option>
+                                    <option value="Civil">Civil</option>
+                                </select>
+                            </label>
+                            <p class="text-[11px] text-body">This changes the division assignment for Filing Clerk, Registry Clerk, Court Clerk, or Bailiff accounts only. It does not grant All Divisions or change court, role, or assignment-based access. The reason is recorded in the audit log; the affected user must sign in again after their existing sessions are revoked.</p>
+                            <label class="text-xs stat-label block">Reason for change (5–500 characters)
+                                <textarea id="change-user-division-reason" class="th-input w-full mt-1 p-2 rounded-lg" required minlength="5" maxlength="500" rows="3" oninput="syncChangeUserDivisionSubmit()"></textarea>
+                            </label>
+                            <div id="change-user-division-error" class="hidden text-xs text-rose" role="alert"></div>
+                            <div class="flex justify-end gap-3">
+                                <button type="button" onclick="closeChangeUserDivisionModal()" class="btn-secondary px-4 py-2">Cancel</button>
+                                <button type="submit" id="btn-change-user-division-submit" class="btn-primary px-4 py-2" disabled>Save division</button>
                             </div>
                         </form>
                     </div>
@@ -1501,7 +1531,7 @@
     <!-- Locally bundled QR generation and browser camera scanner -->
     <script src="/static/c2-pwa.bundle.js"></script>
     <!-- Client app code file integration -->
-    <script src="/static/app.js?v=custody-case-selector-v11"></script>
+    <script src="/static/app.js?v=user-division-management-v12"></script>
 </body>
 
 </html>
