@@ -24,6 +24,8 @@ from backend.model_contract import (
     SYNTHETIC_DEMO_TARGET_DEFINITION,
     SYNTHETIC_DURATION_TARGET_COLUMN,
     SYNTHETIC_DURATION_TARGET_DEFINITION,
+    SYNTHETIC_DURATION_CASE_TYPES,
+    SYNTHETIC_DURATION_COURTS,
 )
 
 DEFAULT_OUTPUT = ROOT / ".local" / "courtlog-synthetic-demo" / "no_progress_30d.csv"
@@ -32,18 +34,8 @@ TARGET_DEFINITION = SYNTHETIC_DEMO_TARGET_DEFINITION
 DURATION_TARGET_COLUMN = SYNTHETIC_DURATION_TARGET_COLUMN
 DURATION_TARGET_DEFINITION = SYNTHETIC_DURATION_TARGET_DEFINITION
 
-CASE_TYPES = (
-    "Fictional Civil Claim",
-    "Fictional Land Matter",
-    "Fictional Criminal Appeal",
-    "Fictional Commercial Appeal",
-)
-COURTS = (
-    "Synthetic Court A",
-    "Synthetic Court B",
-    "Synthetic Court C",
-    "Synthetic Court D",
-)
+CASE_TYPES = SYNTHETIC_DURATION_CASE_TYPES
+COURTS = SYNTHETIC_DURATION_COURTS
 CASE_TYPE_DELAY_FACTOR = {
     "Fictional Civil Claim": 0.95,
     "Fictional Land Matter": 1.20,

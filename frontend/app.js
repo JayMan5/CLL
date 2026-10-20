@@ -52,6 +52,7 @@ let authenticatedUser = null;
 let refreshPromise = null;
 let sessionExpiryHandled = false;
 let demoMode = false;
+let syntheticDurationDemoAvailable = false;
 let paidFeatures = { court_clerk: false };
 const PILOT_ROLE_OPTIONS = [
     "Chief Judge", "Chief Registrar", "Deputy Chief Registrar", "Registrar",
@@ -98,14 +99,18 @@ async function loadAppConfig() {
         if (!response.ok) return;
         const config = await response.json();
         demoMode = config.demo_mode === true;
+        syntheticDurationDemoAvailable = demoMode && config.synthetic_duration_demo_available === true;
         paidFeatures = {
             court_clerk: config.paid_features?.court_clerk === true
         };
         updateCourtClerkEntitlementUI();
+        updateSyntheticDurationDemoUI();
     } catch (_) {
         demoMode = false; // Fail closed: hide simulator-only UI if config cannot be read.
+        syntheticDurationDemoAvailable = false;
         paidFeatures = { court_clerk: false };
         updateCourtClerkEntitlementUI();
+        updateSyntheticDurationDemoUI();
     }
     const status = document.getElementById("whatsapp-mode-status");
     if (status) status.textContent = demoMode ? "DEMO SIMULATION — NOT LIVE" : "CHECKING SERVER CONFIGURATION";
@@ -132,6 +137,82 @@ function updateCourtClerkEntitlementUI() {
     }
     const status = document.getElementById("court-clerk-entitlement-status");
     if (status) status.textContent = enabled ? "Court Clerk entitlement enabled" : "Court Clerk entitlement disabled";
+}
+
+function updateSyntheticDurationDemoUI() {
+    const panel = document.getElementById("synthetic-duration-demo-panel");
+    const form = document.getElementById("synthetic-duration-demo-form");
+    const enabled = demoMode === true && syntheticDurationDemoAvailable === true;
+    panel?.classList.toggle("hidden", !enabled);
+    form?.querySelectorAll("input, select, button").forEach(control => {
+        control.disabled = !enabled;
+    });
+}
+
+function setSyntheticDurationDemoStatus(message, state = "info") {
+    const output = document.getElementById("duration-demo-result");
+    if (!output) return;
+    output.textContent = message;
+    output.dataset.state = state;
+}
+
+function initializeSyntheticDurationDemo() {
+    const form = document.getElementById("synthetic-duration-demo-form");
+    if (!form || form.dataset.handlersAttached === "true") return;
+    form.dataset.handlersAttached = "true";
+    form.addEventListener("submit", submitSyntheticDurationDemo);
+}
+
+async function submitSyntheticDurationDemo(event) {
+    event.preventDefault();
+    if (!demoMode || !syntheticDurationDemoAvailable) {
+        setSyntheticDurationDemoStatus("The synthetic duration demo is not enabled on this local server.", "error");
+        return;
+    }
+
+    const values = {
+        adjournment_count: Number(document.getElementById("duration-demo-adjournments")?.value),
+        days_since_filing: Number(document.getElementById("duration-demo-filing-age")?.value),
+        days_since_last_event: Number(document.getElementById("duration-demo-event-recency")?.value),
+        case_type: document.getElementById("duration-demo-case-type")?.value,
+        court: document.getElementById("duration-demo-court")?.value,
+    };
+    if (values.days_since_last_event > values.days_since_filing) {
+        setSyntheticDurationDemoStatus("Days since the last event cannot exceed days since filing.", "error");
+        return;
+    }
+
+    const button = document.getElementById("duration-demo-submit");
+    if (button) button.disabled = true;
+    setSyntheticDurationDemoStatus("Running the local synthetic duration model…", "pending");
+    try {
+        const response = await apiFetch(`${API_BASE}/predict/duration-demo`, {
+            method: "POST",
+            headers: getAuthHeaders(),
+            body: JSON.stringify(values),
+        });
+        const result = await response.json().catch(() => ({}));
+        if (!response.ok) {
+            throw new Error(result.detail || "Synthetic duration demo request failed");
+        }
+        const estimate = Number(result.estimated_days_to_next_progress);
+        if (!Number.isFinite(estimate) || estimate < 0) {
+            throw new Error("The model returned an invalid duration value");
+        }
+        setSyntheticDurationDemoStatus(
+            `Synthetic-only estimate: ${estimate.toFixed(1)} days until the next simulated progress event. ` +
+            "This predicts neither case conclusion nor a real court outcome; the inputs and model are fictional and unvalidated.",
+            "success"
+        );
+    } catch (error) {
+        logger("Synthetic duration demo request failed");
+        setSyntheticDurationDemoStatus(
+            error instanceof Error ? error.message : "Synthetic duration demo request failed.",
+            "error"
+        );
+    } finally {
+        if (button) button.disabled = !(demoMode && syntheticDurationDemoAvailable);
+    }
 }
 
 function getTheme() {
@@ -204,6 +285,11 @@ function clearClientSession() {
     document.getElementById("form-password-change")?.reset();
     document.getElementById("form-add-user")?.reset();
     document.getElementById("form-login")?.reset();
+    document.getElementById("synthetic-duration-demo-form")?.reset();
+    setSyntheticDurationDemoStatus(
+        "Default values are fictional. Submit to run the local synthetic duration model.",
+        "info"
+    );
     document.getElementById("form-sheriff-custody")?.reset();
     document.getElementById("sheriff-custody-modal")?.classList.add("hidden");
     if (document.getElementById("app-sidebar")) updateRoleUI();
@@ -480,6 +566,7 @@ function initializeShellControls() {
 // ===== APP INITIALIZATION =====
 document.addEventListener("DOMContentLoaded", async function () {
     initializeShellControls();
+    initializeSyntheticDurationDemo();
     window.CourtLogPwa?.initialize();
     window.CourtLogPwa?.setScanHandler(handleQrPayloadFromCamera);
     // Discard bearer/refresh tokens from pre-cookie versions; identity is re-derived from the server.

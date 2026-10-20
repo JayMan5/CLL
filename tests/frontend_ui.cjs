@@ -32,7 +32,9 @@ const dom = new JSDOM(html, {
 dom.window.Headers = global.Headers;
 dom.window.CourtLogPwa = { initialize() {}, setRole() {}, setScanHandler() {}, stopCamera() {} };
 dom.window.fetch = async url => {
-    if (url === '/api/config') return response(200, { demo_mode: false, paid_features: { court_clerk: false } });
+    if (url === '/api/config') return response(200, {
+        demo_mode: false, synthetic_duration_demo_available: false, paid_features: { court_clerk: false }
+    });
     if (url === '/api/refresh') return response(401, { detail: 'No session' });
     return response(200, {});
 };
@@ -44,6 +46,11 @@ dom.window.fetch = async url => {
     await ready;
     const doc = dom.window.document;
     const run = code => vm.runInContext(code, context);
+    const durationDemoPanel = doc.getElementById('synthetic-duration-demo-panel');
+    assert.ok(durationDemoPanel, 'the synthetic duration demo panel exists in the risk workspace');
+    assert.equal(durationDemoPanel.classList.contains('hidden'), true, 'the panel stays hidden without a demo artifact');
+    assert.equal(doc.querySelector('#synthetic-duration-demo-form [name="case_id"]'), null,
+        'the synthetic form cannot select or submit an application case');
     assert.deepEqual(Array.from(run('PILOT_ROLE_OPTIONS')), [
         'Chief Judge', 'Chief Registrar', 'Deputy Chief Registrar', 'Registrar',
         'Filing Clerk', 'Registry Clerk', 'Court Clerk', 'Bailiff', 'Sheriff', 'Presiding Judge'
@@ -216,7 +223,39 @@ dom.window.fetch = async url => {
     run('casesData = []; renderOverviewMetrics()');
     assert.equal(doc.getElementById('quick-alert-bar').classList.contains('hidden'), true);
 
-    console.log('Frontend UI: role-aware navigation, accessible menus, dashboard hierarchy, and alert counts passed');
+    run(`authenticatedUser = {
+        user_id: 'duration-demo-dcr', username: 'demo.dcr', name: 'Fictional Demo DCR',
+        role: 'Deputy Chief Registrar', court: 'Synthetic Court A', division: 'All Divisions'
+    }; currentUserId = authenticatedUser.user_id; demoMode = true;
+    syntheticDurationDemoAvailable = true; updateRoleUI(); updateSyntheticDurationDemoUI()`);
+    assert.equal(durationDemoPanel.classList.contains('hidden'), false,
+        'the duration form is shown only when demo mode and a validated artifact are enabled');
+    const durationRecency = doc.getElementById('duration-demo-event-recency');
+    durationRecency.value = '901';
+    await run('submitSyntheticDurationDemo({ preventDefault() {} })');
+    assert.match(doc.getElementById('duration-demo-result').textContent, /cannot exceed days since filing/);
+    assert.equal(dom.window.__durationDemoRequest, undefined, 'invalid fictional feature combinations are rejected before the API call');
+
+    durationRecency.value = '120';
+    run(`apiFetch = async (url, options) => {
+        window.__durationDemoRequest = { url, options };
+        return { ok: true, status: 200, json: async () => ({ estimated_days_to_next_progress: 46.4 }) };
+    }`);
+    await run('submitSyntheticDurationDemo({ preventDefault() {} })');
+    assert.equal(dom.window.__durationDemoRequest.url, '/api/predict/duration-demo');
+    assert.deepEqual(JSON.parse(dom.window.__durationDemoRequest.options.body), {
+        adjournment_count: 3,
+        days_since_filing: 900,
+        days_since_last_event: 120,
+        case_type: 'Fictional Land Matter',
+        court: 'Synthetic Court C'
+    });
+    assert.match(doc.getElementById('duration-demo-result').textContent, /Synthetic-only estimate: 46\.4 days/);
+    assert.match(doc.getElementById('duration-demo-result').textContent, /real court outcome/);
+
+    run('syntheticDurationDemoAvailable = false; updateSyntheticDurationDemoUI()');
+    assert.equal(durationDemoPanel.classList.contains('hidden'), true, 'the panel hides when the validated demo artifact is unavailable');
+    console.log('Frontend UI: role-aware navigation, accessible menus, demo-only duration form, dashboard hierarchy, and alert counts passed');
     dom.window.close();
 })().catch(error => {
     console.error(error);

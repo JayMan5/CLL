@@ -10,6 +10,8 @@ import tempfile
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
+import pytest
+
 # Configure isolation before importing the app. Another test module may import the
 # app first; both test modules then share that already-isolated temporary DB.
 _runtime = tempfile.TemporaryDirectory(prefix="courtlog-api-tests-")
@@ -465,6 +467,92 @@ def test_prediction_is_authenticated_scoped_and_persisted():
     assert stored.status_code == 200
     assert stored.json()["delay_risk_score"] == prediction["delay_risk_score"]
     assert stored.json()["prediction_source"] == prediction["prediction_source"]
+
+
+def test_synthetic_duration_demo_endpoint_is_demo_only_scoped_and_fictional_input_only(monkeypatch):
+    endpoint = "/api/predict/duration-demo"
+    payload = {
+        "adjournment_count": 3,
+        "days_since_filing": 900,
+        "days_since_last_event": 120,
+        "case_type": "Fictional Land Matter",
+        "court": "Synthetic Court C",
+    }
+    assert client.post(endpoint, json=payload).status_code == 401
+
+    monkeypatch.setattr(main, "load_synthetic_duration_demo_model", lambda: pytest.fail("must remain disabled"))
+    assert client.post(endpoint, headers=auth_headers("smoke_dcr"), json=payload).status_code == 404
+
+    monkeypatch.setattr(main, "DEMO_MODE_ENABLED", True)
+    assert client.post(endpoint, headers=auth_headers("smoke_clerk"), json=payload).status_code == 403
+
+    sentinel_model = object()
+    monkeypatch.setattr(main, "load_synthetic_duration_demo_model", lambda: sentinel_model)
+    observed_features = {}
+
+    def predict(model, features):
+        assert model is sentinel_model
+        observed_features.update(features)
+        return 46.4
+
+    monkeypatch.setattr(main, "predict_days_to_next_progress", predict)
+    headers = auth_headers("smoke_dcr")
+    response = client.post(endpoint, headers=headers, json=payload)
+    assert response.status_code == 200
+    assert response.headers["Cache-Control"] == "no-store"
+    result = response.json()
+    assert result["prediction_source"] == "synthetic_duration_demo_pipeline"
+    assert result["data_provenance"] == "synthetic_demo"
+    assert result["target_column"] == "synthetic_days_to_next_progress"
+    assert result["estimated_days_to_next_progress"] == 46.4
+    assert "real court outcome" in result["disclaimer"]
+    assert observed_features == payload
+    assert "case_id" not in result and "case_title" not in result
+
+    assert client.post(endpoint, headers=headers, json={**payload, "case_type": "Civil"}).status_code == 422
+    assert client.post(endpoint, headers=headers, json={**payload, "case_id": "REAL/1"}).status_code == 422
+    assert client.post(endpoint, headers=headers, json={**payload, "days_since_last_event": 901}).status_code == 422
+
+
+def test_live_config_does_not_advertise_synthetic_duration_demo(monkeypatch):
+    monkeypatch.setattr(main, "DEMO_MODE_ENABLED", False)
+    response = client.get("/api/config")
+    assert response.status_code == 200
+    assert response.json()["demo_mode"] is False
+    assert response.json()["synthetic_duration_demo_available"] is False
+
+
+def test_duration_demo_availability_requires_exact_artifact_and_evaluation_provenance(monkeypatch, tmp_path):
+    monkeypatch.setattr(main, "DEMO_MODE_ENABLED", True)
+    model_path = tmp_path / "duration_model.joblib"
+    metadata_path = tmp_path / "duration_model_metadata.json"
+    model_path.write_bytes(b"synthetic fixture artifact")
+    monkeypatch.setattr(main, "DURATION_MODEL_PATH", str(model_path))
+    monkeypatch.setattr(main, "DURATION_MODEL_METADATA_PATH", str(metadata_path))
+    features = list(main.SYNTHETIC_DURATION_FEATURES)
+    target = main.SYNTHETIC_DURATION_TARGET_COLUMN
+    definition = main.SYNTHETIC_DURATION_TARGET_DEFINITION
+    metadata = {
+        "format_version": 1,
+        "model_type": "synthetic_duration_regression",
+        "data_provenance": "synthetic_demo",
+        "feature_columns": features,
+        "target_column": target,
+        "target_definition": definition,
+        "evaluation": {
+            "evaluation_scope": "synthetic-only pipeline smoke test; not real-world validation",
+            "data_provenance": "synthetic_demo",
+            "feature_columns": features,
+            "target_column": target,
+            "target_definition": definition,
+        },
+    }
+    metadata_path.write_text(json.dumps(metadata), encoding="utf-8")
+    assert main.synthetic_duration_demo_available() is True
+
+    metadata["evaluation"]["data_provenance"] = "permissioned_real"
+    metadata_path.write_text(json.dumps(metadata), encoding="utf-8")
+    assert main.synthetic_duration_demo_available() is False
 
 
 def test_versioned_pipeline_handles_unseen_demo_categories_and_reports_heuristic_model_errors(monkeypatch):

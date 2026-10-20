@@ -19,7 +19,18 @@ from pydantic import AfterValidator, BaseModel, Field, field_validator, model_va
 load_dotenv()
 
 from backend.database import get_db_client, parse_date, format_date, verify_password, get_password_hash
-from backend.model_contract import SYNTHETIC_DEMO_TARGET_COLUMN, SYNTHETIC_DEMO_TARGET_DEFINITION
+from backend.model_contract import (
+    SYNTHETIC_DEMO_TARGET_COLUMN,
+    SYNTHETIC_DEMO_TARGET_DEFINITION,
+    SYNTHETIC_DURATION_CASE_TYPES,
+    SYNTHETIC_DURATION_COURTS,
+    SYNTHETIC_DURATION_TARGET_COLUMN,
+    SYNTHETIC_DURATION_TARGET_DEFINITION,
+)
+from backend.train_duration_model import (
+    FEATURES as SYNTHETIC_DURATION_FEATURES,
+    predict_days_to_next_progress,
+)
 from backend.whatsapp import (
     create_manual_test_message,
     deliver_whatsapp_message,
@@ -245,6 +256,67 @@ MODEL_DIR = os.getenv("COURTLOG_MODEL_DIR", DATA_DIR)
 MODEL_PATH = os.path.join(MODEL_DIR, "delay_model.joblib")
 ENCODERS_PATH = os.path.join(MODEL_DIR, "label_encoders.joblib")  # legacy artifact compatibility
 MODEL_METADATA_PATH = os.path.join(MODEL_DIR, "delay_model_metadata.json")
+DURATION_MODEL_DIR = os.getenv(
+    "COURTLOG_DURATION_MODEL_DIR",
+    os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".local", "courtlog-synthetic-demo", "duration-model")),
+)
+DURATION_MODEL_PATH = os.path.join(DURATION_MODEL_DIR, "duration_model.joblib")
+DURATION_MODEL_METADATA_PATH = os.path.join(DURATION_MODEL_DIR, "duration_model_metadata.json")
+
+
+def _read_synthetic_duration_demo_metadata() -> Optional[Dict[str, Any]]:
+    """Return metadata only for an exact synthetic-only duration artifact contract."""
+    if not DEMO_MODE_ENABLED:
+        return None
+    if not os.path.isfile(DURATION_MODEL_PATH) or not os.path.isfile(DURATION_MODEL_METADATA_PATH):
+        return None
+    try:
+        with open(DURATION_MODEL_METADATA_PATH, "r", encoding="utf-8") as metadata_file:
+            metadata = json.load(metadata_file)
+    except (OSError, json.JSONDecodeError):
+        return None
+    if not isinstance(metadata, dict):
+        return None
+    evaluation = metadata.get("evaluation")
+    if not isinstance(evaluation, dict):
+        return None
+    expected_features = list(SYNTHETIC_DURATION_FEATURES)
+    if (
+        metadata.get("format_version") != 1
+        or metadata.get("model_type") != "synthetic_duration_regression"
+        or metadata.get("data_provenance") != "synthetic_demo"
+        or metadata.get("feature_columns") != expected_features
+        or metadata.get("target_column") != SYNTHETIC_DURATION_TARGET_COLUMN
+        or metadata.get("target_definition") != SYNTHETIC_DURATION_TARGET_DEFINITION
+        or evaluation.get("data_provenance") != "synthetic_demo"
+        or evaluation.get("target_column") != SYNTHETIC_DURATION_TARGET_COLUMN
+        or evaluation.get("target_definition") != SYNTHETIC_DURATION_TARGET_DEFINITION
+        or evaluation.get("feature_columns") != expected_features
+        or evaluation.get("evaluation_scope") != "synthetic-only pipeline smoke test; not real-world validation"
+    ):
+        return None
+    return metadata
+
+
+def synthetic_duration_demo_available() -> bool:
+    return _read_synthetic_duration_demo_metadata() is not None
+
+
+def load_synthetic_duration_demo_model():
+    """Load only the exact synthetic duration artifact, and only in local demo mode."""
+    if not DEMO_MODE_ENABLED:
+        raise HTTPException(status_code=404, detail="Synthetic duration demo is disabled")
+    if _read_synthetic_duration_demo_metadata() is None:
+        raise HTTPException(
+            status_code=503,
+            detail="Synthetic duration demo artifact is unavailable; generate and train the synthetic duration model first",
+        )
+    try:
+        return joblib.load(DURATION_MODEL_PATH)
+    except Exception as exc:
+        logger.exception("Synthetic duration demo model could not be loaded")
+        raise HTTPException(status_code=503, detail="Synthetic duration demo model could not be loaded") from exc
+
 
 def load_delay_model_artifacts(model_path: str, encoders_path: str, metadata_path: str, *, demo_mode: bool):
     """Load only provenance-checked artifacts; legacy artifacts are demo-only."""
@@ -453,6 +525,39 @@ class CaseCreateRequest(BaseModel):
     @classmethod
     def normalize_nigerian_phones(cls, value):
         return _normalize_nigerian_phone(value)
+
+
+class SyntheticDurationDemoRequest(BaseModel):
+    """Fictional feature inputs only; this request deliberately accepts no case ID."""
+    model_config = {"extra": "forbid"}
+
+    adjournment_count: int = Field(ge=0, le=14)
+    days_since_filing: int = Field(ge=30, le=1800)
+    days_since_last_event: int = Field(ge=0, le=1800)
+    case_type: str = Field(min_length=1, max_length=80, pattern=r"\S")
+    court: str = Field(min_length=1, max_length=80, pattern=r"\S")
+
+    @field_validator("case_type")
+    @classmethod
+    def require_fictional_case_type(cls, value):
+        value = value.strip()
+        if value not in SYNTHETIC_DURATION_CASE_TYPES:
+            raise ValueError("Choose one of the fictional synthetic case types")
+        return value
+
+    @field_validator("court")
+    @classmethod
+    def require_synthetic_court(cls, value):
+        value = value.strip()
+        if value not in SYNTHETIC_DURATION_COURTS:
+            raise ValueError("Choose one of the synthetic demo courts")
+        return value
+
+    @model_validator(mode="after")
+    def recency_cannot_exceed_filing_age(self):
+        if self.days_since_last_event > self.days_since_filing:
+            raise ValueError("days_since_last_event cannot exceed days_since_filing")
+        return self
 
 
 class WhatsAppPreferenceRequest(BaseModel):
@@ -708,6 +813,7 @@ def client_config():
     features = enabled_paid_features()
     return {
         "demo_mode": DEMO_MODE_ENABLED,
+        "synthetic_duration_demo_available": synthetic_duration_demo_available(),
         "paid_features": {"court_clerk": "court_clerk" in features},
         "assignable_roles": [role for role in PILOT_ROLES if role_is_assignable(role)],
     }
@@ -2411,6 +2517,43 @@ def batch_predict_all_cases(auth: Dict[str, str] = Depends(get_current_user)):
         metadata={"case_count": len(results)},
     )
     return results
+
+
+@app.post("/api/predict/duration-demo", response_model=Dict[str, Any])
+def predict_synthetic_duration_demo(
+    req: SyntheticDurationDemoRequest,
+    response: Response,
+    auth: Dict[str, str] = Depends(get_current_user),
+):
+    """Evaluate only fictional feature inputs with the local synthetic duration artifact."""
+    if auth["role"] != DEPUTY_CHIEF_REGISTRAR:
+        raise HTTPException(status_code=403, detail="Synthetic duration demo requires Deputy Chief Registrar authority")
+    if not DEMO_MODE_ENABLED:
+        raise HTTPException(status_code=404, detail="Synthetic duration demo is disabled")
+
+    model = load_synthetic_duration_demo_model()
+    features = req.model_dump()
+    try:
+        estimate_days = predict_days_to_next_progress(model, features)
+    except Exception as exc:
+        logger.exception("Synthetic duration demo inference failed")
+        raise HTTPException(status_code=503, detail="Synthetic duration demo inference is unavailable") from exc
+
+    response.headers["Cache-Control"] = "no-store"
+    return {
+        "prediction_source": "synthetic_duration_demo_pipeline",
+        "data_provenance": "synthetic_demo",
+        "target_column": SYNTHETIC_DURATION_TARGET_COLUMN,
+        "target_definition": SYNTHETIC_DURATION_TARGET_DEFINITION,
+        "estimated_days_to_next_progress": estimate_days,
+        "features": features,
+        "disclaimer": (
+            "This is a synthetic-only software demonstration. It predicts days to a simulated next progress event, "
+            "not time to case conclusion or a real court outcome. It is not validated for real cases and must not "
+            "inform legal, judicial, custody, hearing, or enforcement decisions."
+        ),
+    }
+
 
 @app.post("/api/cases/{case_id:path}/execution", response_model=Dict[str, Any])
 def add_execution_action(case_id: CaseIdentifier, req: ExecutionRequest, auth: Dict[str, str] = Depends(get_current_user)):

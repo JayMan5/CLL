@@ -110,13 +110,13 @@ def test_dashboard_revalidates_html_for_the_versioned_explanation_ui():
     response = client.get('/')
     assert response.status_code == 200
     assert response.headers['Cache-Control'] == 'no-store'
-    assert '/static/app.js?v=user-division-management-v12' in response.text
-    assert '/static/index.css?v=user-division-management-v12' in response.text
+    assert '/static/app.js?v=synthetic-duration-demo-v13' in response.text
+    assert '/static/index.css?v=synthetic-duration-demo-v13' in response.text
 
     worker = client.get('/service-worker.js')
     assert worker.status_code == 200
     assert worker.headers['Cache-Control'] == 'no-cache'
-    assert 'courtlog-shell-v12' in worker.text
+    assert 'courtlog-shell-v13' in worker.text
 
 
 def test_every_api_route_has_an_explicit_authentication_boundary():
@@ -151,7 +151,8 @@ def test_exposed_routes_require_authentication():
     fixture_case('SEC/1')
     for method, path in [('get', '/api/users'), ('get', '/api/audit/events'),
                          ('get', '/api/cases/SEC/1'),
-                         ('post', '/api/cases/SEC/1/predict'), ('post', '/api/cron'),
+                         ('post', '/api/cases/SEC/1/predict'),
+                         ('post', '/api/predict/duration-demo'), ('post', '/api/cron'),
                          ('get', '/api/whatsapp/logs')]:
         assert getattr(client, method)(path).status_code == 401
     assert client.post('/api/whatsapp/webhook-simulator', json={}).status_code == 404

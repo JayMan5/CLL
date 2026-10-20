@@ -9,6 +9,18 @@ SYNTHETIC_DEMO_TARGET_DEFINITION = (
 )
 
 SYNTHETIC_DURATION_TARGET_COLUMN = "synthetic_days_to_next_progress"
+SYNTHETIC_DURATION_CASE_TYPES = (
+    "Fictional Civil Claim",
+    "Fictional Land Matter",
+    "Fictional Criminal Appeal",
+    "Fictional Commercial Appeal",
+)
+SYNTHETIC_DURATION_COURTS = (
+    "Synthetic Court A",
+    "Synthetic Court B",
+    "Synthetic Court C",
+    "Synthetic Court D",
+)
 SYNTHETIC_DURATION_TARGET_DEFINITION = (
     "Fictional elapsed days from snapshot_at until the next simulated qualifying "
     "Heard/Adjourned hearing-log event or judgment delivery. This is a synthetic "
