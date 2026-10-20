@@ -253,6 +253,26 @@ dom.window.fetch = async url => {
     assert.match(doc.getElementById('duration-demo-result').textContent, /Synthetic-only estimate: 46\.4 days/);
     assert.match(doc.getElementById('duration-demo-result').textContent, /real court outcome/);
 
+    run(`aiRiskData = [{
+        case_id: 'SYNTHETIC-DURATION-DEMO/2026/001',
+        case_title: 'Fictional Duration Demo Matter 001',
+        case_type: 'Fictional Civil Claim', court: 'FHC Abuja Court 4',
+        adjournment_count: 2, days_since_filing: 120, delay_risk_score: 0.55,
+        estimated_days_to_next_progress: 46.4,
+        duration_prediction_source: 'synthetic_duration_demo_pipeline',
+        judgment_status: 'Pending', prediction_source: 'heuristic'
+    }]; renderAIRiskDashboard()`);
+    const durationRow = doc.querySelector('#ai-risk-table-body tr');
+    assert.match(doc.getElementById('ai-risk-table-heading').textContent, /New Synthetic Duration Demo Cases/);
+    assert.equal(durationRow.cells[1].textContent, 'SYNTHETIC-DURATION-DEMO/2026/001');
+    assert.equal(durationRow.cells[7].textContent, '46.4 days');
+
+    run('aiRiskData = []; renderAIRiskDashboard()');
+    assert.equal(doc.getElementById('ai-total-cases').textContent, '0');
+    assert.match(doc.getElementById('ai-risk-table-body').textContent, /No eligible fictional duration-demo cases/);
+    assert.doesNotMatch(doc.getElementById('ai-risk-table-body').textContent, /SYNTHETIC-DURATION-DEMO\/2026\/001/,
+        'empty refresh clears previously displayed cases instead of leaving stale rows');
+
     run('syntheticDurationDemoAvailable = false; updateSyntheticDurationDemoUI()');
     assert.equal(durationDemoPanel.classList.contains('hidden'), true, 'the panel hides when the validated demo artifact is unavailable');
     console.log('Frontend UI: role-aware navigation, accessible menus, demo-only duration form, dashboard hierarchy, and alert counts passed');

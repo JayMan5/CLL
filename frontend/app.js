@@ -3132,7 +3132,12 @@ async function loadAIRiskData() {
         if (!response.ok) throw new Error('Batch predict failed');
         aiRiskData = await response.json();
         renderAIRiskDashboard();
-        showToast(`Experimental delay-risk scores recalculated for ${aiRiskData.length} scoped cases`, 'success');
+        const updateLabel = demoMode
+            ? (syntheticDurationDemoAvailable
+                ? 'Synthetic duration demo cases auto-scanned'
+                : 'Fictional duration-demo cases scanned; duration model unavailable')
+            : 'Experimental delay-risk scores recalculated';
+        showToast(`${updateLabel} for ${aiRiskData.length} scoped cases`, 'success');
     } catch (error) {
         logger(`Experimental delay-risk load error: ${error}`);
         showToast('Failed to load experimental delay-risk scores', 'error');
@@ -3140,8 +3145,38 @@ async function loadAIRiskData() {
 }
 
 function renderAIRiskDashboard() {
-    const data = aiRiskData;
-    if (!data.length) return;
+    const data = Array.isArray(aiRiskData) ? aiRiskData : [];
+    const durationDemoList = demoMode === true;
+    const heading = document.getElementById('ai-risk-table-heading');
+    const tbody = document.getElementById('ai-risk-table-body');
+    if (heading) {
+        heading.textContent = durationDemoList
+            ? (syntheticDurationDemoAvailable
+                ? 'New Synthetic Duration Demo Cases — Auto-estimated on Refresh'
+                : 'New Fictional Duration Demo Cases — Local Model Unavailable')
+            : 'Scoped Cases — Ranked by Experimental Score';
+    }
+
+    if (!data.length) {
+        document.getElementById('ai-total-cases').textContent = '0';
+        document.getElementById('ai-high-count').textContent = '0';
+        document.getElementById('ai-medium-count').textContent = '0';
+        document.getElementById('ai-low-count').textContent = '0';
+        document.getElementById('ai-risk-bar').replaceChildren();
+        if (tbody) {
+            tbody.replaceChildren();
+            const row = document.createElement('tr');
+            const cell = document.createElement('td');
+            cell.colSpan = 10;
+            cell.className = 'py-5 text-center text-sm text-body';
+            cell.textContent = durationDemoList
+                ? 'No eligible fictional duration-demo cases are available in this DCR scope.'
+                : 'No scoped cases are currently available.';
+            row.appendChild(cell);
+            tbody.appendChild(row);
+        }
+        return;
+    }
 
     const high = data.filter(c => c.delay_risk_score > 0.70);
     const medium = data.filter(c => c.delay_risk_score >= 0.40 && c.delay_risk_score <= 0.70);
@@ -3166,10 +3201,14 @@ function renderAIRiskDashboard() {
     `;
 
     // Table rows
-    const tbody = document.getElementById('ai-risk-table-body');
     tbody.innerHTML = data.map(safeRecord).map(c => {
         const score = c.delay_risk_score;
         const pct = (score * 100).toFixed(1);
+        const estimate = c.estimated_days_to_next_progress;
+        const durationEstimate = c.duration_prediction_source === 'synthetic_duration_demo_pipeline'
+            && estimate !== null && estimate !== undefined && Number.isFinite(Number(estimate))
+            ? `${Number(estimate).toFixed(1)} days`
+            : '—';
         let riskLabel, riskColor, riskIcon, barBg;
         if (score > 0.70) {
             riskLabel = 'HIGH'; riskColor = '#ef4444'; riskIcon = 'fa-circle-exclamation'; barBg = 'linear-gradient(90deg,#dc2626,#ef4444)';
@@ -3194,6 +3233,7 @@ function renderAIRiskDashboard() {
                     <span style="color:${riskColor};font-weight:700;font-size:12px;min-width:42px;">${pct}%</span>
                 </div>
             </td>
+            <td class="text-center">${durationEstimate}</td>
             <td><span class="text-xs px-2 py-1 rounded-full font-semibold" style="background:rgba(255,255,255,0.06);">${c.judgment_status}</span></td>
             <td class="text-center">
                 <button type="button" data-case-action="explain" data-record-id="${c.case_id}" aria-haspopup="dialog" aria-controls="prediction-explanation-modal" class="text-xs px-2 py-1 rounded-lg font-semibold"

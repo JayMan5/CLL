@@ -469,6 +469,111 @@ def test_prediction_is_authenticated_scoped_and_persisted():
     assert stored.json()["prediction_source"] == prediction["prediction_source"]
 
 
+def test_batch_risk_list_auto_estimates_only_new_marked_synthetic_duration_fixtures(monkeypatch):
+    monkeypatch.setattr(main, "DEMO_MODE_ENABLED", True)
+    monkeypatch.setattr(main, "synthetic_duration_demo_available", lambda: True)
+    sentinel_model = object()
+    monkeypatch.setattr(main, "load_synthetic_duration_demo_model", lambda: sentinel_model)
+
+    now = main.get_current_time()
+
+    def save_fixture(case_id, *, filing_age, event_age, adjournments, case_type, synthetic_court, duration_fixture):
+        case = {
+            "case_id": case_id,
+            "case_title": "Fictional duration example",
+            "case_type": case_type,
+            "court": "Smoke Test Court",
+            "assigned_division": "Criminal",
+            "assigned_judge_id": "smoke_judge",
+            "assigned_sheriff_id": "smoke_sheriff",
+            "filing_date": main.format_date(now - timedelta(days=filing_age)),
+            "days_since_filing": filing_age,
+            "adjournment_count": adjournments,
+            "judgment_status": "Pending",
+            "delay_risk_score": 0.2,
+            "risk_flag": False,
+            "hearing_log": [{
+                "date": main.format_date(now - timedelta(days=event_age)),
+                "outcome": "Heard",
+            }] if event_age is not None else [],
+            "execution_log": [],
+            "demo_fixture": True,
+            "data_provenance": "synthetic_demo",
+        }
+        if duration_fixture:
+            case.update({
+                "duration_demo_fixture": True,
+                "duration_demo_court": synthetic_court,
+            })
+        main.db.save_case(case_id, case)
+        return case
+
+    old_workflow_case = save_fixture(
+        "DEMO/2026/003", filing_age=48, event_age=4, adjournments=3,
+        case_type="Criminal", synthetic_court=None, duration_fixture=False,
+    )
+    first = save_fixture(
+        "SYNTHETIC-DURATION-DEMO/2026/001", filing_age=220, event_age=30, adjournments=2,
+        case_type="Fictional Land Matter", synthetic_court="Synthetic Court A", duration_fixture=True,
+    )
+    second = save_fixture(
+        "SYNTHETIC-DURATION-DEMO/2026/002", filing_age=450, event_age=100, adjournments=5,
+        case_type="Fictional Commercial Appeal", synthetic_court="Synthetic Court B", duration_fixture=True,
+    )
+    unmarked_case = add_case("LIVE-UNMARKED", case_type="Fictional Civil Claim")
+
+    duration_inputs = []
+
+    def fake_duration_prediction(model, features):
+        assert model is sentinel_model
+        assert set(features) == set(main.SYNTHETIC_DURATION_FEATURES)
+        assert "case_id" not in features and "case_title" not in features
+        assert features["court"] in main.SYNTHETIC_DURATION_COURTS
+        duration_inputs.append(dict(features))
+        return round(features["days_since_filing"] / 10, 1)
+
+    monkeypatch.setattr(main, "predict_days_to_next_progress", fake_duration_prediction)
+    monkeypatch.setattr(main, "run_model_inference", lambda _case: {
+        "delay_risk_score": 0.55, "risk_flag": False, "prediction_source": "heuristic",
+    })
+
+    response = client.get("/api/predict/batch", headers=auth_headers("smoke_dcr"))
+    assert response.status_code == 200
+    assert response.headers["Cache-Control"] == "no-store"
+    results = response.json()
+    assert [row["case_id"] for row in results] == [second["case_id"], first["case_id"]]
+    assert old_workflow_case["case_id"] not in {row["case_id"] for row in results}
+    assert unmarked_case["case_id"] not in {row["case_id"] for row in results}
+    assert [row["estimated_days_to_next_progress"] for row in results] == [45.0, 22.0]
+    assert all(row["duration_prediction_source"] == "synthetic_duration_demo_pipeline" for row in results)
+    assert len(duration_inputs) == 2
+    assert all(feature_row["court"] != "Smoke Test Court" for feature_row in duration_inputs)
+
+    # The demo list still hides old/unmarked rows if the optional model artifact is absent.
+    monkeypatch.setattr(main, "synthetic_duration_demo_available", lambda: False)
+    duration_inputs.clear()
+    without_model = client.get("/api/predict/batch", headers=auth_headers("smoke_dcr"))
+    assert without_model.status_code == 200
+    no_model_rows = without_model.json()
+    assert {row["case_id"] for row in no_model_rows} == {first["case_id"], second["case_id"]}
+    assert all(row["estimated_days_to_next_progress"] is None for row in no_model_rows)
+    assert duration_inputs == []
+
+    # Even an artifact/marker cannot activate the duration model outside demo mode.
+    monkeypatch.setattr(main, "synthetic_duration_demo_available", lambda: True)
+    monkeypatch.setattr(main, "DEMO_MODE_ENABLED", False)
+    duration_inputs.clear()
+    live_response = client.get("/api/predict/batch", headers=auth_headers("smoke_dcr"))
+    assert live_response.status_code == 200
+    live_rows = live_response.json()
+    assert {row["case_id"] for row in live_rows} >= {
+        old_workflow_case["case_id"], first["case_id"], second["case_id"], unmarked_case["case_id"],
+    }
+    assert all(row["estimated_days_to_next_progress"] is None for row in live_rows)
+    assert all(row["duration_prediction_source"] is None for row in live_rows)
+    assert duration_inputs == []
+
+
 def test_synthetic_duration_demo_endpoint_is_demo_only_scoped_and_fictional_input_only(monkeypatch):
     endpoint = "/api/predict/duration-demo"
     payload = {

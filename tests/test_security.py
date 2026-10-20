@@ -110,13 +110,13 @@ def test_dashboard_revalidates_html_for_the_versioned_explanation_ui():
     response = client.get('/')
     assert response.status_code == 200
     assert response.headers['Cache-Control'] == 'no-store'
-    assert '/static/app.js?v=synthetic-duration-demo-v13' in response.text
-    assert '/static/index.css?v=synthetic-duration-demo-v13' in response.text
+    assert '/static/app.js?v=synthetic-duration-demo-v14' in response.text
+    assert '/static/index.css?v=synthetic-duration-demo-v14' in response.text
 
     worker = client.get('/service-worker.js')
     assert worker.status_code == 200
     assert worker.headers['Cache-Control'] == 'no-cache'
-    assert 'courtlog-shell-v13' in worker.text
+    assert 'courtlog-shell-v14' in worker.text
 
 
 def test_every_api_route_has_an_explicit_authentication_boundary():

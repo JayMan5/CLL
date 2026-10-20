@@ -23,25 +23,41 @@ def test_demo_scenarios_are_deterministic_fictional_and_scope_matched():
     second = build_demo_cases(as_of)
 
     assert first == second
-    assert len(first) == 8
-    assert len({case["case_id"] for case in first}) == 8
-    assert all(re.fullmatch(r"DEMO/2026/\d{3}", case["case_id"]) for case in first)
+    workflow_cases = [case for case in first if not case.get("duration_demo_fixture")]
+    duration_cases = [case for case in first if case.get("duration_demo_fixture")]
+    assert len(first) == 12
+    assert len({case["case_id"] for case in first}) == 12
+    assert len(workflow_cases) == 8
+    assert len(duration_cases) == 4
+    assert all(re.fullmatch(r"DEMO/2026/\d{3}", case["case_id"]) for case in workflow_cases)
+    assert all(re.fullmatch(r"SYNTHETIC-DURATION-DEMO/2026/\d{3}", case["case_id"]) for case in duration_cases)
     assert all(case["demo_fixture"] is True for case in first)
     assert all("fictional" in case["data_notice"].lower() for case in first)
-    assert set(case["case_type"] for case in first) == {
+    assert set(case["case_type"] for case in workflow_cases) == {
         "Land Dispute", "Criminal", "Civil Debt", "Family", "Admiralty", "Intellectual Property",
     }
-    assert Counter(case["case_type"] for case in first) == {
+    assert Counter(case["case_type"] for case in workflow_cases) == {
         "Civil Debt": 2, "Land Dispute": 2, "Criminal": 1,
         "Family": 1, "Admiralty": 1, "Intellectual Property": 1,
     }
+    assert {case["case_type"] for case in duration_cases} == {
+        "Fictional Civil Claim", "Fictional Land Matter",
+        "Fictional Criminal Appeal", "Fictional Commercial Appeal",
+    }
+    assert {case["duration_demo_court"] for case in duration_cases} == {
+        "Synthetic Court A", "Synthetic Court B", "Synthetic Court C", "Synthetic Court D",
+    }
+    assert all(case["data_provenance"] == "synthetic_demo" for case in duration_cases)
+    assert all(case["duration_demo_fixture"] is True for case in duration_cases)
+    assert all(case["court"] == "FHC Abuja Court 4" for case in first)
+    assert all(30 <= case["days_since_filing"] <= 1800 for case in duration_cases)
+    assert all(case["hearing_log"][0]["outcome"] in {"Heard", "Adjourned"} for case in duration_cases)
     assert all(
         case["assigned_division"] == ("Criminal" if "criminal" in case["case_type"].casefold() else "Civil")
         for case in first
     )
     assert all(case["assigned_sheriff_id"] == "usr_sheriff_01" for case in first)
     assert all(case["assigned_judge_id"] == "usr_judge_01" for case in first)
-    assert all(case["court"] == "FHC Abuja Court 4" for case in first)
     assert all("phone" not in " ".join(case.keys()).lower() for case in first)
     assert all("party_contact" not in case or not case["party_contact"] for case in first)
 
@@ -73,15 +89,15 @@ def test_demo_seed_requires_demo_accounts_and_refuses_existing_non_demo_cases(tm
     as_of = datetime(2026, 10, 2, 12, tzinfo=timezone.utc)
     try:
         seeded = seed_demo_cases(database, as_of=as_of)
-        assert len(seeded) == 8
-        assert len(database.list_cases()) == 8
+        assert len(seeded) == 12
+        assert len(database.list_cases()) == 12
 
         with pytest.raises(RuntimeError, match="already exist"):
             seed_demo_cases(database, as_of=as_of)
 
         reset = seed_demo_cases(database, as_of=as_of, overwrite_fixtures=True)
         assert reset == seeded
-        assert len(database.list_cases()) == 8
+        assert len(database.list_cases()) == 12
 
         database.save_case("REAL/RECORD/DO-NOT-OVERWRITE", {"case_id": "REAL/RECORD/DO-NOT-OVERWRITE"})
         with pytest.raises(RuntimeError, match="mix sample fixtures"):
@@ -106,7 +122,7 @@ def test_seeded_scenarios_are_visible_with_their_intended_demo_role_scopes(tmp_p
         all_case_ids = {case["case_id"] for case in cases}
         expected_visible_case_ids = {
             "usr_sheriff_01": all_case_ids,  # Explicit assignments extend across divisions.
-            "usr_clerk_01": {"DEMO/2026/003"},  # Criminal Filing Clerk sees Criminal division only.
+            "usr_clerk_01": {"DEMO/2026/003", "SYNTHETIC-DURATION-DEMO/2026/003"},  # Criminal Filing Clerk sees Criminal division only.
             "usr_dcr_01": all_case_ids,
             "usr_cr_01": all_case_ids,
             "usr_judge_01": all_case_ids,  # Every fictional case is assigned to this demo judge.

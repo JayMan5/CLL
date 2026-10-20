@@ -26,13 +26,13 @@ On Windows, use `.venv\Scripts\python.exe` instead of `.venv/bin/python`.
 
 1. Copy `.env.example` to `.env` and edit it for a **disposable local demo only**. Set `DEMO_MODE=true`, `COOKIE_SECURE=false` (plain HTTP is only for local development), and use a unique path under `.local/` for `COURTLOG_DB_PATH`, `JWT_PRIVATE_KEY_PATH`, and `JWT_PUBLIC_KEY_PATH`. Use a fresh database file rather than the tracked `data/courtlog.db`.
 2. Set a local-only `SIMULATOR_SECRET` only if you need to exercise the redacted demo webhook. It does not send real WhatsApp messages. The Meta Cloud API remains disabled by default.
-3. Optionally seed eight fixed fictional scenarios into the isolated database. Timestamps default to today's UTC date; pass `--as-of YYYY-MM-DD` to reproduce a specific dated walkthrough. The seeder never reads the tracked database or any CSV:
+3. Optionally seed twelve fixed fictional scenarios into the isolated database: eight workflow walkthroughs plus four duration-demo examples for the Experimental risk list. Timestamps default to today's UTC date; pass `--as-of YYYY-MM-DD` to reproduce a specific dated walkthrough. The seeder never reads the tracked database or any CSV:
 
    ```bash
    .venv/bin/python scripts/seed_demo_data.py
    ```
 
-   The command requires `DEMO_MODE=true` and a `COURTLOG_DB_PATH` inside the ignored `.local/` directory. It refuses mixed/non-demo case records; use `--overwrite-fixtures` only when intentionally resetting those sample cases.
+   The command requires `DEMO_MODE=true` and a `COURTLOG_DB_PATH` inside the ignored `.local/` directory. It refuses mixed/non-demo case records; use `--overwrite-fixtures` only when intentionally refreshing the known sample IDs and adding the duration-demo rows.
 4. Start the API and static frontend:
 
 ```bash
@@ -163,22 +163,30 @@ Run this after generating the dataset above:
   --output-dir .local/courtlog-synthetic-demo/duration-model
 ```
 
-The regression outputs MAE, median absolute error, RMSE and R-squared alongside a training-median baseline. With the default seed, the 1,199/301 synthetic case-group holdout had MAE **38.49 days** versus **39.90 days** for the median baseline, RMSE **54.51** versus **62.97 days**, and R-squared **0.14** versus **-0.14**. These values show only how the code behaves on its invented process; they are not a real-world accuracy claim and should not be extrapolated to a court case. A separate form in the Deputy Chief Registrar's **Experimental risk** workspace can exercise the model using fictional inputs only. The form and endpoint are enabled only when `DEMO_MODE=true` and the local artifact metadata matches the synthetic target contract. It does not select cases, accept case IDs, or save inputs/results. A real duration model needs permissioned longitudinal outcomes and a censored time-to-event design for pending cases. The duration artifact stays under ignored `.local/` and is not suitable for staging or operational case decisions.
+The regression is a **random forest**: many small decision trees each make an estimate, and their numbers are averaged. In everyday terms, each tree applies a different set of simple splits to five inputs—adjournments, days since filing, days since last progress, a fictional case type, and a synthetic court category. It estimates fictional days until the next simulated Heard/Adjourned event or judgment delivery, not days to case conclusion. With the default seed, the 1,199/301 synthetic case-group holdout had MAE **38.49 days** versus **39.90 days** for the median baseline, RMSE **54.51** versus **62.97 days**, and R-squared **0.14** versus **-0.14**. These values show only how the code behaves on invented data; they are not a real-world accuracy claim and should not be extrapolated to a court case.
+
+In the Deputy Chief Registrar's **Experimental risk** workspace, the manual form accepts fictional inputs only. The scoped-case table also auto-estimates the four explicitly tagged duration-demo fixtures produced by `scripts/seed_demo_data.py` when `DEMO_MODE=true` and the local artifact metadata matches the synthetic target contract. Older workflow examples and untagged/live records are excluded from this duration scan. Estimates are recalculated when the list is refreshed and are not saved to the database. A real duration model needs documented permission for longitudinal outcomes and a censored time-to-event design for pending cases. The duration artifact stays under ignored `.local/` and is not suitable for staging or operational case decisions.
 
 #### Test duration prediction in the local UI
 
 1. Generate and train the synthetic duration artifact using the commands above. The model and metadata should be under `.local/courtlog-synthetic-demo/duration-model/`.
 2. In `.env`, enable `DEMO_MODE=true`, keep the database and JWT files in a fresh ignored `.local/` directory, and optionally set `COURTLOG_DURATION_MODEL_DIR=.local/courtlog-synthetic-demo/duration-model` if using a non-default artifact directory. `DEMO_MODE=true` is for an isolated local demo only—never a public or staging deployment.
-3. Rebuild the local frontend assets and start the API as described in the local-development section:
+3. Seed the fixed fictional workflow and duration examples. If the eight workflow fixtures already exist, `--overwrite-fixtures` refreshes those known fixtures and adds the four new duration examples; the script still refuses mixed/non-demo databases:
+
+   ```bash
+   .venv/bin/python scripts/seed_demo_data.py --overwrite-fixtures
+   ```
+
+4. Rebuild the local frontend assets and start the API as described in the local-development section:
 
    ```bash
    npm run build:frontend
    .venv/bin/python -m uvicorn backend.main:app --host 127.0.0.1 --port 8000
    ```
 
-4. Sign in with the disposable local Deputy Chief Registrar demo account, open **Experimental risk**, and use **Synthetic Duration Demo**. Change the fictional feature inputs and select **Estimate synthetic duration**. The panel appears only when the server is in demo mode and the model artifact passes its metadata checks.
+5. Sign in with the disposable local Deputy Chief Registrar demo account and open **Experimental risk**. The page automatically scans the four new tagged duration-demo cases when it loads or refreshes the scoped list; each row shows the estimate. You can also submit the separate **Synthetic Duration Demo** form using fictional feature values. Both paths require demo mode and a validated local artifact.
 
-The UI currently tests the duration predictor on manually entered fictional features. It does not estimate duration for the synthetic cases in the risk table or for actual case records. The server validates the fictional categories and rejects case identifiers; prediction inputs/results are not written to the database. If the panel is missing, confirm demo mode, artifact path/metadata, and that the API was restarted after `.env` changes.
+Only cases explicitly tagged as fictional duration-demo fixtures reach this predictor. Older workflow examples and all untagged/live cases are excluded from this duration scan; duration outputs are recalculated at refresh and not stored. The form still has no case selector and cannot accept case IDs. If the panel or estimates are missing, confirm demo mode, the seed fixtures, artifact path/metadata, and that the API was restarted after `.env` changes. No estimate is a reliable forecast of real court timing or case conclusion.
 
 ## Pilot and legal gates
 

@@ -249,7 +249,47 @@ def build_demo_cases(as_of: datetime) -> list[dict[str, Any]]:
         },
     ]
 
-    return [active, moderate_idle, high_risk, missing, found, dcr_review, overdue_delivery, executed]
+    workflow_cases = [active, moderate_idle, high_risk, missing, found, dcr_review, overdue_delivery, executed]
+
+    # Four explicitly tagged, fully fictional rows exercise the separate duration
+    # model. The court field stays within the application's DCR scope; only the
+    # separate duration_demo_court category is passed to the synthetic model.
+    duration_specs = [
+        ("001", "Fictional Civil Claim", 120, 0, 12, "Synthetic Court A", 0.24),
+        ("002", "Fictional Land Matter", 420, 2, 70, "Synthetic Court B", 0.48),
+        ("003", "Fictional Criminal Appeal", 900, 5, 240, "Synthetic Court C", 0.73),
+        ("004", "Fictional Commercial Appeal", 1500, 9, 800, "Synthetic Court D", 0.88),
+    ]
+    duration_cases = []
+    for reference_suffix, case_type, filing_age, adjournments, event_age, synthetic_court, risk_score in duration_specs:
+        case = _base_case(
+            reference,
+            f"SYNTHETIC-DURATION-DEMO/2026/{reference_suffix}",
+            title=f"Fictional Duration Demo Matter {reference_suffix}",
+            case_type=case_type,
+            filing_days_ago=filing_age,
+            risk_score=risk_score,
+            adjournments=adjournments,
+            scan_days_ago=None,
+        )
+        case.update({
+            "data_provenance": "synthetic_demo",
+            "data_notice": (
+                "Entirely fictional duration-demo record. Its synthetic estimate is a software test, "
+                "not a real-court forecast or case-conclusion time."
+            ),
+            "duration_demo_fixture": True,
+            "duration_demo_court": synthetic_court,
+            "hearing_log": [{
+                "date": _stamp(reference, days=event_age),
+                "outcome": "Heard" if int(reference_suffix) % 2 else "Adjourned",
+                "reason_code": "Synthetic progress event for software demonstration",
+                "actor_user_id": "usr_clerk_01",
+            }],
+        })
+        duration_cases.append(case)
+
+    return [*workflow_cases, *duration_cases]
 
 
 def resolve_demo_database_path() -> Path:
@@ -310,7 +350,7 @@ def main() -> int:
     )
     parser.add_argument(
         "--overwrite-fixtures", action="store_true",
-        help="replace only records marked demo_fixture in the isolated .local/ database",
+        help="refresh known fixture IDs/add missing fixtures only when the isolated .local/ database contains demo fixtures",
     )
     args = parser.parse_args()
 

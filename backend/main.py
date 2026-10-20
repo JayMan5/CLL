@@ -2477,18 +2477,54 @@ def predict_case_risk(case_id: CaseIdentifier, auth: Dict[str, str] = Depends(ge
         "days_since_last_event": _days_since_last_substantive_event(case, case["days_since_filing"]),
     }
 
+def _is_synthetic_duration_demo_fixture(case: Dict[str, Any]) -> bool:
+    """Require explicit fixture provenance before a case can reach the duration model."""
+    case_id = case.get("case_id")
+    return (
+        DEMO_MODE_ENABLED
+        and case.get("demo_fixture") is True
+        and case.get("duration_demo_fixture") is True
+        and case.get("data_provenance") == "synthetic_demo"
+        and isinstance(case_id, str)
+        and case_id.startswith("SYNTHETIC-DURATION-DEMO/2026/")
+        and case.get("case_type") in SYNTHETIC_DURATION_CASE_TYPES
+        and case.get("duration_demo_court") in SYNTHETIC_DURATION_COURTS
+    )
+
+
 @app.get("/api/predict/batch", response_model=List[Dict[str, Any]])
-def batch_predict_all_cases(auth: Dict[str, str] = Depends(get_current_user)):
-    """Refresh experimental delay-risk fields for the Deputy Chief Registrar's court scope."""
+def batch_predict_all_cases(response: Response, auth: Dict[str, str] = Depends(get_current_user)):
+    """Refresh DCR risk scores and, in demo mode, estimates for tagged synthetic fixtures."""
     if auth["role"] != DEPUTY_CHIEF_REGISTRAR:
         raise HTTPException(status_code=403, detail="Batch risk refresh requires Deputy Chief Registrar authority")
-    all_cases = scoped_cases(auth)
+    response.headers["Cache-Control"] = "no-store"
+
+    scoped = scoped_cases(auth)
+    duration_demo_mode = DEMO_MODE_ENABLED
+    duration_demo_scan = duration_demo_mode and synthetic_duration_demo_available()
+    # The demo risk-list view intentionally excludes older workflow fixtures and
+    # all untagged/live cases. Only the approved duration artifact is conditional
+    # on its exact local metadata contract; the display filter remains demo-only.
+    all_cases = (
+        [case for case in scoped if _is_synthetic_duration_demo_fixture(case)]
+        if duration_demo_mode else scoped
+    )
+    duration_model = None
+    if duration_demo_scan and all_cases:
+        try:
+            duration_model = load_synthetic_duration_demo_model()
+        except HTTPException:
+            # Keep the binary risk dashboard usable if a local demo artifact fails
+            # to load; omit duration estimates instead of silently substituting one.
+            logger.warning("Synthetic duration artifact unavailable during batch refresh; duration estimates omitted.")
+
     results = []
     for case in all_cases:
         if case.get("judgment_status") == "Executed":
             continue
         filing_dt = parse_date(case["filing_date"])
         case["days_since_filing"] = max(0, (get_current_time() - filing_dt).days)
+        days_since_last_event = _days_since_last_substantive_event(case, case["days_since_filing"])
         pred = run_model_inference(case)
         db.update_case(case["case_id"], {
             "days_since_filing": case["days_since_filing"],
@@ -2496,6 +2532,25 @@ def batch_predict_all_cases(auth: Dict[str, str] = Depends(get_current_user)):
             "risk_flag": pred["risk_flag"],
             "prediction_source": pred["prediction_source"],
         })
+
+        estimated_days = None
+        duration_prediction_source = None
+        if duration_model is not None and _is_synthetic_duration_demo_fixture(case):
+            try:
+                # The duration model receives only the five approved features.
+                # It never receives a case ID, title, actual court, or party data.
+                duration_features = SyntheticDurationDemoRequest(
+                    adjournment_count=case.get("adjournment_count"),
+                    days_since_filing=case["days_since_filing"],
+                    days_since_last_event=days_since_last_event,
+                    case_type=case.get("case_type"),
+                    court=case.get("duration_demo_court"),
+                ).model_dump()
+                estimated_days = predict_days_to_next_progress(duration_model, duration_features)
+                duration_prediction_source = "synthetic_duration_demo_pipeline"
+            except Exception:
+                logger.warning("Duration estimate omitted for an invalid synthetic demo feature row.")
+
         results.append({
             "case_id": case["case_id"],
             "case_title": case.get("case_title", case["case_id"]),
@@ -2503,15 +2558,25 @@ def batch_predict_all_cases(auth: Dict[str, str] = Depends(get_current_user)):
             "court": case.get("court", "Unknown"),
             "adjournment_count": case.get("adjournment_count", 0),
             "days_since_filing": case["days_since_filing"],
-            "days_since_last_event": _days_since_last_substantive_event(case, case["days_since_filing"]),
+            "days_since_last_event": days_since_last_event,
             "delay_risk_score": pred["delay_risk_score"],
             "risk_flag": pred["risk_flag"],
             "prediction_source": pred["prediction_source"],
+            "estimated_days_to_next_progress": estimated_days,
+            "duration_prediction_source": duration_prediction_source,
             "judgment_status": case.get("judgment_status", "Pending"),
             "assigned_judge_id": case.get("assigned_judge_id", ""),
             "filing_date": case.get("filing_date", "")
         })
-    results.sort(key=lambda x: x["delay_risk_score"], reverse=True)
+
+    if duration_demo_scan:
+        results.sort(
+            key=lambda item: item["estimated_days_to_next_progress"]
+            if item["estimated_days_to_next_progress"] is not None else float("-inf"),
+            reverse=True,
+        )
+    else:
+        results.sort(key=lambda item: item["delay_risk_score"], reverse=True)
     _record_audit_event(
         auth["user_id"], "case.predict.batch", "case_collection", auth["user_id"],
         metadata={"case_count": len(results)},

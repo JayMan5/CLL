@@ -57,9 +57,9 @@ for (const [, path] of serviceWorker.matchAll(/"(\/static\/[^\"]+)"/g)) {
   const localPath = path.split('?')[0];
   assert.ok(fs.existsSync(`frontend${localPath.replace('/static', '')}`), `cached asset exists: ${path}`);
 }
-assert.match(serviceWorker, /courtlog-shell-v13/, 'the synthetic-duration demo UI invalidates the earlier static cache');
-const versionedAppScript = '/static/app.js?v=synthetic-duration-demo-v13';
-const versionedExplanationStyles = '/static/index.css?v=synthetic-duration-demo-v13';
+assert.match(serviceWorker, /courtlog-shell-v14/, 'the scoped synthetic-duration list invalidates the earlier static cache');
+const versionedAppScript = '/static/app.js?v=synthetic-duration-demo-v14';
+const versionedExplanationStyles = '/static/index.css?v=synthetic-duration-demo-v14';
 assert.ok(indexHtml.includes(versionedAppScript), 'the page loads the refreshed dialog-enabled app script');
 assert.ok(indexHtml.includes(versionedExplanationStyles), 'the page loads the refreshed explanation-dialog styles');
 assert.ok(serviceWorker.includes(`"${versionedAppScript}"`), 'the PWA precaches the versioned application script');

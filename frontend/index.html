@@ -18,7 +18,7 @@
     <link rel="stylesheet" href="/static/vendor/fonts/plus-jakarta-sans/wght.css">
     <link rel="stylesheet" href="/static/tailwind.css">
     <link rel="stylesheet" href="/static/vendor/fontawesome/css/all.min.css">
-    <link rel="stylesheet" href="/static/index.css?v=synthetic-duration-demo-v13">
+    <link rel="stylesheet" href="/static/index.css?v=synthetic-duration-demo-v14">
 </head>
 
 <body class="font-sans antialiased">
@@ -903,7 +903,7 @@
                                 <span class="rounded-full border border-sky-400/30 bg-sky-400/10 px-2 py-1 text-xs font-semibold text-sky-200">Fictional inputs only</span>
                             </div>
                             <p class="mt-2 text-sm text-body">
-                                Try the separate regression demo using manually entered synthetic features. It estimates days until the next simulated Heard/Adjourned event or judgment delivery—not time to case conclusion. This panel has no case selector, does not accept case IDs, and does not save inputs or predictions.
+                                In plain language, this is a random forest: many small decision trees each make a days estimate, and the model averages them. It uses only adjournment count, filing age, time since last progress, fictional case type, and a synthetic court category. The separate form accepts fictional inputs only; the scoped list below also auto-estimates only the new, explicitly tagged duration-demo cases. The target is the next simulated Heard/Adjourned event or judgment delivery—not case conclusion.
                             </p>
                             <p class="mt-2 text-xs text-amber-200">
                                 Synthetic software demonstration only; not validated for actual cases and not for legal, hearing, custody, enforcement, or judicial decisions.
@@ -954,9 +954,13 @@
 
                     <!-- Case Risk Table -->
                     <div class="glass-panel rounded-2xl p-6">
-                        <h3 class="font-heading font-bold text-heading flex items-center gap-2 mb-4">
-                            <i class="fa-solid fa-ranking-star text-amber-400"></i> Scoped Cases — Ranked by Experimental Score
+                        <h3 class="font-heading font-bold text-heading flex items-center gap-2 mb-2">
+                            <i class="fa-solid fa-ranking-star text-amber-400" aria-hidden="true"></i>
+                            <span id="ai-risk-table-heading">Scoped Cases — Ranked by Experimental Score</span>
                         </h3>
+                        <p class="text-xs text-body mb-4">
+                            In demo mode, this list shows only the new, explicitly marked fictional duration-demo cases. Their durations are estimated on refresh only when the local model is available; older workflow examples and untagged/live records are excluded. Estimates are not saved and do not predict case conclusion or real court timing.
+                        </p>
                         <div class="table-wrapper overflow-x-auto">
                             <table class="data-table">
                                 <thead>
@@ -968,6 +972,7 @@
                                         <th class="text-center">Adjournments</th>
                                         <th class="text-center">Days Elapsed</th>
                                         <th class="text-center">Risk Score</th>
+                                        <th class="text-center">Estimated Days to Next Progress<br><span class="text-xs font-normal">Synthetic demo only</span></th>
                                         <th class="text-left">Status</th>
                                         <th class="text-center">Explainability</th>
                                     </tr>
@@ -1591,7 +1596,7 @@
     <!-- Locally bundled QR generation and browser camera scanner -->
     <script src="/static/c2-pwa.bundle.js"></script>
     <!-- Client app code file integration -->
-    <script src="/static/app.js?v=synthetic-duration-demo-v13"></script>
+    <script src="/static/app.js?v=synthetic-duration-demo-v14"></script>
 </body>
 
 </html>
