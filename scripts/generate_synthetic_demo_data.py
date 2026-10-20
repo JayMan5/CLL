@@ -1,7 +1,8 @@
-"""Generate fictional case snapshots for CourtLOG's 30-day model-pipeline demo.
+"""Generate fictional case snapshots for CourtLOG's synthetic model demonstrations.
 
-This generator uses only Python's standard library. It does not read repository
-case data, application databases, or external outcome records.
+The output includes a 30-day no-progress classification label and a companion
+synthetic duration target. This generator uses only Python's standard library; it
+does not read repository case data, application databases, or external outcomes.
 """
 
 from __future__ import annotations
@@ -18,11 +19,18 @@ from typing import Any
 ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
-from backend.model_contract import SYNTHETIC_DEMO_TARGET_COLUMN, SYNTHETIC_DEMO_TARGET_DEFINITION
+from backend.model_contract import (
+    SYNTHETIC_DEMO_TARGET_COLUMN,
+    SYNTHETIC_DEMO_TARGET_DEFINITION,
+    SYNTHETIC_DURATION_TARGET_COLUMN,
+    SYNTHETIC_DURATION_TARGET_DEFINITION,
+)
 
 DEFAULT_OUTPUT = ROOT / ".local" / "courtlog-synthetic-demo" / "no_progress_30d.csv"
 TARGET_COLUMN = SYNTHETIC_DEMO_TARGET_COLUMN
 TARGET_DEFINITION = SYNTHETIC_DEMO_TARGET_DEFINITION
+DURATION_TARGET_COLUMN = SYNTHETIC_DURATION_TARGET_COLUMN
+DURATION_TARGET_DEFINITION = SYNTHETIC_DURATION_TARGET_DEFINITION
 
 CASE_TYPES = (
     "Fictional Civil Claim",
@@ -74,9 +82,10 @@ def generate_synthetic_cases(case_count: int = 1500, seed: int = 20261014) -> li
         case_type = rng.choice(CASE_TYPES)
         court = rng.choice(COURTS)
 
-        # Explicitly invented waiting-time mechanism: the feature values modulate
-        # a fictional exponential time-to-progress, with per-row random variation.
-        # The hidden wait is discarded; it is never written as a model feature.
+        # Explicitly invented waiting-time mechanism: the features modulate a
+        # fictional exponential time-to-progress, with per-row random variation.
+        # This generated duration is an outcome for synthetic demonstrations,
+        # never a model feature or an observed court duration.
         mean_wait_days = (
             10.0
             + 0.025 * days_since_filing
@@ -87,9 +96,12 @@ def generate_synthetic_cases(case_count: int = 1500, seed: int = 20261014) -> li
         mean_wait_days *= COURT_DELAY_FACTOR[court]
         mean_wait_days *= rng.uniform(0.75, 1.25)
         fictional_days_to_next_progress = rng.expovariate(1 / mean_wait_days)
+        recorded_demo_duration = fictional_days_to_next_progress
+        # Preserve the existing binary label's exact raw-duration threshold.
         no_progress = int(fictional_days_to_next_progress > 30)
 
         rows.append({
+            # Synthetic identifier is used for case-level holdout only.
             "case_id": case_id,
             "snapshot_at": snapshot_at.isoformat().replace("+00:00", "Z"),
             "adjournment_count": adjournment_count,
@@ -97,6 +109,7 @@ def generate_synthetic_cases(case_count: int = 1500, seed: int = 20261014) -> li
             "days_since_last_event": days_since_last_event,
             "case_type": case_type,
             "court": court,
+            DURATION_TARGET_COLUMN: recorded_demo_duration,
             TARGET_COLUMN: no_progress,
         })
     return rows
@@ -131,6 +144,8 @@ def write_synthetic_dataset(
         "target_definition": TARGET_DEFINITION,
         "positive_count": positive_count,
         "negative_count": case_count - positive_count,
+        "duration_target_column": DURATION_TARGET_COLUMN,
+        "duration_target_definition": DURATION_TARGET_DEFINITION,
         "features": [
             "adjournment_count",
             "days_since_filing",
@@ -138,10 +153,21 @@ def write_synthetic_dataset(
             "case_type",
             "court",
         ],
+        "template_schema_mapping": {
+            "Case Ref": "generated case_id used only for grouping, never as a feature",
+            "Title": "omitted; no real titles or party details are generated",
+            "Court": "fictional Synthetic Court labels",
+            "Case Type": "fictional case-type labels",
+            "Year Filed": "represented as days_since_filing at snapshot_at",
+            "Year Decided / Years to Conclusion / Risk Level": "not copied or used; targets are generated independently",
+            "Additional model fields": ["snapshot_at", "adjournment_count", "days_since_last_event"],
+        },
         "simulation_note": (
-            "All case identifiers, snapshots, features, event timing and labels are generated. "
-            "No repository case-data rows or actual court outcomes are read or used."
+            "All case identifiers, snapshots, features, event timing, durations and labels are generated. "
+            "Only the source file's column layout was used as a schema reference. "
+            "No repository case-data rows, identifiers, titles, real outcomes or court durations are read or used."
         ),
+
     }
     metadata_path = output_path.with_suffix(".metadata.json")
     metadata_path.write_text(json.dumps(metadata, indent=2), encoding="utf-8")

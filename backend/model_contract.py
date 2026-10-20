@@ -1,4 +1,4 @@
-"""Stable identifiers for experimental model targets shown by the application."""
+"""Stable identifiers and definitions for synthetic model targets."""
 
 SYNTHETIC_DEMO_TARGET_COLUMN = "no_recorded_progress_30d"
 SYNTHETIC_DEMO_TARGET_DEFINITION = (
@@ -6,4 +6,12 @@ SYNTHETIC_DEMO_TARGET_DEFINITION = (
     "simulated within 30 days after snapshot_at; 0 when one is simulated in that "
     "window. QR scans and internal/admin changes are not progress. This is a "
     "fictional software-demo outcome, not a legal deadline or a court-derived label."
+)
+
+SYNTHETIC_DURATION_TARGET_COLUMN = "synthetic_days_to_next_progress"
+SYNTHETIC_DURATION_TARGET_DEFINITION = (
+    "Fictional elapsed days from snapshot_at until the next simulated qualifying "
+    "Heard/Adjourned hearing-log event or judgment delivery. This is a synthetic "
+    "software-demo duration, not an observed court outcome, case-resolution time, "
+    "legal deadline, or calibrated real-world forecast."
 )
