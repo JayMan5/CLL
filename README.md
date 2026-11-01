@@ -2,6 +2,10 @@
 
 COURTLOG is a **competition-team prototype**, not a governmental entity or certified public-sector service. Feature development is authorized and does not wait on government approval; use synthetic/demo data unless written permission authorizes specific real court records. It is **not certified for production use**. Some legal/workflow policies, real integrations, deployment controls, and field acceptance checks remain open; see the [current verified status](STATUS.md), [`COURTLOG_COMPLETION_PLAN.md`](COURTLOG_COMPLETION_PLAN.md), the screenshot-based [UI upgrade task list](UI_UPGRADE_PLAN.md) (first interface-refresh slice implemented; browser/device acceptance remains open), [`DEVELOPMENT_PROGRESS.md`](DEVELOPMENT_PROGRESS.md), and the [hosting comparison and recommendation](docs/HOSTING_COMPARISON_2026-10-01.md).
 
+## Start from a downloaded ZIP
+
+If you received CourtLOG as a ZIP file, begin with the cross-platform [step-by-step PC setup guide](RUN_COURTLOG_FROM_ZIP.md). It covers a fresh local demo environment, fictional data, the optional synthetic duration demo, sign-in, and safe reset instructions.
+
 ## Safety before running
 
 - Use fictional test data unless written permission authorizes specific real records. Do not use the tracked `data/courtlog.db` for manual testing; it is repository data and must be treated as read-only.
