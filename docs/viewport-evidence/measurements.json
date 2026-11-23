@@ -1,0 +1,202 @@
+[
+  {
+    "name": "390x844",
+    "width": 390,
+    "height": 844,
+    "viewport": 390,
+    "documentWidth": 390,
+    "bodyWidth": 390,
+    "header": {
+      "left": 0,
+      "right": 390,
+      "width": 390,
+      "height": 124
+    },
+    "roleContext": {
+      "left": 14,
+      "right": 155,
+      "width": 141,
+      "height": 47
+    },
+    "attentionGrid": {
+      "left": 37,
+      "right": 355,
+      "width": 319,
+      "height": 598
+    },
+    "worklist": {
+      "left": 16,
+      "right": 374,
+      "width": 358,
+      "height": 813
+    },
+    "tableViewport": {
+      "left": 33,
+      "right": 357,
+      "width": 324,
+      "height": 504
+    },
+    "tableWidth": 1076,
+    "horizontalTableOverflow": true
+  },
+  {
+    "name": "768x1024",
+    "width": 768,
+    "height": 1024,
+    "viewport": 768,
+    "documentWidth": 768,
+    "bodyWidth": 768,
+    "header": {
+      "left": 0,
+      "right": 768,
+      "width": 768,
+      "height": 80
+    },
+    "roleContext": {
+      "left": 369,
+      "right": 524,
+      "width": 154,
+      "height": 52
+    },
+    "attentionGrid": {
+      "left": 40,
+      "right": 730,
+      "width": 690,
+      "height": 215
+    },
+    "worklist": {
+      "left": 19,
+      "right": 749,
+      "width": 730,
+      "height": 673
+    },
+    "tableViewport": {
+      "left": 36,
+      "right": 732,
+      "width": 696,
+      "height": 504
+    },
+    "tableWidth": 1076,
+    "horizontalTableOverflow": true
+  },
+  {
+    "name": "1024x768",
+    "width": 1024,
+    "height": 768,
+    "viewport": 1024,
+    "documentWidth": 1024,
+    "bodyWidth": 1024,
+    "header": {
+      "left": 0,
+      "right": 1024,
+      "width": 1024,
+      "height": 80
+    },
+    "roleContext": {
+      "left": 619,
+      "right": 773,
+      "width": 154,
+      "height": 52
+    },
+    "attentionGrid": {
+      "left": 46,
+      "right": 980,
+      "width": 934,
+      "height": 197
+    },
+    "worklist": {
+      "left": 26,
+      "right": 998,
+      "width": 973,
+      "height": 682
+    },
+    "tableViewport": {
+      "left": 47,
+      "right": 977,
+      "width": 930,
+      "height": 504
+    },
+    "tableWidth": 1076,
+    "horizontalTableOverflow": true
+  },
+  {
+    "name": "1366x768",
+    "width": 1366,
+    "height": 768,
+    "viewport": 1366,
+    "documentWidth": 1366,
+    "bodyWidth": 1366,
+    "header": {
+      "left": 260,
+      "right": 1366,
+      "width": 1106,
+      "height": 80
+    },
+    "roleContext": {
+      "left": 952,
+      "right": 1107,
+      "width": 154,
+      "height": 52
+    },
+    "attentionGrid": {
+      "left": 315,
+      "right": 1313,
+      "width": 999,
+      "height": 197
+    },
+    "worklist": {
+      "left": 294,
+      "right": 1332,
+      "width": 1038,
+      "height": 666
+    },
+    "tableViewport": {
+      "left": 319,
+      "right": 1307,
+      "width": 988,
+      "height": 504
+    },
+    "tableWidth": 1076,
+    "horizontalTableOverflow": true
+  },
+  {
+    "name": "1600x900",
+    "width": 1600,
+    "height": 900,
+    "viewport": 1600,
+    "documentWidth": 1600,
+    "bodyWidth": 1600,
+    "header": {
+      "left": 260,
+      "right": 1600,
+      "width": 1340,
+      "height": 80
+    },
+    "roleContext": {
+      "left": 1185,
+      "right": 1339,
+      "width": 154,
+      "height": 52
+    },
+    "attentionGrid": {
+      "left": 317,
+      "right": 1545,
+      "width": 1229,
+      "height": 197
+    },
+    "worklist": {
+      "left": 296,
+      "right": 1564,
+      "width": 1268,
+      "height": 570
+    },
+    "tableViewport": {
+      "left": 321,
+      "right": 1539,
+      "width": 1218,
+      "height": 408
+    },
+    "tableWidth": 1216,
+    "horizontalTableOverflow": false
+  }
+]

@@ -1,0 +1,29 @@
+# Never put repository history, credentials, or local state in an image build context.
+.git
+.gitignore
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.db
+*.sqlite
+*.sqlite3
+*.sqlite-*
+
+# Local environments, caches, dependencies, generated data, and tests.
+.venv/
+venv/
+node_modules/
+.pytest_cache/
+__pycache__/
+*.py[cod]
+.local/
+data/
+tests/
+docs/
+coverage/
+
+# Real/synthetic source datasets and local training artifacts are not runtime assets.
+*.csv
+*.joblib

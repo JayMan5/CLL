@@ -1,9 +1,13 @@
 # COURTLOG — Codebase Analysis & Status Report
 
+> **Historical report — superseded as of 12 October 2026.** Its status tagline and statements about live databases, seeded records, complete legal enforcement, WhatsApp delivery, CDN assets, and model performance are not current acceptance evidence. COURTLOG is a competition-team prototype; feature development is authorized and does not wait on government approval. The guarded WhatsApp Cloud API adapter is implemented but disabled by default; live delivery has not been verified. Refer to [`COURTLOG_FULL_AUDIT.md`](COURTLOG_FULL_AUDIT.md), [`COURTLOG_COMPLETION_PLAN.md`](COURTLOG_COMPLETION_PLAN.md), [`DEVELOPMENT_PROGRESS.md`](DEVELOPMENT_PROGRESS.md), [`README.md`](README.md), and the [hosting comparison](docs/HOSTING_COMPARISON_2026-10-01.md). The legacy tracked training CSV contains rule-generated labels calibrated from real-derived distributions with unverified permission; it must not be described as synthetic or used without documented authorization and provenance. No trained model artifact was produced for this work; automated tests use synthetic fixtures only, and there is no independent real-outcome validation. Do not use legacy court DB/seed files without written permission.
+
 **Project:** COURTLOG — Intelligent Court Case Tracking & Compliance Platform
 **Target:** COUCH 2026 Competition
-**Report basis:** Full read-only codebase audit (entire project excluding `venv/`)
-**Status tagline:** Fully implemented (v2 backend/frontend); final verification & competition deliverables outstanding.
+**Report basis:** Historical read-only codebase audit (not the current branch)
+**Original status tagline (retained for traceability, not current):** Fully implemented (v2 backend/frontend); final verification & competition deliverables outstanding.
+
+Current status is maintained in [`STATUS.md`](STATUS.md), [`README.md`](README.md), and [`COURTLOG_COMPLETION_PLAN.md`](COURTLOG_COMPLETION_PLAN.md). Do not reuse the historical tagline in a proposal, pitch, or release note.
 
 ---
 

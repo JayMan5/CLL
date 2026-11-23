@@ -1,0 +1,169 @@
+# COURTLOG — Completion Plan and Approval Checklist
+
+**Prepared:** 1 October 2026<br>
+**Status:** APPROVED by the user on 1 October 2026; development is in progress.<br>
+**Basis:** `COURTLOG_FULL_AUDIT.md` (finding IDs below refer to that audit).
+
+## 1. Confirmed dates and proposed delivery targets
+
+| Milestone | Date | Required outcome |
+|---|---|---|
+| Pilot-ready candidate | **16 October 2026** | Secure, complete core workflows; automated tests passing; deployed staging build |
+| Pilot rehearsal and release freeze | **17–20 October** | Real-browser/device checks, staff walkthrough, backup/restore rehearsal, fixes only |
+| First pilot test | **21 October 2026** | Controlled trial with staff, documented observations and incident support |
+| Pilot feedback implementation | **22–29 October** | Fix defects and usability problems; validate with participating staff |
+| Showcase-ready candidate | **30 October** | Stable release, accurate pitch materials, repeatable demonstration |
+| Showcase rehearsal and release freeze | **31 October–4 November** | Final QA, video/deck completion, offline demonstration fallback |
+| Full competition showcase | **5 November 2026** | Demonstrate filing → custody → hearing → judgment → execution, plus defensible AI |
+
+There are **20 days to the pilot and 35 days to the showcase** from this plan's date. These targets assume parallel technical, legal and stakeholder work. External approvals, real training data and Meta onboarding cannot be guaranteed by a coding schedule.
+
+**Definition of completion:** a secure and tested pilot/showcase release with all four workflows working, truthful AI claims, operational documentation and submission materials. This is not automatically certification for unrestricted government production use. Production approval has additional gates in §5.
+
+## 2. Task list — required before the pilot
+
+Checkboxes are updated only after code-level verification; open items remain unchecked. Proposed owners are responsibility areas, not assigned individuals. Dependencies should be completed before dependent tasks.
+
+### A. Agree scope and resolve legal/operational decisions — 1–3 October
+
+- [ ] **A1 — Approve this plan and name owners.** Confirm technical lead, frontend/backend/QA support, Law Lead and stakeholder/submission lead; agree the daily progress/review process.
+- [ ] **A2 — Confirm pilot conditions.** Number of staff, roles, courts, devices, network, hosting, support contact, and whether the trial uses fictional/anonymised data or authorised live records. Default: fictional/anonymised data until live-data permission is documented.
+- [ ] **A3 — Sign off hearing policy.** Law Lead/registry confirm criminal versus civil rules, per-party counts, date intervals, exception authority and whether the system alerts or blocks. Do not represent a DCR workflow as a statutory requirement without approval. *(L-01)*
+- [ ] **A4 — Sign off execution rules and forms.** Confirm judgment/ruling distinction, enforcement eligibility, stays/appeals, applicable jurisdiction, required fields and the source of the 90-day operational threshold. Approve all four templates and label unissued output as draft. *(L-03–L-05)*
+- [ ] **A5 — Choose infrastructure and notifications.** A hosting comparison and provisional low-change recommendation are in [`docs/HOSTING_COMPARISON_2026-10-01.md`](docs/HOSTING_COMPARISON_2026-10-01.md); the team still needs to select a provider and confirm the pilot environment. Feature development is not gated on government approval: this is a competition-team prototype. Keep real sends disabled until a Meta account/template, controlled opted-in recipient, webhook, and recovery path are ready; a visible simulator may be used as a declared non-delivery fallback. *(L-06, E-06)*
+
+**Gate:** approved workflow specification and pilot data policy; unresolved legal questions remain visible, not silently encoded as law.
+
+### B. Secure access, sessions and data — 2–6 October
+
+- [x] **B1 — Protect exposed endpoints.** Authentication and role checks for users, case detail/prediction, cron, message logs and simulator; strip password hashes from all responses. *(S-01)*
+  - [x] 14 Oct 2026 verification slice: added an API route-inventory regression that requires the current-user dependency on every staff `/api/` route and explicitly lists only safe config, login/session, Meta webhook, and demo-simulator exceptions. Existing tests exercise password-hash filtering, cross-scope case/prediction denial, Chief Registrar-only user/log access, DCR-only cron with an audited actor, signed Meta callbacks, and the demo simulator secret. The Meta callback's trust boundary is its signature/verification token, not staff-role auth; real provider delivery and staging acceptance remain open under C6.
+- [x] **B2 — Enforce object-level permissions everywhere.** Court/division/judge/custodian scoping on reads, writes, alerts, predictions and exports; reject cross-scope operations. *(S-04, S-11; route audit and DCR/Judge/Sheriff regression tests verified 1 Oct 2026)*
+- [ ] **B3 — Remove XSS sinks.** Safe DOM rendering, event listeners instead of interpolated inline handlers, input constraints and a compatible CSP. Regression tests for malicious case IDs, scan fields and webhook data. *(S-02)*
+- [x] **B4 — Repair session lifecycle.** Refresh/re-login handling, secure refresh-token storage, logout/revocation, user-disable checks and last-admin/self-delete safeguards. *(S-06)*
+- [x] **B5 — Finish account management.** Unique IDs, username/password setup, validated roles and assignments, password change/reset, forced initial password change; UI driven by authenticated profile rather than demo identities. *(S-09, F-04)*
+  - [x] 12 Oct 2026 role-model slice: account creation accepts only first-pilot roles; deferred roles stay unavailable; Court Clerk creation/login/refresh/request access requires the server-side deployment entitlement; deployed legacy `Clerk` accounts are blocked until a Chief Registrar explicitly assigns a role and reason; legacy `DCR`/`Judge` roles are migrated to the one-to-one successors. Added role-aware navigation and server permission/scope regressions. This feature entitlement is not a billing integration.
+- [x] **B6 — Remove unsafe defaults.** No pre-filled admin password; environment-driven bootstrap; explicit demo mode; role switcher and simulator unavailable in live mode. *(S-03)*
+- [ ] **B7 — Harden requests and dependencies.** Rate limits, CORS allowlist, appropriate headers, validated dates/phones/lengths/path containment, dependency upgrades and removal of unused packages. Retest compatibility and triage scanner results. *(S-07–S-10, E-03)*
+  - [x] Validation slice: constrain case IDs on request bodies and every case-ID path route; validate ISO hearing dates, normalize/check Nigerian E.164 contact numbers, cap/trim request fields, reject document filename paths, and stop creating upload directories for metadata-only records.
+  - [x] Add baseline security headers and disable `/docs`, `/redoc`, and OpenAPI outside explicit demo mode.
+  - [x] Add persistent login throttling: rolling 15-minute default of 5 failures per username/client pair and 25 per client address; successful logins remove their reservation. Returns 429 with `Retry-After` and does not permanently lock accounts. Counts are stored as pseudonymous hashes, not raw usernames/IPs.
+  - [x] Upgrade vulnerable runtime/test dependencies and remove unused `passlib`, `xhtml2pdf`, and `python-multipart`; `pip-audit` reports no known vulnerabilities for the fresh dev environment or requirements set as of 1 October 2026.
+  - [x] Restrict the hearing `outcome` field to the two existing UI choices (`Heard`, `Adjourned`) without changing hearing policy.
+  - [ ] Still open: enum/schema review for reason codes and execution actions; deployment must also ensure correct client-address handling behind any reverse proxy. Wider scanner/CI triage remains open.
+- [x] **B8 — Record trustworthy actions.** Actor identity from authentication; actor/time/reason on hearings and overrides; append-only application audit events for edits, exports and administrative changes. *(S-05)*
+  - [x] SQLite audit table and append-only update/delete guards; Chief Registrar-only latest-events API; case/user/workflow actions, predictions, exports, cron, login and logout are recorded. Passwords, refresh tokens and party phone numbers are not copied into audit metadata.
+  - [ ] Production hardening remains: business writes and audit appends are currently separate commits, so an audit-store failure can leave an applied operation with a 503 response; verify before retrying. SQLite triggers are not an external tamper-proof log. Add atomic write+audit transactions and off-host retention before production.
+
+**Gate:** unauthenticated requests denied, cross-scope requests denied, no hashes leaked, XSS regression tests pass, disabled/deleted users lose access, no unresolved critical security findings.
+
+### C. Complete all four modules — 4–11 October
+
+#### Module 1 — physical custody
+- [x] **C1 — Fix Sheriff visibility and onboarding.** Explicit file assignment/handover and authorised lookup so a Sheriff can receive an unscanned file without seeing unrelated cases. Use authenticated identity, not typed staff IDs. *(F-01; API, UI and isolated regression tests verified 1 Oct 2026)*
+- [ ] **C2 — Implement genuine QR capture.** Local QR generation; camera and keyboard/USB-scanner input with manual fallback; verify payload and case access; print labels. Test on the pilot device. *(F-03, S-13)*
+  - Code implementation is present on the session branch: opaque random tokens, server-side current-assignment checks, local QR generation/print view, camera and keyboard/manual fallback, and an installable PWA shell; API/frontend regression tests pass. The checkbox stays open until the label is printed and camera/permission/focus/network behaviour is verified on the actual pilot phone. Use the detailed [C2 real-device acceptance test guide](C2_REAL_DEVICE_ACCEPTANCE_TEST.md) and retain its completed run record.
+  - No offline scan is queued, no case details are encoded in the QR, and no third-party QR image service is used. D6 local asset/CDN-removal work is now code-complete; C2 remains open until the printed label and camera/permission/focus/network behaviour are checked on the actual pilot phone/printer.
+- [x] **C3 — Complete missing/found workflow.** Added separate idle-custody and missing-file state, an authorised found/recovery action with required reason, retained actor/time/location history and audit events, and missing alerts that remain active across scans/sweeps until explicitly resolved. API/UI and isolated regression tests verified 1 Oct 2026. *(L-07; no legal rules changed)*
+
+#### Module 2 — hearings and compliance
+- [ ] **C4 — Implement the approved hearing policy.** Structured outcomes/reasons, per-party information where required, date limits, criminal/civil distinctions and scoped exception records. Enforce changes atomically. *(L-01)*
+- [x] **C5 — Separate alerts and clocks (code-level slice verified 1 Oct 2026).** Removed the adjournment-block write to the ML-risk flag; DCR request, acknowledgement, >24-hour in-app escalation, and resolution now have separate timestamps/history and audited actions; Judge/CR scoped alerts now render in the UI using safe text. Custody and enforcement fields remain independent in the compliance sweep. The existing configured threshold is unchanged pending A3/Law Lead sign-off. The DCR escalation remains in-app only; it is separate from the WhatsApp adjournment-notice path in C6. Legal-policy approval remains open. *(L-02, F-08)*
+- [ ] **C6 — Complete notification handling.** A prototype code slice was implemented and regression-tested 1 Oct 2026: Cloud API is disabled by default and blocked in demo mode; individual template sends require recorded active opt-in; the consent/message records are persistent and phone-number minimized; outbound event/party rows are idempotent; signed webhook callbacks update delivery state and inbound opt-out keywords revoke consent; the UI reports mode and status honestly. Full acceptance is still open: no Meta account, approved template, credentials, or controlled live recipient were supplied; provider delivery, operational recovery/retries, backup/restore, and staging acceptance remain unverified. Ambiguous timeouts are marked `unknown` and not blindly retried, because the provider may already have accepted them. *(L-06)*
+
+#### Module 3 — delay intelligence
+- [ ] **C7 — Define a defensible prediction target and data provenance.** Separate historical records from simulated workflow data; remove circular feature-derived labels; document intended use and limits. *(M-01–M-03)*
+- [ ] **C8 — Repair preprocessing and scoring.** Consistent court/type vocabulary, appropriate categorical encoding, explicit unknown handling, temporal features and completed-case exclusion; compare with a simple rules/baseline approach. *(M-04–M-06, L-09)*
+- [ ] **C9 — Evaluate and package the model.** Leakage checks, independent hold-out evaluation, class-specific performance/PR metrics and calibration; reproducible training, model version/metadata and documented fallback. Real-world accuracy must not be claimed without real-world validation. *(M-09)*
+  - 14 Oct 2026 follow-up: the user selected synthetic/demo-only data and delegated the demo defaults. Added a reproducible generator and a local-only model for the operational demo target “no Heard/Adjourned hearing event or judgment delivery recorded in the next 30 days”; QR scans and internal/admin changes are excluded. Added `days_since_last_event`, derived at inference from the latest qualifying hearing or judgment record, and retained a strict future-starting case-cohort holdout. The generated artifact and metrics stay under ignored `.local/`. This resolves the software-demo target only—not an approved real-world target, real data permission, court-outcome evaluation, or prospective validation. C7–C9 remain open for real predictive use.
+- [ ] **C10 — Finish AI interface.** Model-derived explanations, pending-case ranking, model/fallback indicator and uncertainty/limitations. If predictive validity is not established, display it as experimental decision support, not a validated predictor. *(M-07–M-08)*
+  - 14 Oct 2026 partial: the UI identifies the synthetic demo source and 30-day target, reports event recency, distinguishes the heuristic fallback, and opens an accessible in-app details dialog instead of a browser alert. The panel is a feature summary—not causal/model attribution—and calibrated uncertainty is still absent; C10 remains open.
+
+#### Module 4 — judgment and execution
+- [ ] **C11 — Add a guarded lifecycle.** Separate interlocutory ruling from final judgment; prevent premature execution, duplicate judgments and accidental backward transitions; freeze relevant elapsed time at completion. *(L-03, L-09)*
+- [ ] **C12 — Finish all four approved forms.** Correct Fi Fa, Garnishee, Possession and Delivery templates; structured parties, amounts, jurisdiction and dates; print/download; preview does not lodge an event. *(L-05)*
+- [ ] **C13 — Close enforcement workflow.** Lodge/issue/service/return/completion actions, attachment of evidence and authenticated actor; overdue history retained after resolution. *(L-04)*
+
+**Gate:** every authorised role can complete its workflow from the UI; denied operations remain denied; no stuck missing-file, override or execution state; all generated forms match approved templates.
+
+### D. Complete shared product and engineering foundations — 7–14 October
+
+- [x] **D1 — Repair registration and demo data.** The case-registration form is Filing Clerk-only, defaults to the authenticated Filing Clerk's court/division, and the API retains scope validation; non-registering roles do not see the registration panel. Added an isolated deterministic seeder for eight fictional pending/concluded scenarios spanning all five role scopes, low/moderate/high risk examples, open/resolved missing-file history, DCR review, and an overdue prototype execution prompt. Seed tooling rejects paths outside ignored `.local/`, the tracked database, mixed records, and non-demo mode. Backend/frontend tests and an isolated seeder smoke test passed 2 Oct 2026. No real case or party data was read. *(D-01, F-02)*
+- [ ] **D2 — Standardise data models.** Shared validated schema, migrations and consistent case defaults; keep the runtime DB, credentials and model binaries outside tracked source with reproducible provisioning. *(L-11, S-12)*
+- [ ] **D3 — Implement actual document storage.** File type/size validation, scoped upload/download, safe storage paths, metadata and retention policy; malware controls proportionate to accepted formats. *(F-06, S-08)*
+- [ ] **D4 — Correct reports.** Monthly/weekly filters, division scoping, minimised PII, transparent compliance definitions, CSV/PDF exports; do not equate model risk with proven non-compliance. *(L-08)*
+  - Partial code correction: replaced the former NJC-labelled export and ML-derived "compliance score" with a scoped, PII-minimised prototype workflow summary; removed the DCR weekly ML-derived compliance percentage and renamed its counts. The dashboard and sweep output use execution-review prompt labels instead of implying legal compliance. Export filtering/periods, formal schema, and CSV/PDF formats remain open.
+- [ ] **D5 — Finish usability.** Reliable loading/error/empty states, correct error messages, search/filter behaviour, keyboard access, responsive screens and mobile-device tests; remove stale placeholders. *(F-05, F-07, F-09)*
+- [x] **D6 — Remove runtime CDN reliance (verified 1 Oct 2026).** Frontend fonts/icons/Tailwind/Chart.js are pinned and served locally; QR generation is bundled locally; the documented offline shell does not cache API/case data or queue custody scans. A small set of Font Awesome/font files is copied from pinned npm packages with corresponding notices. Rebuild and frontend PWA tests pass. This is an offline shell, not offline check-in. *(S-13)*
+- [ ] **D7 — Restore automated verification.** Rewrite JWT-aware tests with isolated databases; unit/integration/UI tests for permissions and complete workflows; date boundaries (7/24/90 days), exceptions, concurrency and notification failures. *(E-01)*
+  - Local progress (2 Oct 2026): added exact/before/after tests for the configured 7-day custody, 24-hour DCR escalation, and 90-day execution-review boundaries; a concurrent outbox-claim test proves one provider call; and a simulated ambiguous provider timeout is retained as `unknown` and not automatically retried. The full local backend suite passes. D7 remains open until broader complete-workflow coverage and real-browser/device/network acceptance are documented; the latter cannot be inferred from pytest/jsdom.
+  - 14 Oct 2026: added regression coverage that inventories every API route's authentication boundary, checks the initial sweep runs through FastAPI's lifespan, verifies DCR-only cron authority/audit attribution, and asserts strict forward-time case-cohort evaluation. The full local backend suite passes (86 tests); broader workflow, device, network, and staging acceptance remains open.
+- [ ] **D8 — Add delivery tooling.** README, environment template, setup/train/seed/test commands, container/build configuration, dependency lock and CI tests/security scans; clean obsolete scripts and lock files. *(E-02–E-05)*
+  - Partial progress (2 Oct 2026): added `.github/workflows/ci.yml` for backend/frontend tests and dependency audits; added a non-root Dockerfile, `.dockerignore`, container health check, and README build/run instructions; documented and tested the safe synthetic local demo-seed command. Local checks pass. The push-triggered [GitHub Actions run](https://github.com/JayMan5/CLL/actions/runs/36979457121) did not start either job because GitHub reports the account is locked due to a billing issue; this is not a code-test result and needs the account owner to resolve billing. Docker image build has not been run because Docker is unavailable, a fully resolved Python dependency lock is still absent, and obsolete scripts/lock files have not been audited/removed. D8 stays unchecked.
+- [ ] **D9 — Deploy controlled staging.** HTTPS, secrets configuration, health checks, persistent storage, scheduled jobs, logs/monitoring, backups, tested restore and rollback procedure. Keep sensitive data out of logs.
+
+**Gate:** clean checkout can be built and deployed from documentation; automated checks pass; staging supports real browsers and pilot devices; backup and rollback work.
+
+### E. Pilot preparation — 12–20 October
+
+- [ ] **E1 — Obtain required pilot permission.** Document authorisation, lawful basis/data minimisation, privacy notice, data access, retention and incident contacts before accepting real records.
+- [ ] **E2 — Publish truthful pilot documentation.** Correct abstract/status/security/ML claims and archive obsolete self-assessments; release notes distinguish implemented, experimental and simulated features. *(Audit §5–§7)*
+  - Partial progress (2 Oct 2026): added [`STATUS.md`](STATUS.md) as a current code-evidence index, linked it from README, and replaced the stale absolute-path/CDN/Firestore walkthrough with a qualified prototype walkthrough. The abstract and historical Markdown audits were checked for prominent qualifications. Tracked `.docx`/`.pptx` files and competition release material were not revalidated or corrected; E2 remains open.
+  - Partial progress (12 Oct 2026): added [`docs/COURTLOG_ROLE_ACCESS_MATRIX.md`](docs/COURTLOG_ROLE_ACCESS_MATRIX.md), aligned [`docs/PILOT_ROLE_QUICK_GUIDE.md`](docs/PILOT_ROLE_QUICK_GUIDE.md) and the current PWA/acceptance-guide role instructions with the implemented role checks, updated [`STATUS.md`](STATUS.md), and regenerated [`docs/CourtLOG_Overview.docx`](docs/CourtLOG_Overview.docx) from its source. Other binary documents and competition release material remain to be reviewed, so E2 stays open.
+- [ ] **E3 — Prepare staff materials.** Role-specific quick guides, sample cases, scripted walkthroughs, a feedback form and issue triage process.
+  - Partial progress (2 Oct 2026): added role guidance, a synthetic scenario catalog/seed tool, a scripted walkthrough, and a feedback/triage template. Named owners, an approved feedback channel/response time, a complete rehearsal, and staff acceptance are still missing; E3 remains open.
+  - 12 Oct 2026 review: updated the pilot role guide against current server permissions, noted the entitlement and legacy Clerk gate, and corrected PWA label-issuance instructions to Filing Clerk (not Chief Registrar or a generic Clerk). This is documentation alignment, not staff training or acceptance.
+- [ ] **E4 — Conduct full rehearsal by 16 October.** Filing → handover → hearing/exception → judgment → approved form → service/return → execution → reports, across all roles.
+- [ ] **E5 — Run acceptance checks on 17–20 October.** Permission/security tests, real-browser/device checks, network failure/restore tests and defect fixes. Freeze features; tag an approved release on the session branch.
+- [ ] **E6 — Approve pilot go/no-go.** Record sign-off from technical, legal and pilot leads; unresolved critical/high security issues mean no live-data pilot. Use fictional data and declared simulations if external integration or approvals are not ready.
+
+## 3. After the pilot — required before the showcase
+
+### F. Pilot feedback and release hardening — 22–29 October
+- [ ] **F1 — Capture and prioritise feedback.** Categorise security, correctness, usability and optional requests; agree which scope changes fit the deadline.
+- [ ] **F2 — Fix pilot defects and retest.** Add regression tests for every material issue; validate fixes with staff.
+- [ ] **F3 — Validate operations.** Agreed-volume load test, notification recovery, backups/restore, retention and deployment monitoring; review access and audit records.
+- [ ] **F4 — Obtain independent review where feasible.** Security review and legal form/policy recheck; do not imply a formal penetration test or legal certification unless performed.
+- [ ] **F5 — Confirm unresolved external dependencies.** Real data access, Meta approval and institutional permissions; document fallbacks and limitations.
+
+### G. Finish competition deliverables — drafting from 8 October, final by 30 October
+- [ ] **G1 — Complete Business Model Canvas.** Customer/beneficiary, partners, adoption channel, operating costs, pricing/funding and sustainability.
+- [ ] **G2 — Finalise abstract and proposal.** Accurate capabilities, e-filing complement positioning, measured pilot outcomes and consented institutional references.
+- [ ] **G3 — Finish deck.** Replace team placeholders; correct AI/database/WhatsApp/legal claims; add pilot observations, honest metrics, architecture and adoption plan.
+- [ ] **G4 — Produce pitch video and demonstration script.** Follow competition format/length requirements; show all four modules; explain experimental AI and notification fallbacks plainly.
+- [ ] **G5 — Verify submission requirements.** Confirm platform, deadline/timezone, file formats, team details, required permissions and upload confirmation. The showcase date is not assumed to be the submission deadline.
+
+### H. Showcase acceptance and rehearsal — 30 October–4 November
+- [ ] **H1 — Approve showcase release by 30 October.** End-to-end tests passing, no critical security/correctness defects and every promised feature demonstrated.
+- [ ] **H2 — Rehearse on the actual presentation setup.** Named demo accounts, resettable data, camera/USB scanner, printable forms and realistic time budget.
+- [ ] **H3 — Prepare failure fallback.** Local/offline build, pre-recorded walkthrough, backups and troubleshooting instructions; disclose simulation if used.
+- [ ] **H4 — Freeze, back up and submit.** Fix blockers only during the final window; verify all submission files and release documentation.
+
+## 4. Acceptance criteria: what “complete” means on showcase day
+
+- [ ] Every role logs in securely, sees only authorised records and can perform its required work.
+- [ ] A new case can be registered, assigned and scanned; missing files can be reported and resolved.
+- [ ] Approved hearing/exception rules work with preserved actor/date/reason history and durable alerts.
+- [ ] Notifications are either genuinely delivered with visible status or clearly identified as simulation.
+- [ ] Delay intelligence is reproducible, evaluated honestly, explained and clearly marked experimental where required.
+- [ ] Judgment and execution lifecycle closes from the interface; all four forms are legally reviewed drafts/issued outputs as appropriate.
+- [ ] Documents and scoped reports can be uploaded/downloaded/exported securely.
+- [ ] Automated tests and deployment checks pass; browser/device, restore and failure-recovery checks are documented.
+- [ ] Staff/user/deployment documentation and all competition deliverables are finished and accurate.
+- [ ] Known limitations, external dependencies and any deferred work are recorded with owners.
+
+## 5. Separate production/government rollout gates
+
+These may run in parallel but must not be promised as automatically finished by 5 November:
+
+- [ ] NDPA applicability review, DPIA, DPO/controller responsibilities, NDPC obligations and any required NITDA clearance confirmed by qualified advisers.
+- [ ] Written institutional deployment/data-sharing approval and retention/access policies.
+- [ ] Independent security assessment, MFA for privileged users, incident response and disaster-recovery validation appropriate to actual deployment risk.
+- [ ] Real-world ML validation using authorised registry/partner data, monitoring and human oversight before consequential reliance.
+- [ ] Production availability/support commitments, infrastructure budget, integration approval and long-term maintenance ownership.
+
+## 6. Approval record and continuing external decisions
+
+The user approved development on **1 October 2026**. Work is underway on the fixed Arena session branch; the prior approval gate is closed. The pilot (21 October) and showcase (5 November) remain targets, not readiness claims.
+
+Continue to track the non-developer decisions in A1–A5. Real court data remains out of scope until written permission and privacy safeguards exist; WhatsApp and scanner behaviour must be represented truthfully; legal rules/forms require Law Lead or institutional approval. No developer implementation substitutes for those sign-offs.

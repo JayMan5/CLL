@@ -1,10 +1,12 @@
 # COURTLOG 2.0 — Full Project Analysis
 
-## What It Is
-**COURTLOG** is a case-tracking platform built for **Nigerian courts** (targeting the **Federal High Court**), designed for the **COUCH 2026** competition (Public Sector / e-Governance track + Best AI Innovation Award). It follows a case from filing to post-judgment enforcement, complementing (not competing with) the court's existing e-filing system.
+> **Historical snapshot — superseded as of 12 October 2026.** File paths, line counts, deployment/data/model statuses, and implementation claims below predate current code review. COURTLOG is a competition-team prototype, not a governmental entity; feature development is authorized and is not waiting on government approval. Use [`COURTLOG_FULL_AUDIT.md`](COURTLOG_FULL_AUDIT.md), [`COURTLOG_COMPLETION_PLAN.md`](COURTLOG_COMPLETION_PLAN.md), [`DEVELOPMENT_PROGRESS.md`](DEVELOPMENT_PROGRESS.md), and [`README.md`](README.md) for current status. Institutional-review/proposal assertions are retained from earlier project notes and were not independently verified; do not represent them as current approval. The WhatsApp Cloud API adapter is now implemented but disabled by default, and no live Meta delivery has been verified. The legacy tracked training CSV has rule-generated labels calibrated from real-derived distributions with unverified permission; it is not to be described as synthetic or used for training/evaluation without documented authorization and provenance. No trained model artifact was produced for this work; automated tests use synthetic fixtures only.
 
-> [!IMPORTANT]
-> The project has real institutional backing — the concept was reviewed by the **Deputy Chief Registrar of the Federal High Court (Barrister Antonia Oyibo)**, and a formal proposal has been submitted to the Chief Registrar's office.
+## What It Is
+**COURTLOG** is a competition-team prototype for exploring court-registry workflows, developed for the **COUCH 2026** competition (Public Sector / e-Governance track + Best AI Innovation Award). It models a workflow from filing to post-judgment execution and is intended to complement—not replace—existing e-filing systems; no institutional integration, deployment, or endorsement is established by this repository.
+
+> [!WARNING]
+> This is a historical, unverified assertion from earlier project notes. The named review and proposal submission were not independently verified in the current development pass. Do not claim institutional backing or a submitted proposal without current written evidence.
 
 ---
 

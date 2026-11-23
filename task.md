@@ -23,5 +23,5 @@
 - `[x]` Bug 11: Add `*.pem` to `.gitignore`
 
 ## Verification
-- `[ ]` Re-seed database with fixed status values
-- `[ ]` Start server and verify in browser
+- `[ ]` Re-seed database with fixed status values — **do not run the legacy seeders or mutate `data/courtlog.db`**: tracked court/sample data is read-only and no real-record permission was supplied. A separate safe alternative now exists at `scripts/seed_demo_data.py`; it generates only synthetic cases in an isolated `.local/` database.
+- `[ ]` Start server and verify in browser — backend/frontend automated tests and an isolated seed smoke test pass, but this legacy browser-check item is not complete until a human checks the running UI. Real phone/camera/printer acceptance remains separately open in `C2_REAL_DEVICE_ACCEPTANCE_TEST.md`.

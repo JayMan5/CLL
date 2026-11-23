@@ -17,3 +17,8 @@ firebase_creds.json
 # IDE
 .vscode/
 .idea/
+
+# Local environments, databases and test tools
+.venv/
+node_modules/
+.local/

@@ -1,0 +1,157 @@
+// Run with NODE_PATH pointing at jsdom's node_modules.
+const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const vm = require('node:vm');
+const { JSDOM } = require('jsdom');
+
+const profile = {
+    user_id: 'usr_clerk_01', username: 'clerk', name: 'Pilot Filing Clerk',
+    role: 'Filing Clerk', badge: 'Filing and case registration', court: 'FHC Abuja Court 4',
+    division: 'Criminal', must_change_password: true
+};
+const calls = [];
+const custodyPosts = [];
+let refreshCount = 0;
+let protectedCount = 0;
+function response(status, body = {}, headers = {}) {
+    const normalized = Object.fromEntries(Object.entries(headers).map(([key, value]) => [key.toLowerCase(), value]));
+    return {
+        status, ok: status >= 200 && status < 300,
+        headers: { get: key => normalized[String(key).toLowerCase()] || null },
+        json: async () => body,
+        clone() { return this; }
+    };
+}
+
+const dom = new JSDOM(fs.readFileSync('frontend/index.html', 'utf8'), {
+    url: 'https://courtlog.test/', runScripts: 'outside-only', pretendToBeVisual: true
+});
+dom.window.Headers = global.Headers;
+dom.window.fetch = async (url, options = {}) => {
+    calls.push({url, options});
+    if (url === '/api/refresh') {
+        refreshCount += 1;
+        if (refreshCount === 1) return response(401, {detail: 'No session'}); // initial page restore
+        return response(200, {access_token: 'refreshed-access', token_type: 'bearer', user: profile});
+    }
+    if (url === '/api/login') return response(200, {access_token: 'login-access', token_type: 'bearer', user: profile});
+    if (url === '/api/cases') return response(200, []);
+    if (url === '/api/judge/alerts') return response(200, {alerts: [
+        {case_id: '<img src=x onerror=window.stolen=true>', type: 'ADJOURNMENT_REVIEW', message: '<svg onload=window.stolen=true>'}
+    ]});
+    if (String(url).endsWith('/sheriffs')) return response(200, [
+        {user_id:'usr_sheriff_02', name:'Assigned Test Sheriff', badge:'Fictional'},
+    ]);
+    if (String(url).endsWith('/assign-sheriff') || String(url).endsWith('/handover')) {
+        custodyPosts.push({url, body: options.body});
+        return response(200, {assigned_sheriff_id:'usr_sheriff_02'});
+    }
+    if (url === '/api/whatsapp/logs') return response(200, []);
+    if (url === '/api/test-protected') {
+        protectedCount += 1;
+        return protectedCount === 1 ? response(401, {detail:'Expired'}) : response(200, {ok:true});
+    }
+    if (url === '/api/password-required') return response(403, {detail:'Initial password change required'}, {'X-Password-Change-Required':'true'});
+    return response(200, {});
+};
+
+(async () => {
+    const context = dom.getInternalVMContext();
+    const ready = new Promise(resolve => dom.window.document.addEventListener('DOMContentLoaded', () => setTimeout(resolve, 0), {once:true}));
+    new vm.Script(fs.readFileSync('frontend/app.js', 'utf8')).runInContext(context);
+    await ready;
+    assert.equal(dom.window.document.getElementById('nav-whatsapp').classList.contains('hidden'), true);
+
+    dom.window.document.getElementById('login-username').value = 'clerk';
+    dom.window.document.getElementById('login-password').value = '123';
+    await vm.runInContext('handleLoginSubmit({preventDefault(){}})', context);
+    assert.equal(vm.runInContext('accessToken', context), 'login-access');
+    const registerPanel = dom.window.document.getElementById('register-case-panel');
+    const courtSelect = dom.window.document.getElementById('new-case-court');
+    assert.equal(registerPanel.classList.contains('hidden'), false);
+    assert.equal(courtSelect.value, 'FHC Abuja Court 4', 'case registration defaults to the signed-in Filing Clerk\'s court');
+    assert.equal(courtSelect.disabled, true, 'a Filing Clerk cannot change the assigned court in the form');
+    assert.equal(courtSelect.options[1].disabled, true, 'other court options are disabled for the Filing Clerk');
+    const caseTypeSelect = dom.window.document.getElementById('new-case-type');
+    assert.equal(caseTypeSelect.value, 'Criminal');
+    assert.equal(caseTypeSelect.querySelector('option[value="Civil Debt"]').disabled, true, 'a division-scoped Filing Clerk cannot select a different division');
+    const courtClerkOption = dom.window.document.querySelector('#new-user-role option[value="Court Clerk"]');
+    assert.equal(courtClerkOption.disabled, true, 'Court Clerk stays unassignable without the server entitlement');
+    assert.match(dom.window.document.getElementById('court-clerk-entitlement-notice').textContent, /no billing or payment integration/);
+    assert.equal(dom.window.document.getElementById('report-missing-tools').classList.contains('hidden'), true);
+    assert.equal(dom.window.document.getElementById('resolve-missing-tools').classList.contains('hidden'), true);
+    vm.runInContext('authenticatedUser.role = "Sheriff"; updateRoleUI()', context);
+    assert.equal(registerPanel.classList.contains('hidden'), true, 'non-registering roles do not see the case registration form');
+    assert.equal(dom.window.document.getElementById('report-missing-tools').classList.contains('hidden'), false);
+    assert.equal(dom.window.document.getElementById('resolve-missing-tools').classList.contains('hidden'), false);
+    vm.runInContext('authenticatedUser.role = "Chief Registrar"; updateRoleUI()', context);
+    assert.equal(registerPanel.classList.contains('hidden'), true, 'Chief Registrar is oversight/user-admin rather than case-entry staff');
+    assert.equal(courtSelect.disabled, false, 'the non-registering form keeps an editable default');
+    assert.equal(courtSelect.value, 'FHC Abuja Court 4', 'the available court is a safe default for an all-courts profile');
+    assert.equal(dom.window.document.getElementById('resolve-missing-tools').classList.contains('hidden'), true);
+    vm.runInContext('authenticatedUser.role = "Court Clerk"; updateRoleUI()', context);
+    assert.equal(dom.window.document.getElementById('nav-courtrooms').classList.contains('hidden'), true);
+    assert.equal(dom.window.document.getElementById('nav-qr-scan').classList.contains('hidden'), true);
+    vm.runInContext('paidFeatures.court_clerk = true; updateCourtClerkEntitlementUI(); updateRoleUI()', context);
+    assert.equal(courtClerkOption.disabled, false);
+    assert.equal(dom.window.document.getElementById('nav-courtrooms').classList.contains('hidden'), false);
+    assert.equal(dom.window.document.getElementById('nav-qr-scan').classList.contains('hidden'), false);
+    vm.runInContext('paidFeatures.court_clerk = false; updateCourtClerkEntitlementUI(); authenticatedUser.role = "Filing Clerk"; updateRoleUI()', context);
+    assert.equal(courtClerkOption.disabled, true);
+    assert.equal(registerPanel.classList.contains('hidden'), false);
+    assert.equal(courtSelect.value, 'FHC Abuja Court 4');
+    assert.equal(courtSelect.disabled, true);
+    vm.runInContext('switchTab("tab-whatsapp")', context);
+    assert.equal(dom.window.document.getElementById('tab-whatsapp').classList.contains('hidden'), true);
+    assert.equal(dom.window.document.getElementById('password-change-overlay').classList.contains('hidden'), false);
+    assert.equal(dom.window.localStorage.getItem('courtlog-access-token'), null);
+    assert.equal(dom.window.localStorage.getItem('courtlog-refresh-token'), null);
+
+    const protectedResponse = await vm.runInContext('apiFetch("/api/test-protected")', context);
+    assert.equal(protectedResponse.status, 200);
+    assert.equal(vm.runInContext('accessToken', context), 'refreshed-access');
+    const retry = calls.find(call => call.url === '/api/test-protected' && call.options.headers.get('Authorization') === 'Bearer refreshed-access');
+    assert.ok(retry, 'retries the protected request with the new in-memory token');
+
+    await vm.runInContext('apiFetch("/api/password-required")', context);
+    assert.equal(dom.window.document.getElementById('password-change-overlay').classList.contains('hidden'), false);
+
+    vm.runInContext('authenticatedUser.role = "Presiding Judge"', context);
+    await vm.runInContext('fetchJudgeAlerts()', context);
+    const alertList = dom.window.document.getElementById('judge-alert-list');
+    assert.equal(alertList.querySelector('img, svg'), null, 'API alert content is inserted as text, not markup');
+    assert.match(alertList.textContent, /<img src=x/);
+    assert.match(alertList.textContent, /<svg onload=/);
+    assert.equal(dom.window.document.getElementById('judge-alert-count').textContent, '1');
+    assert.equal(dom.window.document.getElementById('judge-alert-banner').classList.contains('hidden'), false);
+    vm.runInContext('authenticatedUser.role = "Filing Clerk"', context);
+
+    vm.runInContext('loadDashboardData = async () => {}', context);
+    await vm.runInContext('openAssignSheriffModal("SAFE/ASSIGN")', context);
+    const targetSelect = dom.window.document.getElementById('sheriff-custody-target');
+    assert.equal(targetSelect.options[1].value, 'usr_sheriff_02');
+    targetSelect.value = 'usr_sheriff_02';
+    dom.window.document.getElementById('sheriff-custody-reason').value = 'Registry dispatch';
+    await vm.runInContext('submitSheriffCustody({preventDefault(){}})', context);
+    assert.ok(custodyPosts[0].url.endsWith('/api/cases/SAFE/ASSIGN/assign-sheriff'));
+    assert.deepEqual(JSON.parse(custodyPosts[0].body), {
+        sheriff_id:'usr_sheriff_02', reason:'Registry dispatch'
+    });
+    assert.equal(JSON.parse(custodyPosts[0].body).staff_id, undefined);
+
+    await vm.runInContext('openSheriffHandoverModal("SAFE/ASSIGN")', context);
+    targetSelect.value = 'usr_sheriff_02';
+    dom.window.document.getElementById('sheriff-handover-location').value = 'Registry Desk A';
+    dom.window.document.getElementById('sheriff-custody-reason').value = 'End of duty';
+    await vm.runInContext('submitSheriffCustody({preventDefault(){}})', context);
+    assert.ok(custodyPosts[1].url.endsWith('/api/cases/SAFE/ASSIGN/handover'));
+    assert.deepEqual(JSON.parse(custodyPosts[1].body), {
+        to_sheriff_id:'usr_sheriff_02', location:'Registry Desk A', reason:'End of duty'
+    });
+
+    await vm.runInContext('handleLogout()', context);
+    assert.equal(vm.runInContext('accessToken', context), null);
+    assert.ok(calls.some(call => call.url === '/api/logout'));
+    console.log('Frontend session: auth lifecycle and delegated Sheriff assignment/handover passed');
+    dom.window.close();
+})().catch(error => { console.error(error); process.exitCode = 1; dom.window.close(); });
